@@ -1,0 +1,20 @@
+# FinCoach AI backend (FastAPI + RAG)
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+
+# Supabase (data + pgvector store)
+supabase
+
+# Embeddings (local, bge-m3)
+sentence-transformers
+torch
+
+# Document loading + chunking (the only place LangChain is used)
+langchain-community
+langchain-text-splitters
+pypdf
+
+# LLM (OpenAI-compatible client — works with NVIDIA NIM / Gemini / Groq / OpenAI)
+openai

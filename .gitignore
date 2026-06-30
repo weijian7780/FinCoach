@@ -1,0 +1,44 @@
+# Local assistant/workspace metadata
+.agents/
+.codex/
+**/.claude/
+**/.vscode/
+
+# Environment files and secrets
+**/.env
+**/.env.local
+**/.env.*.local
+**/*.jks
+**/*.p8
+**/*.p12
+**/*.key
+**/*.pem
+**/*.mobileprovision
+**/.git-backup*
+
+# JavaScript / Expo / React Native
+**/node_modules/
+**/.expo/
+**/dist/
+**/web-build/
+**/.tsbuildinfo
+**/npm-debug.*
+**/yarn-debug.*
+**/yarn-error.*
+**/.metro-health-check*
+
+# Generated native folders for Expo managed workflow
+fincoach-mobile/android/
+fincoach-mobile/ios/
+**/.kotlin/
+
+# Python / FastAPI
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+**/.pytest_cache/
+
+# OS files
+.DS_Store
+Thumbs.db

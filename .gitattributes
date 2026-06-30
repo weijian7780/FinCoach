@@ -1,0 +1,3 @@
+# Keep generated native output from dominating GitHub language statistics if it is tracked later.
+fincoach-mobile/android/** linguist-generated=true
+fincoach-mobile/ios/** linguist-generated=true
