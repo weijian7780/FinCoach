@@ -53,8 +53,10 @@ Use a hybrid mobile, Postgres, and private Storage architecture:
 - Expo Print produces PDF files from escaped HTML.
 - Expo Sharing opens Android's native share/save flow.
 - Supabase Storage holds JSON backup objects in a private `financial-backups` bucket.
-- `public.export_backup_records` stores operation metadata and lifecycle status.
-- `public.backup_preferences` stores the owner-scoped auto-backup setting.
+- `public.data_exports` stores each CSV/PDF export event.
+- `public.export_contents` is the normalized child table for the sections selected in each export.
+- `public.backups` stores each manual or automatic cloud backup and its latest restore state.
+- `profiles.auto_backup_enabled` stores the user-level automatic-backup preference.
 - A PostgreSQL restore function validates ownership and replaces restorable data in one database transaction.
 
 Cloud backup objects and their metadata rows are coordinated with compensating cleanup. Database restoration is atomic; Storage upload and database metadata insertion cannot share a transaction.
@@ -110,7 +112,7 @@ The snapshot excludes:
 
 - authentication credentials and Supabase `auth.users`;
 - export and backup records;
-- backup preferences;
+- `profiles.auto_backup_enabled`;
 - device push tokens and delivery attempts;
 - Storage objects other than the JSON backup itself;
 - temporary files and application cache.
@@ -151,58 +153,96 @@ Backup paths use:
 
 ## Database design
 
-### `export_backup_records`
+The logical ERD uses these relationships:
 
-The table stores one row per export, backup, or restore operation:
+```mermaid
+erDiagram
+    USER ||--o{ DATA_EXPORT : "creates / is created by"
+    DATA_EXPORT ||--|{ EXPORT_CONTENT : "includes / belongs to"
+    USER ||--o{ BACKUP : "creates / is created by"
+```
+
+This resolves the repeating export-section group through `EXPORT_CONTENT`. There is no unresolved many-to-many relationship.
+
+### `data_exports`
+
+The table stores one row per CSV or PDF export:
 
 ```text
 id uuid primary key
 user_id uuid not null
-operation export | backup | restore
-format csv | pdf | json
-trigger manual | automatic
+format csv | pdf
 status pending | processing | completed | failed
-source_record_id uuid nullable
-storage_path text nullable
 file_name text not null
 file_size_bytes bigint nullable
-checksum_sha256 text nullable
-schema_version integer nullable
 date_from date nullable
 date_to date nullable
-included_sections text[] not null
-error_code text nullable
-error_message text nullable
 completed_at timestamptz nullable
 created_at timestamptz not null
 ```
 
-`source_record_id` links a restore record to its selected backup record. Export rows have no Storage path because generated files remain local to the user's device/share destination. Error messages are sanitized before persistence.
+Export rows have no Storage path because generated files remain local to the user's device or chosen share destination.
 
 Indexes support:
 
-- recent activity by `(user_id, created_at desc)`;
-- backup history by `(user_id, operation, status, created_at desc)`;
-- automatic-backup eligibility by `(user_id, trigger, status, completed_at desc)`.
+- recent exports by `(user_id, created_at desc)`;
+- period lookup by `(user_id, date_from, date_to)`.
 
-### `backup_preferences`
+### `export_contents`
 
-The table stores:
+The normalized child table stores one row for every section included in an export:
 
 ```text
-user_id uuid primary key
-auto_backup_enabled boolean not null default true
-created_at timestamptz not null
-updated_at timestamptz not null
+export_id uuid not null
+content_type transaction | budget | savings | report
+primary key (export_id, content_type)
 ```
 
-The app uses an upsert to persist the toggle across devices.
+Every `EXPORT_CONTENT` row belongs to exactly one `DATA_EXPORT`. Every completed `DATA_EXPORT` contains one or more `EXPORT_CONTENT` rows. The composite identifier prevents the same content type from being repeated within one export.
+
+### `backups`
+
+The table stores one row per real cloud backup:
+
+```text
+id uuid primary key
+user_id uuid not null
+backup_type manual | automatic
+status pending | processing | completed | failed
+file_name text not null
+storage_path text nullable
+file_size_bytes bigint nullable
+checksum_sha256 text nullable
+schema_version integer not null
+last_restore_status pending | processing | completed | failed nullable
+last_restored_at timestamptz nullable
+completed_at timestamptz nullable
+created_at timestamptz not null
+```
+
+Restore is a process, not a separate entity in this FYP logical ERD. The selected backup row stores only its latest restore state. The system does not retain a history of every restore attempt.
+
+Indexes support:
+
+- backup history by `(user_id, created_at desc)`;
+- automatic-backup eligibility by `(user_id, backup_type, status, completed_at desc)`.
+
+### `profiles.auto_backup_enabled`
+
+The existing `USER`/`profiles` record gains:
+
+```text
+auto_backup_enabled boolean not null default true
+```
+
+This is a user-level preference, not a separate multi-instance business entity.
 
 ### RLS and grants
 
-- RLS is enabled on both tables.
-- Authenticated users can select, insert, update, and delete only rows where `(select auth.uid()) = user_id`.
-- `backup_preferences` inserts and updates require the same owner check.
+- RLS is enabled on `data_exports`, `export_contents`, and `backups`.
+- Authenticated users can select, insert, update, and delete their own `data_exports` and `backups` rows where `(select auth.uid()) = user_id`.
+- `export_contents` policies verify ownership through the parent `data_exports` row.
+- The existing profile policy protects `auto_backup_enabled`.
 - Anonymous roles receive no table access.
 - Storage policies restrict `financial-backups` objects to the bucket and first path segment equal to the authenticated user's ID.
 - Storage `SELECT`, `INSERT`, `UPDATE`, and `DELETE` policies are explicit.
@@ -246,7 +286,7 @@ The implementation must escape all user-controlled text before inserting it into
 
 ### Local files
 
-Generated files are written to an app cache export directory, then opened through Expo Sharing. Cached files may be overwritten or deleted by the operating system. The completed export record remains as operation history but is not presented as a guaranteed cloud-hosted copy.
+Generated files are written to an app cache export directory, then opened through Expo Sharing. Cached files may be overwritten or deleted by the operating system. The completed `data_exports` row remains as export history but is not presented as a guaranteed cloud-hosted copy.
 
 ## Backup creation flow
 
@@ -265,7 +305,7 @@ Manual backups are retained until the user deletes them. Automatic backups retai
 
 ## Automatic backup behavior
 
-`auto_backup_enabled` defaults to true after the preference row is first created.
+`profiles.auto_backup_enabled` defaults to true.
 
 The app checks eligibility:
 
@@ -297,21 +337,21 @@ If validation fails, no financial table is modified.
 `public.restore_financial_backup_v1(payload jsonb, backup_record_id uuid)`:
 
 - requires an authenticated user;
-- confirms the referenced completed backup metadata belongs to that user;
+- confirms the referenced completed `backups` row belongs to that user;
 - validates `schemaVersion` and `userId` again;
-- creates a processing restore record;
+- marks `last_restore_status` as `processing`;
 - deletes the user's restorable rows in foreign-key-safe order;
 - restores the profile with an upsert;
 - restores user-owned categories while preserving backed-up IDs;
 - restores parent rows before dependent transactions and contributions;
 - restores notification preferences, reminders, alerts, and report history;
 - resets affected identity sequences to at least the current maximum;
-- marks the restore record completed;
+- marks `last_restore_status` as `completed` and sets `last_restored_at`;
 - returns restored row counts.
 
-The PostgreSQL function executes within one transaction. Any exception rolls back all financial-data mutations. The client then fetches fresh application data and reports completion.
+The PostgreSQL function executes within one transaction. Any exception rolls back all financial-data mutations. After an RPC error, the owner-scoped client updates `last_restore_status` to `failed`. After success, the client fetches fresh application data and reports completion.
 
-The restore operation replaces only the backed-up user-owned domain data. It does not delete authentication, default categories, receipt objects, device tokens, delivery-attempt audit rows, backup preferences, or backup history.
+The restore operation replaces only the backed-up user-owned domain data. It does not delete authentication, default categories, receipt objects, device tokens, delivery-attempt audit rows, `auto_backup_enabled`, or backup history.
 
 ## Delete behavior
 
@@ -320,7 +360,7 @@ Deleting a completed cloud backup:
 1. calls the Storage API to remove the object;
 2. deletes the metadata row only after object deletion succeeds.
 
-Deleting a failed backup or local export activity deletes only its metadata row. A restore record is audit history and is not directly selectable for restoration.
+Deleting a failed backup or local export record deletes only its metadata row.
 
 ## Mobile components and routes
 
@@ -356,11 +396,11 @@ The Supabase client boundary handles:
 
 - export source retrieval;
 - full backup source retrieval;
-- operation-record CRUD;
-- preference fetch/upsert;
+- `data_exports`, `export_contents`, and `backups` CRUD;
+- profile backup-preference fetch/update;
 - private Storage upload/download/delete;
 - restore RPC invocation;
-- recent activity and backup-history queries.
+- recent export and backup-history queries.
 
 ### `src/lib/export-files.ts`
 
@@ -420,10 +460,11 @@ Implementation follows red-green-refactor.
 
 - explicit owner filters on every source table;
 - complete backup source collection and partial-failure rejection;
-- operation-record state transitions;
+- export and backup state transitions;
+- normalized export-content inserts and ownership;
 - private Storage path and exact uploaded bytes;
 - download and checksum inputs;
-- preference upsert;
+- profile preference update;
 - recent-history ordering and limits;
 - restore RPC payload and backup-record ID;
 - Storage-first deletion behavior.
@@ -476,7 +517,7 @@ Implementation follows red-green-refactor.
 - Manual backups remain until explicitly deleted.
 - Restore rejects corrupt, incompatible, or cross-user documents before mutation.
 - A successful restore replaces all approved FinCoach domain data atomically.
-- Restore never changes authentication, default categories, receipt objects, device tokens, backup preferences, or backup history.
+- Restore never changes authentication, default categories, receipt objects, device tokens, `profiles.auto_backup_enabled`, or backup history.
 - Users cannot read, modify, restore, or delete another user's records or backup objects.
 - No mock backup, export, or restore state remains.
 - The module follows the approved FinCoach visual direction.
@@ -493,7 +534,7 @@ Implementation follows red-green-refactor.
 | Automatic and manual backup | Persisted preference, foreground eligibility, and manual action |
 | Retrieve stored backup | Owner-scoped backup history and authenticated download |
 | Restore selected data | Client validation plus atomic restore RPC |
-| Update backup/restore status | Operation lifecycle rows |
+| Update export, backup, and restore status | `data_exports.status`, `backups.status`, and latest restore fields |
 | Delete old backups and export records | Storage-first backup deletion and metadata deletion |
 | Full-data recovery | Approved versioned snapshot scope |
 | Security | Table RLS, private bucket, owner-folder policies, and authenticated restore |
