@@ -15,11 +15,13 @@ class CoachAuthTests(unittest.TestCase):
                     require_authenticated_user(header)
                 self.assertEqual(caught.exception.status_code, 401)
 
-    def test_returns_verified_subject_from_get_claims(self):
+    def test_returns_server_verified_user_from_get_user(self):
         from app.auth import require_authenticated_user
 
         auth = SimpleNamespace(
-            get_claims=lambda token: SimpleNamespace(claims={"sub": "user-1", "role": "authenticated"})
+            get_user=lambda token: SimpleNamespace(
+                user=SimpleNamespace(id="user-1", is_anonymous=False)
+            )
         )
         with patch("app.auth.get_supabase", return_value=SimpleNamespace(auth=auth)):
             user = require_authenticated_user("Bearer valid-token")
@@ -31,8 +33,13 @@ class CoachAuthTests(unittest.TestCase):
         from app.auth import require_authenticated_user
 
         cases = [
-            SimpleNamespace(get_claims=lambda token: SimpleNamespace(claims={})),
-            SimpleNamespace(get_claims=lambda token: (_ for _ in ()).throw(RuntimeError("secret"))),
+            SimpleNamespace(get_user=lambda token: SimpleNamespace(user=None)),
+            SimpleNamespace(
+                get_user=lambda token: SimpleNamespace(
+                    user=SimpleNamespace(id="user-1", is_anonymous=True)
+                )
+            ),
+            SimpleNamespace(get_user=lambda token: (_ for _ in ()).throw(RuntimeError("secret"))),
         ]
         for auth in cases:
             with self.subTest(auth=auth):

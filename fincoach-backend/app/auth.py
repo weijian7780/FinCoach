@@ -22,17 +22,16 @@ def require_authenticated_user(authorization: str | None) -> AuthenticatedUser:
         )
     token = parts[1]
     try:
-        response = get_supabase().auth.get_claims(token)
-        claims = getattr(response, "claims", None) or {}
-        user_id = claims.get("sub")
-        role = claims.get("role")
-        is_anonymous = bool(claims.get("is_anonymous"))
+        response = get_supabase().auth.get_user(token)
+        verified_user = getattr(response, "user", None)
+        user_id = getattr(verified_user, "id", None)
+        is_anonymous = bool(getattr(verified_user, "is_anonymous", False))
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required.",
         ) from exc
-    if not user_id or role != "authenticated" or is_anonymous:
+    if not user_id or is_anonymous:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required.",
