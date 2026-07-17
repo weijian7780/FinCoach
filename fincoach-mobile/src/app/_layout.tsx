@@ -52,6 +52,7 @@ export default function RootLayout() {
             <Stack.Screen name="auth/check-email" />
             <Stack.Screen name="auth/callback" />
             <Stack.Screen name="profile/setup" />
+            <Stack.Screen name="coach/history" />
             <Stack.Screen name="(app)" />
           </Stack>
         </AuthProvider>
