@@ -5,59 +5,57 @@ vectors in Supabase (knowledge_documents). Run once, and again whenever you add 
 
     python ingest.py
 
-LangChain is used here (and ONLY here) for document loading + chunking.
+Document loading and chunking are implemented with native Python and pypdf.
 """
-import glob
-import os
-
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pathlib import Path
 
 from app.embeddings import embed_texts
+from app.rag.chunking import chunk_document
+from app.rag.ingestion import load_documents
 from app.supabase_client import get_supabase
 
-CORPUS_DIR = "corpus"
+CORPUS_DIR = Path("corpus")
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 BATCH = 100
-
-
-def load_documents():
-    docs = []
-    for path in glob.glob(os.path.join(CORPUS_DIR, "**", "*"), recursive=True):
-        lower = path.lower()
-        if lower.endswith((".txt", ".md")):
-            docs.extend(TextLoader(path, encoding="utf-8").load())
-        elif lower.endswith(".pdf"):
-            docs.extend(PyPDFLoader(path).load())
-    return docs
-
-
 def main():
-    docs = load_documents()
-    if not docs:
+    documents = load_documents(CORPUS_DIR)
+    if not documents:
         print(f"No documents found in ./{CORPUS_DIR}. Add .txt/.md/.pdf files and re-run.")
         return
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-    chunks = splitter.split_documents(docs)
-    print(f"Loaded {len(docs)} document(s) -> {len(chunks)} chunk(s). Embedding with bge-m3...")
+    chunks = [
+        chunk
+        for document in documents
+        for chunk in chunk_document(document, CHUNK_SIZE, CHUNK_OVERLAP)
+    ]
+    print(
+        f"Loaded {len(documents)} document section(s) -> {len(chunks)} chunk(s). "
+        "Embedding with bge-m3..."
+    )
 
-    embeddings = embed_texts([c.page_content for c in chunks])
+    embeddings = embed_texts([chunk.content for chunk in chunks])
 
     rows = [
         {
-            "content": c.page_content,
-            "title": os.path.basename(c.metadata.get("source", "")) or None,
-            "source": c.metadata.get("source"),
-            "embedding": emb,
+            "content": chunk.content,
+            "title": chunk.title,
+            "source": chunk.source,
+            "page_number": chunk.page,
+            "chunk_index": chunk.chunk_index,
+            "content_hash": chunk.content_hash,
+            "embedding": embedding,
         }
-        for c, emb in zip(chunks, embeddings)
+        for chunk, embedding in zip(chunks, embeddings)
     ]
 
     sb = get_supabase()
     for i in range(0, len(rows), BATCH):
-        sb.table("knowledge_documents").insert(rows[i : i + BATCH]).execute()
+        (
+            sb.table("knowledge_documents")
+            .upsert(rows[i : i + BATCH], on_conflict="content_hash")
+            .execute()
+        )
 
     print(f"Stored {len(rows)} chunks in knowledge_documents.")
 

@@ -11,9 +11,7 @@ supabase
 sentence-transformers
 torch
 
-# Document loading + chunking (the only place LangChain is used)
-langchain-community
-langchain-text-splitters
+# Native document loading; chunking is custom Python code.
 pypdf
 
 # LLM (OpenAI-compatible client — works with NVIDIA NIM / Gemini / Groq / OpenAI)
