@@ -31,3 +31,8 @@ COACH_RATE_LIMIT_MINUTE = int(os.environ.get("COACH_RATE_LIMIT_MINUTE", "6"))
 COACH_RATE_LIMIT_DAY = int(os.environ.get("COACH_RATE_LIMIT_DAY", "100"))
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "350"))
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]

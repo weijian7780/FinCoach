@@ -1,36 +1,25 @@
-"""FastAPI app exposing the AI coaching endpoint.
+"""FastAPI application for authenticated FinCoach server features."""
 
-    POST /coach   { "question": "...", "user_id": "optional-uuid" }  -> { answer, sources }
-    GET  /health  -> { status: "ok" }
-"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-from app.rag import coach
+from app.api.coach_routes import router as coach_router
+from app.config import CORS_ORIGINS
+from app.observability import RequestContextMiddleware
 
-app = FastAPI(title="FinCoach AI Backend", version="0.1.0")
+app = FastAPI(title="FinCoach AI Backend", version="1.0.0")
 
-# Open during development. Before production, restrict to your app's origin and add
-# auth (verify the caller's Supabase JWT) so only logged-in users can spend LLM calls.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
-
-
-class CoachRequest(BaseModel):
-    question: str
-    user_id: str | None = None
+app.add_middleware(RequestContextMiddleware)
+app.include_router(coach_router)
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
-
-
-@app.post("/coach")
-def coach_endpoint(req: CoachRequest) -> dict:
-    return coach(req.question, req.user_id)

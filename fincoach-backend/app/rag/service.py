@@ -119,6 +119,7 @@ class CoachingService:
                     "assistant_message": reply,
                     "sources": self.repository.list_retrievals(reply["id"]),
                 }
+            raise CoachingConflict("Message is already being processed.")
         else:
             self.repository.enforce_usage_limits(COACH_RATE_LIMIT_MINUTE, COACH_RATE_LIMIT_DAY)
             user_message = self.repository.insert_user_message(session_id, message_id, content)
