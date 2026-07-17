@@ -151,6 +151,16 @@ class CoachingHistoryRepository:
         )
         return response.data or []
 
+    def list_retrievals(self, assistant_message_id: str) -> list[dict]:
+        response = self._execute(
+            self.user_client.table("coaching_retrievals")
+            .select("title, source, similarity, rank")
+            .eq("assistant_message_id", assistant_message_id)
+            .eq("user_id", self.user_id)
+            .order("rank", desc=False)
+        )
+        return response.data or []
+
     def update_session_after_message(self, session_id: str, title: str | None = None) -> dict:
         values: dict[str, Any] = {"last_message_at": datetime.now(timezone.utc).isoformat()}
         if title:

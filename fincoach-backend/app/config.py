@@ -25,3 +25,9 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "")
 
 # How many chunks to retrieve per question.
 RETRIEVE_K = int(os.environ.get("RETRIEVE_K", "5"))
+RETRIEVE_THRESHOLD = float(os.environ.get("RETRIEVE_THRESHOLD", "0.35"))
+COACH_HISTORY_LIMIT = int(os.environ.get("COACH_HISTORY_LIMIT", "12"))
+COACH_RATE_LIMIT_MINUTE = int(os.environ.get("COACH_RATE_LIMIT_MINUTE", "6"))
+COACH_RATE_LIMIT_DAY = int(os.environ.get("COACH_RATE_LIMIT_DAY", "100"))
+LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "350"))
