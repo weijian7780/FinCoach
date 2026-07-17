@@ -45,6 +45,8 @@ grant usage, select on sequence public.knowledge_documents_id_seq to service_rol
 
 -- ---------- vector search function (called by the backend via RPC) ----------
 -- Returns the most similar chunks to a query embedding, with a similarity score.
+drop function if exists public.match_knowledge_documents(vector, integer);
+
 create or replace function public.match_knowledge_documents(
   query_embedding vector(1024),
   match_count int default 5

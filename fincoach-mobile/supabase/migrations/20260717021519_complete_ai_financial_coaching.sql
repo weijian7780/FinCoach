@@ -24,6 +24,10 @@ create unique index if not exists knowledge_documents_content_hash_idx
 create index if not exists knowledge_documents_embedding_idx
   on public.knowledge_documents using hnsw (embedding vector_cosine_ops);
 
+-- RETURNS TABLE columns are OUT parameters. PostgreSQL cannot change that row type
+-- with CREATE OR REPLACE, so remove the older same-signature RPC before upgrading it.
+drop function if exists public.match_knowledge_documents(vector, integer);
+
 create or replace function public.match_knowledge_documents(
   query_embedding vector(1024),
   match_count integer default 5

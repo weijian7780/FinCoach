@@ -32,6 +32,7 @@ const requiredInBoth = [
   'add column if not exists page_number integer',
   'add column if not exists chunk_index integer',
   'add column if not exists content_hash text',
+  'drop function if exists public.match_knowledge_documents(vector, integer)',
   'revoke select on table public.knowledge_documents from anon, authenticated',
   'revoke execute on function public.match_knowledge_documents(vector, integer)',
 ];
@@ -44,6 +45,17 @@ for (const [label, sql] of [
     if (!sql.includes(fragment)) {
       throw new Error(`${label} is missing required coaching SQL: ${fragment}`);
     }
+  }
+}
+
+for (const [label, sql] of [
+  ['migration', migration],
+  ['schema', schema],
+]) {
+  const dropAt = sql.indexOf('drop function if exists public.match_knowledge_documents(vector, integer)');
+  const createAt = sql.indexOf('create or replace function public.match_knowledge_documents');
+  if (dropAt < 0 || createAt < 0 || dropAt > createAt) {
+    throw new Error(`${label} must drop the old vector RPC before recreating its return type.`);
   }
 }
 
