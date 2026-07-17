@@ -57,6 +57,12 @@ for (const [label, sql] of [
   if (dropAt < 0 || createAt < 0 || dropAt > createAt) {
     throw new Error(`${label} must drop the old vector RPC before recreating its return type.`);
   }
+
+  const functionEndAt = sql.indexOf('$$;', createAt);
+  const vectorRpc = sql.slice(createAt, functionEndAt);
+  if (!vectorRpc.includes('set search_path = pg_catalog, extensions, public')) {
+    throw new Error(`${label} vector RPC must include the pgvector extension schema in its search path.`);
+  }
 }
 
 const migrationOnly = [

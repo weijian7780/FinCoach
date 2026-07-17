@@ -62,7 +62,7 @@ returns table (
 )
 language sql
 stable
-set search_path = ''
+set search_path = pg_catalog, extensions, public
 as $$
   select
     kd.id,
