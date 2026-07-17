@@ -10,6 +10,7 @@ load_dotenv()
 # never in the mobile app.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
 
 # ---- Embeddings ----
 # bge-m3 -> 1024 dimensions. If you change the model, change the SQL vector(N) too.
