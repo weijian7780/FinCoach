@@ -50,7 +50,7 @@ export function CoachTypingIndicator() {
   return (
     <View accessibilityLabel="FinCoach is typing" style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
       <View style={styles.avatar}><MaterialIcons name="auto-awesome" size={15} color={authColors.onPrimary} /></View>
-      <View style={[styles.assistantBubble, { flexDirection: 'row', gap: 5, paddingVertical: 16 }]}> 
+      <View style={[styles.assistantBubble, { flexDirection: 'row', gap: 5, paddingVertical: 16 }]}>
         {[0, 1, 2].map((dot) => <View key={dot} style={styles.dot} />)}
       </View>
     </View>

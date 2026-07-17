@@ -61,7 +61,7 @@ class LLMResult:
 def generate_result(prompt: str) -> LLMResult:
     """Generate one bounded, non-streaming coaching response."""
     if not _configured():
-        return LLMResult(content=generate(prompt), model="stub")
+        raise RuntimeError("The coaching provider is not configured.")
 
     from openai import OpenAI
 

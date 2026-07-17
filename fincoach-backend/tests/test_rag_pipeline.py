@@ -67,6 +67,19 @@ class FinancialContextTests(unittest.TestCase):
 
 
 class LLMClientTests(unittest.TestCase):
+    def test_rejects_missing_provider_without_echoing_prompt(self):
+        from app import llm
+
+        with (
+            patch.object(llm, "LLM_BASE_URL", ""),
+            patch.object(llm, "LLM_API_KEY", ""),
+            patch.object(llm, "LLM_MODEL", ""),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not configured") as caught:
+                llm.generate_result("PRIVATE FINANCIAL CONTEXT")
+
+        self.assertNotIn("PRIVATE FINANCIAL CONTEXT", str(caught.exception))
+
     def test_uses_bounded_non_streaming_provider_call_and_returns_usage(self):
         from app import llm
 
