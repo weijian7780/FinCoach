@@ -6,7 +6,10 @@ import * as WebBrowser from 'expo-web-browser';
 import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { deactivateDevice } from '@/lib/alerts';
+import { runEligibleAutomaticBackup } from '@/lib/backup-orchestrator';
 import { googleAuthWebClientId, isGoogleOAuthConfigured, isSupabaseConfigured } from '@/lib/env';
+import { getCurrentExpoPushToken, setCurrentExpoPushToken } from '@/lib/notification-platform';
 import { ensureProfile, fetchProfile, updateProfileRow } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 import type { Profile, ProfileUpdate } from '@/lib/types';
@@ -111,6 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Authentication bootstrap intentionally hydrates provider state from Supabase.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProfile().finally(() => setLoading(false));
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -136,6 +141,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       appStateSubscription.remove();
     };
   }, [refreshProfile]);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) return;
+
+    const run = () => {
+      void runEligibleAutomaticBackup(userId).catch((error) => {
+        // Backup failure is persisted by the orchestrator and must never block login.
+        console.warn('Automatic backup will retry after the next eligible foreground session.', error);
+      });
+    };
+
+    run();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') run();
+    });
+    return () => subscription.remove();
+  }, [session?.user.id]);
 
   const signUpWithEmail = useCallback(
     async (email: string, password: string, fullName: string): Promise<ActionResult> => {
@@ -293,7 +316,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    const pushToken = getCurrentExpoPushToken();
+    if (pushToken) {
+      await deactivateDevice(pushToken).catch(() => {
+        // Logout must still complete while offline; token reassignment is also enforced on next login.
+      });
+    }
     await supabase.auth.signOut();
+    setCurrentExpoPushToken(null);
     setProfile(null);
     setSession(null);
   }, []);

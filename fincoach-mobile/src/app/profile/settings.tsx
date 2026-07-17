@@ -49,7 +49,7 @@ export default function AppSettingsScreen() {
         <SettingRow
           icon="storage"
           label="Export & Backup"
-          onPress={() => Alert.alert('Coming soon', 'Export & Backup will be available in a later update.')}
+          onPress={() => router.push('/export-backup' as never)}
         />
       </ScrollView>
     </View>

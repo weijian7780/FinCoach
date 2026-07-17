@@ -23,6 +23,10 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
 
+# ---- Receipt text cleanup (Gemini; OCR text only, never the image) ----
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_RECEIPT_MODEL = os.environ.get("GEMINI_RECEIPT_MODEL", "gemini-3.1-flash-lite")
+
 # How many chunks to retrieve per question.
 RETRIEVE_K = int(os.environ.get("RETRIEVE_K", "5"))
 RETRIEVE_THRESHOLD = float(os.environ.get("RETRIEVE_THRESHOLD", "0.35"))

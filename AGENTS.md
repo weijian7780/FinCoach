@@ -27,6 +27,7 @@
 - Database: PostgreSQL through Supabase.
 - Vector search: pgvector.
 - LLM service layer: FastAPI for AI/RAG-related services.
+- Planned receipt OCR: PaddleOCR for the Transaction and Receipt Capture module.
 
 ## Working Rules
 
@@ -35,3 +36,4 @@
 - Prefer existing project patterns in `fincoach-mobile` before adding new abstractions.
 - For Supabase work, keep schema, Row Level Security, and client usage aligned with the active module being implemented.
 - For AI Financial Coaching, keep the FastAPI and pgvector responsibilities separate from the React Native UI layer.
+- For receipt capture, treat PaddleOCR as the planned OCR engine, but do not claim it is implemented until repo files confirm it.

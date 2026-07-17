@@ -1,0 +1,7 @@
+  
+   NAME                 | DIGEST                                                           
+  ----------------------|------------------------------------------------------------------
+   ALERT_CRON_SECRET    | 2f785ae44463f6de0311cdd931f52e70d722cd3ce0533274537fe97f5ef762cd 
+   ALERT_WEBHOOK_SECRET | 31de3679e8c82478249727c2a9b7ef58aa865280d131adf0e68574a0de5961eb 
+
+supabase fincoach alert

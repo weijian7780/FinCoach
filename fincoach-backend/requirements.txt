@@ -16,3 +16,11 @@ pypdf
 
 # LLM (OpenAI-compatible client — works with NVIDIA NIM / Gemini / Groq / OpenAI)
 openai
+
+# Receipt OCR text cleanup (server-side Gemini SDK; receipt images are never sent)
+google-genai==2.11.0
+
+# Receipt OCR (Transaction and Receipt Capture module)
+python-multipart
+paddlepaddle==3.3.1
+paddleocr==3.7.0
