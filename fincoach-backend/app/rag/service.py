@@ -18,6 +18,7 @@ from app.config import (
     COACH_HISTORY_LIMIT,
     COACH_RATE_LIMIT_DAY,
     COACH_RATE_LIMIT_MINUTE,
+    COACH_GROUNDING_MODE,
     COACH_WRITE_ACTIONS_ENABLED,
     GROUNDING_VERIFIER_TIMEOUT_SECONDS,
     TAVILY_API_KEY,
@@ -39,7 +40,24 @@ from app.rag.action_policy import (
     ground_unverified_action_claim,
     has_structured_action_ui,
 )
+from app.rag.allocation import (
+    ALLOCATION_GUIDANCE,
+    DIAGNOSTIC_GUIDANCE,
+    financial_priority_chunk,
+    is_allocation_query,
+    is_diagnostic_query,
+    parse_amount,
+    synthetic_allocation_chunk,
+)
+from app.rag.answer_assessment import assess_answer
+from app.rag.answer_statements import (
+    AnswerStatement,
+    format_coach_answer,
+    split_answer_statements,
+)
 from app.rag.grounding import (
+    _EXTERNAL_FACT_CUE,
+    _NUMERIC_CLAIM,
     attach_verified_citations,
     contains_specific_product_recommendation,
     grounding_retry_prompt,
@@ -53,7 +71,11 @@ from app.rag.prompts import build_casual_prompt, build_coach_prompt
 from app.rag.query_analysis import analyze_knowledge_query
 from app.rag.retrieval import RetrievedChunk, retrieve
 from app.rag.verifier import verify_grounding_claims
-from app.rag.web_research import research as research_web
+from app.rag.web_research import (
+    build_research_query,
+    merge_evidence,
+    research as research_web,
+)
 from app.rag.routing import (
     CoachingRoute,
     FinancialContextScope,
@@ -610,6 +632,165 @@ def _ground_educational_answer(
         True,
     )
 
+
+def _statement_needs_external_support(statement: AnswerStatement) -> bool:
+    """Whether a statement asserts a checkable external fact (vs. plain advice).
+
+    A statement carrying an external-fact cue or a numeric claim is a factual
+    assertion that must be entailed by a source. Plain advice ("track your
+    spending weekly") carries neither and may stand without a citation.
+    """
+    text = statement.text
+    return bool(_EXTERNAL_FACT_CUE.search(text)) or bool(_NUMERIC_CLAIM.findall(text))
+
+
+def _keep_after_assessment(
+    statement: AnswerStatement, verdict: str
+) -> bool:
+    """Decide whether a statement survives evidence assessment.
+
+    - supported            -> keep (its cited source entailed it).
+    - unsupported           -> drop (cited, but the source did not entail it).
+    - needs_source          -> keep only if it is NOT a checkable external fact;
+                              a factual assertion with no citation is dropped.
+    """
+    if verdict == "supported":
+        return True
+    if verdict == "unsupported":
+        return False
+    return not _statement_needs_external_support(statement)  # needs_source
+
+
+def _ground_with_evidence(
+    result,
+    *,
+    chunks: list[RetrievedChunk],
+    prompt: str,
+    verified_context: str,
+    allow_uncited_numbers: bool,
+    require_source_for_facts: bool,
+    budget: CoachRequestBudget,
+):
+    """Evidence-mode grounding: verify each statement, then recover, bounded.
+
+    Reachable only under ``COACH_GROUNDING_MODE == "evidence"`` (invariant #9).
+    Hard caps (invariant #8): the single upstream search+extract is the ≤1
+    research round; here we allow ≤1 repair re-write and ≤2 verifier batches
+    total, every call drawing down the shared 30s deadline. Returns the same
+    ``(result, grounding_retry, grounding_fallback)`` tuple as the legacy path so
+    the caller is unchanged.
+
+    Flow: the deterministic ``validate_coach_answer`` still guards format,
+    product recommendations, and numerics. On top of it, statements are verified
+    for source entailment; unsupported factual statements are dropped and the
+    answer reassembled into the locked format. If a repair is needed it happens
+    once; if nothing survives, route to the safe insufficient-evidence fallback.
+    """
+    reference_contents = [chunk.content for chunk in chunks]
+
+    def _assess_and_recover(content: str, stage: str):
+        statements = split_answer_statements(content)
+        assessment = assess_answer(
+            statements,
+            chunks,
+            budget=budget,
+            verifier_timeout_seconds=GROUNDING_VERIFIER_TIMEOUT_SECONDS,
+        )
+        verdict_by_id = {a.statement_id: a.verdict for a in assessment.statements}
+        kept = [
+            statement
+            for statement in statements
+            if _keep_after_assessment(statement, verdict_by_id.get(statement.id, "needs_source"))
+        ]
+        dropped = len(kept) != len(statements)
+        # Nothing checkable survived (only the disclaimer / advice framing with no
+        # answer) -> treat as insufficient evidence.
+        insight_kept = [s for s in kept if s.section == "Insight"]
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "coach_evidence_assessment",
+                    "stage": stage,
+                    "confidence": assessment.confidence,
+                    "supported": assessment.supported_count,
+                    "unsupported": assessment.unsupported_count,
+                    "dropped": dropped,
+                },
+                separators=(",", ":"),
+            )
+        )
+        if not insight_kept:
+            return None, dropped
+        rebuilt = format_coach_answer(kept)
+        rebuilt_validation = validate_coach_answer(
+            rebuilt,
+            reference_contents,
+            verified_context,
+            allow_uncited_numbers=allow_uncited_numbers,
+            require_source_for_facts=require_source_for_facts,
+        )
+        if rebuilt_validation.hard_errors:
+            return None, dropped
+        return rebuilt, dropped
+
+    # Verifier batch #1 (+ optional reassembly).
+    grounded, dropped = _assess_and_recover(result.content, "initial")
+    if grounded is not None:
+        return (
+            replace(result, content=grounded) if grounded != result.content else result,
+            dropped,
+            False,
+        )
+
+    # ≤1 repair: ask the provider to re-write, citing sources or dropping claims.
+    try:
+        repair = generate_fallback_result(
+            grounding_retry_prompt(
+                prompt,
+                result.content,
+                ("one or more statements were not supported by a cited source",),
+            ),
+            reasoning_effort="high",
+            budget=budget,
+        )
+    except Exception as error:
+        logger.warning(
+            json.dumps(
+                {"event": "coach_evidence_repair_failed", "error_type": type(error).__name__},
+                separators=(",", ":"),
+            )
+        )
+        repair = None
+
+    if repair is not None:
+        # Verifier batch #2 (+ optional reassembly) on the repaired draft.
+        repaired, repaired_dropped = _assess_and_recover(repair.content, "repair")
+        if repaired is not None:
+            return (
+                replace(
+                    result,
+                    content=repaired,
+                    model=repair.model,
+                    prompt_tokens=repair.prompt_tokens,
+                    completion_tokens=repair.completion_tokens,
+                ),
+                True,
+                False,
+            )
+
+    # Caps exhausted with nothing safely grounded -> insufficient evidence.
+    return (
+        replace(
+            result,
+            content=safe_grounding_fallback(has_sources=bool(reference_contents)),
+            model="fincoach-grounding-policy",
+            prompt_tokens=None,
+            completion_tokens=None,
+        ),
+        True,
+        True,
+    )
+
 _MONTH_NUMBERS = {
     "january": 1,
     "jan": 1,
@@ -816,6 +997,38 @@ def _expense_rows(transactions: list[dict]) -> list[dict]:
     ]
 
 
+# Explicit tone directives per profile coaching style. The label alone ("Gentle
+# nudges") is a weak signal; these tell the model HOW to write while the locked
+# answer format (3 headings, <=120 words, fixed disclaimer) is unchanged. An
+# unknown/custom value falls back to echoing the label.
+_COACHING_STYLE_DIRECTIVES = {
+    "gentle nudges": (
+        "Coaching tone: gentle nudges. Warm, encouraging, low-pressure. Suggest one "
+        "small next step; never alarm, blame, or lecture."
+    ),
+    "detailed guidance": (
+        "Coaching tone: detailed guidance. Explain the reasoning behind each "
+        "recommendation and briefly define any term a student may not know, while "
+        "staying within the word limit."
+    ),
+    "tough-love": (
+        "Coaching tone: tough love. Be direct and candid about the risk and its "
+        "consequences, and push for action. Stay respectful; never harsh, mocking, "
+        "or shaming."
+    ),
+}
+
+
+def _coaching_style_directive(style: str | None) -> str | None:
+    """Map a profile coaching-style label to an explicit tone directive."""
+    if not style:
+        return None
+    return _COACHING_STYLE_DIRECTIVES.get(
+        str(style).strip().casefold(),
+        f"Preferred coaching style: {style}",
+    )
+
+
 def format_financial_context(
     profile: dict | None,
     transactions: list[dict],
@@ -833,8 +1046,9 @@ def format_financial_context(
     parts = ["All figures below are recorded in FinCoach; no bank balance is assumed."]
     if profile.get("monthly_allowance") is not None:
         parts.append(f"Monthly allowance: {_money(profile['monthly_allowance'])}")
-    if profile.get("coaching_style"):
-        parts.append(f"Preferred coaching style: {profile['coaching_style']}")
+    coaching_directive = _coaching_style_directive(profile.get("coaching_style"))
+    if coaching_directive:
+        parts.append(coaching_directive)
     consent = profile.get("spending_records_consent")
     if monthly_budget and monthly_budget.get("limit_amount") is not None:
         parts.append(f"Monthly budget limit: {_money(monthly_budget['limit_amount'])}")
@@ -1272,6 +1486,25 @@ class CoachingService:
                     if is_knowledge_route
                     else []
                 )
+                # Synthetic grounding for planning/vague queries. A hypothetical
+                # allocation ("if I have RM6000, how to allocate my budget") gets a
+                # Python-computed 50/30/20 split injected as evidence; a vague
+                # "how should I manage my money" gets the priority-hierarchy
+                # framework. Both keep the answer inside the locked format + guards
+                # WITHOUT touching the personal DB (this is the education route) or
+                # the web. Deterministic figures never drift and never fabricate.
+                allocation_injected = False
+                allocation_guidance = ""
+                if is_knowledge_route and not knowledge_analysis.clarification:
+                    amount = parse_amount(content)
+                    if is_allocation_query(content) and amount is not None:
+                        chunks = [synthetic_allocation_chunk(amount)]
+                        allocation_injected = True
+                        allocation_guidance = ALLOCATION_GUIDANCE
+                    elif is_diagnostic_query(content):
+                        chunks = [financial_priority_chunk()]
+                        allocation_injected = True
+                        allocation_guidance = DIAGNOSTIC_GUIDANCE
                 # Corpus first: only when internal retrieval is inadequate for a
                 # knowledge-route question do we fall back to web research. Web
                 # results are tier-ranked and flow through the SAME grounding and
@@ -1284,16 +1517,22 @@ class CoachingService:
                     is_knowledge_route
                     and WEB_FALLBACK_ENABLED
                     and corpus_inadequate
+                    and not allocation_injected
                     and not knowledge_analysis.clarification
                 ):
+                    # Privacy (invariant #7): only a de-identified topic query is
+                    # sent to the web — never the raw message, history, or PII.
+                    research_query = build_research_query(content)
                     web_chunks = research_web(
-                        content,
+                        research_query,
                         api_key=TAVILY_API_KEY,
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
                     )
                     if web_chunks:
-                        chunks = web_chunks
+                        # Corpus first (invariant #1): web augments corpus, never
+                        # replaces it. Corpus chunks stay primary in the merge.
+                        chunks = merge_evidence(chunks, web_chunks)
                         web_fallback_used = True
                 retrieval_ms = round((perf_counter() - retrieval_started) * 1000, 1)
 
@@ -1307,6 +1546,7 @@ class CoachingService:
                         history,
                         COACH_HISTORY_LIMIT,
                         financial_triage=financial_triage,
+                        extra_guidance=allocation_guidance,
                     )
                 )
                 provider_started = perf_counter()
@@ -1537,7 +1777,15 @@ class CoachingService:
                     response_mode = "agent_loop"
                 result = _ground_reminder_claim(result)
                 if route in (CoachingRoute.FINANCIAL_EDUCATION, CoachingRoute.COMBINED):
-                    result, grounding_retry, grounding_fallback = _ground_educational_answer(
+                    # Rollback flag (invariant #9): "legacy" is byte-for-byte the
+                    # prior path; "evidence" runs statement-level assessment +
+                    # bounded recovery. Same return contract either way.
+                    ground_educational = (
+                        _ground_with_evidence
+                        if COACH_GROUNDING_MODE == "evidence"
+                        else _ground_educational_answer
+                    )
+                    result, grounding_retry, grounding_fallback = ground_educational(
                         result,
                         chunks=chunks,
                         prompt=prompt,
@@ -1684,7 +1932,10 @@ class CoachingService:
                     "source": chunk.source,
                 }
                 for chunk, source in zip(chunks, sources)
-                if chunk.source_type == "corpus"
+                # Real corpus documents only: web (negative id) and synthetic
+                # framework chunks (also negative id) are not knowledge_documents,
+                # so they must not be written to coaching_retrievals.
+                if chunk.source_type == "corpus" and chunk.id >= 0
             ]
             assistant = self.repository.complete_turn(
                 session_id=session_id,

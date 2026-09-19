@@ -5,7 +5,7 @@ pydantic
 python-dotenv
 
 # Supabase (data + pgvector store)
-supabase
+supabase==2.31.0
 
 # Embeddings (local, bge-m3)
 sentence-transformers
@@ -17,10 +17,16 @@ pypdf
 # LLM (OpenAI-compatible client — works with NVIDIA NIM / Gemini / Groq / OpenAI)
 openai
 
+# Web-research fallback (used only when the corpus cannot answer). Optional at
+# runtime: imported lazily, and the coach degrades gracefully if it is absent.
+tavily-python
+
 # Receipt OCR text cleanup (server-side Gemini SDK; receipt images are never sent)
 google-genai==2.11.0
 
 # Receipt OCR (Transaction and Receipt Capture module)
 python-multipart
+# Validate declared image formats before handing upload bytes to native OCR.
+pillow
 paddlepaddle==3.3.1
 paddleocr==3.7.0

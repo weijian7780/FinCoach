@@ -228,6 +228,35 @@ _BUDGET_PLANNING_QUERY = re.compile(
     re.IGNORECASE,
 )
 
+# "How should I allocate/split my budget?" is a request for a budgeting METHOD
+# (educational), not a lookup of the user's recorded budget rows. Matching this
+# routes to FINANCIAL_EDUCATION so the coach explains an allocation framework
+# (e.g. 50/30/20) instead of dumping "month limit / remaining".
+_BUDGET_ALLOCATION_QUERY = re.compile(
+    r"\b(?:how\s+(?:to|do|should|can|much)|ways?\s+to|help\s+me|best\s+way)\b"
+    r".{0,40}\b(?:allocate|split|divide|distribute|break\s*down|structure|"
+    r"organi[sz]e|manage|budget|spend)\b"
+    r".{0,40}(?:\b(?:budget|money|income|allowance|salary|amount|funds?|cash|"
+    r"categor(?:y|ies))\b|rm\s*\d)|"
+    r"\ballocate\b.{0,40}(?:\b(?:budget|money|income|allowance|salary|"
+    r"categor(?:y|ies))\b|rm\s*\d)|"
+    r"\bbudget(?:ing)?\s+(?:method|plan|breakdown|strategy|framework|rule)\b|"
+    r"\b\d{1,3}\s*/\s*\d{1,3}\s*/\s*\d{1,3}\b|"  # 50/30/20-style rules
+    r"\b(?:cara|bagaimana)\b.{0,40}\b(?:agih|bahagi|urus|rancang)\b"
+    r".{0,40}\b(?:bajet|duit|wang|pendapatan)\b",
+    re.IGNORECASE,
+)
+
+# A hypothetical amount ("if I have RM6000", "say I earn 3000") is planning
+# framing, NOT a reference to the user's recorded figures — so it must not force
+# the personal-records path.
+_HYPOTHETICAL_AMOUNT = re.compile(
+    r"\b(?:if|say|suppose|assuming|imagine|let'?s\s+say|katakan|andai(?:kan)?|"
+    r"jika|kalau)\b.{0,20}"
+    r"(?:\bi\s+(?:have|had|get|got|make|earn|receive)\b|\brm?\s*\d|\b\d{3,})",
+    re.IGNORECASE,
+)
+
 _TRANSACTION_QUERY = re.compile(
     r"\b(?:expenses?|transactions?|purchases?|i\s+spent|i\s+spend|"
     r"spent|spending|overspent|overspend|where\s+(?:did|does).*(?:money|spend)|"
@@ -370,6 +399,14 @@ def route_coach_message(content: str) -> CoachingRoute:
         _FINANCIAL_EDUCATION.search(message)
         or detect_knowledge_topics(message)
     )
+
+    # A budget-allocation/method request is educational, even though it mentions
+    # "budget". A hypothetical amount ("if I have RM6000") is planning framing,
+    # not a recorded figure, so it must not pin the query to personal records.
+    if _BUDGET_ALLOCATION_QUERY.search(message):
+        needs_knowledge = True
+    if _HYPOTHETICAL_AMOUNT.search(message):
+        needs_personal_context = False
 
     if is_saved_finance_topic:
         if needs_knowledge:

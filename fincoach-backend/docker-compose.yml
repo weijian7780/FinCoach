@@ -1,0 +1,36 @@
+# Local development stack for the FinCoach backend on Docker Desktop.
+#
+#   docker compose up --build      # build + run (first build is slow: torch + OCR)
+#   docker compose up              # run again (cached)
+#   docker compose down            # stop
+#
+# Reads secrets from ./.env (Supabase, LLM, TAVILY_API_KEY, ...). That file is
+# git-ignored and is NOT baked into the image.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fincoach-backend:dev
+    container_name: fincoach-backend
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live-reload: edits to app/ and corpus/ on the host appear in the
+      # container immediately (paired with --reload below). Remove these two
+      # lines to test the image exactly as it will ship.
+      - ./app:/app/app
+      - ./corpus:/app/corpus
+      # Persist downloaded models (BGE-M3 embeddings ~2 GB, PaddleOCR) across
+      # restarts so they are fetched once, not on every boot.
+      - fincoach-model-cache:/root/.cache
+    # Override the image's production CMD with hot-reload for development.
+    command: >
+      python -m uvicorn app.main:app
+      --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+volumes:
+  fincoach-model-cache:

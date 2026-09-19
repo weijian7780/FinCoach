@@ -82,8 +82,15 @@ def verify_grounding_claims(
     reference_contents: list[str],
     *,
     timeout_seconds: float,
+    max_tokens: int = GROUNDING_VERIFIER_MAX_TOKENS,
 ) -> GroundingVerification:
-    """Return strict verdicts for every uncertain claim, failing closed on errors."""
+    """Return strict verdicts for every uncertain claim, failing closed on errors.
+
+    ``max_tokens`` defaults to the legacy 256-token budget so existing callers are
+    unchanged byte-for-byte. The evidence path passes a larger budget so the
+    verifier can read a real extracted passage instead of truncating (a truncated
+    verifier fails closed and silently degrades answers).
+    """
     if not claims:
         return GroundingVerification({}, error_code="no_claims")
     try:
@@ -97,7 +104,7 @@ def verify_grounding_claims(
                 {"role": "user", "content": _verifier_prompt(claims, reference_contents)},
             ],
             temperature=0,
-            max_tokens=GROUNDING_VERIFIER_MAX_TOKENS,
+            max_tokens=max_tokens,
             response_format={"type": "json_object"},
             extra_body={"thinking": {"type": "disabled"}},
             stream=False,
