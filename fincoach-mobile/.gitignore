@@ -31,6 +31,11 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Firebase server/admin credentials. Keep the public google-services.json file,
+# but never version a service-account private key.
+*-firebase-adminsdk-*.json
+*service-account*.json
+
 # local env files
 .env
 .env*.local

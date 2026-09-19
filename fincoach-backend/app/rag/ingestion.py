@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 
 @dataclass(frozen=True)
@@ -10,6 +11,15 @@ class LoadedDocument:
     source: str
     title: str
     page: int | None = None
+
+
+def _document_title(path: Path, content: str) -> str:
+    if path.suffix.lower() == ".md":
+        heading = re.search(r"^#\s+(.+?)\s*$", content, flags=re.MULTILINE)
+        if heading:
+            return heading.group(1).strip()
+    words = re.sub(r"[-_]+", " ", path.stem).strip()
+    return words.title()
 
 
 def load_documents(root: Path) -> list[LoadedDocument]:
@@ -27,7 +37,7 @@ def load_documents(root: Path) -> list[LoadedDocument]:
         if path.suffix.lower() in {".txt", ".md"}:
             content = path.read_text(encoding="utf-8").strip()
             if content:
-                documents.append(LoadedDocument(content, source, path.name))
+                documents.append(LoadedDocument(content, source, _document_title(path, content)))
             continue
 
         from pypdf import PdfReader
@@ -36,5 +46,7 @@ def load_documents(root: Path) -> list[LoadedDocument]:
         for page_number, page in enumerate(reader.pages, start=1):
             content = (page.extract_text() or "").strip()
             if content:
-                documents.append(LoadedDocument(content, source, path.name, page_number))
+                documents.append(
+                    LoadedDocument(content, source, _document_title(path, content), page_number)
+                )
     return documents
