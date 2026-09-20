@@ -32,6 +32,20 @@ class BudgetAllocationRoutingTests(unittest.TestCase):
             CoachingRoute.COMBINED,
         )
 
+    def test_normative_general_questions_are_educational(self):
+        # "what do people normally set" carries no personal marker -> educational,
+        # not a dump of the user's recorded budget.
+        for message in (
+            "people normally set what budget",
+            "what budget do most students set",
+            "how much should a student save",
+            "what's the recommended emergency fund",
+        ):
+            with self.subTest(message=message):
+                self.assertEqual(
+                    route_coach_message(message), CoachingRoute.FINANCIAL_EDUCATION
+                )
+
     def test_recorded_status_questions_stay_personal(self):
         # These must NOT be pulled into the education path by the new rules.
         for message in (
@@ -39,6 +53,7 @@ class BudgetAllocationRoutingTests(unittest.TestCase):
             "How much did I spend this month?",
             "how is my savings goal going?",
             "which bill is due tomorrow?",
+            "show my budget breakdown",  # shipped quick-action; a personal lookup
         ):
             with self.subTest(message=message):
                 self.assertEqual(

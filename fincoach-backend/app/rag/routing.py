@@ -121,6 +121,17 @@ _FINANCIAL_EDUCATION = re.compile(
     re.IGNORECASE,
 )
 
+# Normative/general cues: the user is asking what is TYPICAL/RECOMMENDED, not about
+# their own records. "people normally set what budget", "how much should a student
+# save" -> educational, even though a finance keyword ("budget", "save") is present.
+_GENERAL_KNOWLEDGE_CUE = re.compile(
+    r"\b(?:people|others|everyone|most\s+(?:people|students|malaysians|folks)|"
+    r"normally|usually|typically|generally|commonly|average|on\s+average|"
+    r"in\s+general|standard|recommended|rule\s+of\s+thumb|benchmark|ideal|"
+    r"how\s+much\s+should\s+(?:a|an|one|someone|i)\b|what\s+do\s+most)\b",
+    re.IGNORECASE,
+)
+
 _AMBIGUOUS_REMINDER_TASK = re.compile(
     r"^(?:(?:please|pls|tolong)\s+)?"
     r"(?P<title>(?:pay|settle)\s+"
@@ -240,7 +251,7 @@ _BUDGET_ALLOCATION_QUERY = re.compile(
     r"categor(?:y|ies))\b|rm\s*\d)|"
     r"\ballocate\b.{0,40}(?:\b(?:budget|money|income|allowance|salary|"
     r"categor(?:y|ies))\b|rm\s*\d)|"
-    r"\bbudget(?:ing)?\s+(?:method|plan|breakdown|strategy|framework|rule)\b|"
+    r"\bbudget(?:ing)?\s+(?:method|strategy|framework|rule)\b|"
     r"\b\d{1,3}\s*/\s*\d{1,3}\s*/\s*\d{1,3}\b|"  # 50/30/20-style rules
     r"\b(?:cara|bagaimana)\b.{0,40}\b(?:agih|bahagi|urus|rancang)\b"
     r".{0,40}\b(?:bajet|duit|wang|pendapatan)\b",
@@ -407,6 +418,13 @@ def route_coach_message(content: str) -> CoachingRoute:
         needs_knowledge = True
     if _HYPOTHETICAL_AMOUNT.search(message):
         needs_personal_context = False
+
+    # A normative/general question ("what budget do people normally set") that
+    # carries no personal marker is educational, not a lookup of the user's saved
+    # records — even though it mentions a finance keyword like "budget".
+    if _GENERAL_KNOWLEDGE_CUE.search(message) and not needs_personal_context:
+        needs_knowledge = True
+        is_saved_finance_topic = False
 
     if is_saved_finance_topic:
         if needs_knowledge:

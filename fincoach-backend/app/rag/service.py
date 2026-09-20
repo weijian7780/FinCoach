@@ -43,9 +43,12 @@ from app.rag.action_policy import (
 from app.rag.allocation import (
     ALLOCATION_GUIDANCE,
     DIAGNOSTIC_GUIDANCE,
+    GROSS_INCOME_GUIDANCE,
     financial_priority_chunk,
+    gross_income_chunk,
     is_allocation_query,
     is_diagnostic_query,
+    is_gross_income_query,
     parse_amount,
     synthetic_allocation_chunk,
 )
@@ -1497,7 +1500,15 @@ class CoachingService:
                 allocation_guidance = ""
                 if is_knowledge_route and not knowledge_analysis.clarification:
                     amount = parse_amount(content)
-                    if is_allocation_query(content) and amount is not None:
+                    # Gross-pay check FIRST: a split of pre-deduction income would
+                    # budget money the user never receives. Suppress the numeric
+                    # split and ask for take-home pay instead of computing a net
+                    # (which would fabricate a statutory figure).
+                    if is_gross_income_query(content):
+                        chunks = [gross_income_chunk()]
+                        allocation_injected = True
+                        allocation_guidance = GROSS_INCOME_GUIDANCE
+                    elif is_allocation_query(content) and amount is not None:
                         chunks = [synthetic_allocation_chunk(amount)]
                         allocation_injected = True
                         allocation_guidance = ALLOCATION_GUIDANCE

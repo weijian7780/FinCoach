@@ -26,11 +26,15 @@ from app.rag.retrieval import RetrievedChunk
 # only fires on a plausible ringgit amount, not on years or small counts.
 _AMOUNT = re.compile(
     r"(?:rm|myr)?\s*"
-    r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?"   # 6,000 / 1,234,567.89
-    r"|\d+(?:\.\d{1,2})?\s*k"                       # 6k / 6.5k
-    r"|\d{3,}(?:\.\d{1,2})?)",                       # 6000 / 6000.00 (>=3 digits)
+    r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?"      # 6,000 / 1,234,567.89
+    r"|\d+(?:\.\d{1,2})?\s*k"                          # 6k / 6.5k
+    r"|(?<!\d)\d{3,7}(?:\.\d{1,2})?(?!\d))",           # 6000 / 6000.00 — a COMPLETE 3-7 digit run
     re.IGNORECASE,
 )
+
+# No monthly student budget is ten million ringgit; a value this large is an
+# identifier (phone, account, reference) that slipped past the run guard.
+_MAX_PLAUSIBLE_AMOUNT = 10_000_000.0
 
 # Allocation / "how do I budget this amount" intent.
 _ALLOCATION_INTENT = re.compile(
@@ -48,6 +52,18 @@ _DIAGNOSTIC_INTENT = re.compile(
     r"financial\s+tips|tips?\s+(?:for|on)\s+(?:personal\s+)?"
     r"(?:finance|money|budgeting|saving)|improve\s+(?:my\s+)?finances?|"
     r"urus\s+(?:duit|wang|kewangan))\b",
+    re.IGNORECASE,
+)
+
+# Gross-income cue: the stated amount is pre-deduction pay, so a 50/30/20 split of
+# it would budget money the user never receives. We do NOT compute the net (SOCSO
+# and EIS are banded tables, not flat rates, and every rate drifts over time —
+# computing a net and citing it would be a fabricated statutory figure). We detect
+# the cue, suppress the numeric split, and ask for take-home pay instead.
+_GROSS_INCOME_CUE = re.compile(
+    r"\b(?:gross|before\s+(?:tax|epf|kwsp|socso|perkeso|eis|deductions?)|"
+    r"pre[-\s]?tax|basic\s+salary|gaji\s+(?:pokok|asas|kasar)|"
+    r"sebelum\s+(?:tolak|potong|epf|kwsp|cukai)|belum\s+tolak)\b",
     re.IGNORECASE,
 )
 
@@ -69,6 +85,17 @@ DIAGNOSTIC_GUIDANCE = (
     "monthly take-home income and any debts so the next answer can be specific. Do "
     "not invent any RM amounts or percentages."
 )
+GROSS_INCOME_GUIDANCE = (
+    "The stated amount is GROSS pay (before statutory deductions). Do NOT split it "
+    "with the 50/30/20 framework and do NOT state any RM figure or percentage. In "
+    "Insight, state the cited fact in POSITIVE, affirmative wording (avoid 'not' / "
+    "'isn't'): say that EPF, SOCSO, and EIS are deducted from gross pay before it "
+    "reaches the bank account, so a budget should use take-home (net) pay. Do NOT "
+    "compute, estimate, or cite a specific net figure or deduction rate. In "
+    "Recommended action, ask the user for their monthly take-home (net) pay — the "
+    "amount that actually reaches their bank account — so the next answer can "
+    "allocate it accurately."
+)
 
 
 def parse_amount(text: str) -> float | None:
@@ -78,11 +105,14 @@ def parse_amount(text: str) -> float | None:
         return None
     raw = match.group("num").lower().replace(",", "").replace(" ", "")
     try:
-        if raw.endswith("k"):
-            return float(raw[:-1]) * 1000.0
-        return float(raw)
+        value = float(raw[:-1]) * 1000.0 if raw.endswith("k") else float(raw)
     except ValueError:
         return None
+    # Reject implausible magnitudes: a phone/account/reference number that still
+    # slipped through (e.g. a comma-grouped 13-digit string) is not an amount.
+    if value <= 0 or value >= _MAX_PLAUSIBLE_AMOUNT:
+        return None
+    return value
 
 
 def is_allocation_query(text: str) -> bool:
@@ -93,6 +123,20 @@ def is_allocation_query(text: str) -> bool:
 def is_diagnostic_query(text: str) -> bool:
     """A vague, open money-management question with no concrete amount."""
     return bool(_DIAGNOSTIC_INTENT.search(text or "")) and parse_amount(text) is None
+
+
+def is_gross_income_query(text: str) -> bool:
+    """An allocation request whose stated amount is gross (pre-deduction) pay.
+
+    Must be checked BEFORE is_allocation_query in the injection path: both match,
+    but a gross amount must suppress the numeric split rather than divide money the
+    user never receives.
+    """
+    return (
+        bool(_GROSS_INCOME_CUE.search(text or ""))
+        and bool(_ALLOCATION_INTENT.search(text or ""))
+        and parse_amount(text) is not None
+    )
 
 
 # --- Deterministic split -----------------------------------------------------
@@ -168,6 +212,42 @@ def financial_priority_chunk(*, chunk_id: int = -902) -> RetrievedChunk:
         id=chunk_id,
         title="Financial priority hierarchy",
         source="Personal-finance priority framework",
+        page_number=None,
+        chunk_index=None,
+        content=content,
+        similarity=1.0,
+        source_type="corpus",
+    )
+
+
+def gross_income_chunk(*, chunk_id: int = -903) -> RetrievedChunk:
+    """Gross-vs-net literacy note for a split request on pre-deduction pay.
+
+    Deliberately carries NO percentage and NO RM figure: SOCSO and EIS are banded
+    contribution tables (not flat rates) and every statutory rate drifts over time,
+    so a computed net or a stated rate would be a fabricated figure the verifier
+    cannot catch. The stable, citable facts are only that these deductions exist
+    and are taken before pay reaches the bank — which is all this note asserts.
+    """
+    # Deliberately all-affirmative (no "not"/"never"): the grounding verifier splits
+    # evidence by negation polarity, so a positively-phrased answer can only draw on
+    # positively-phrased passages. Keeping the key vocabulary (deducted, budget,
+    # take-home, net) in affirmative sentences lets a correct answer be supported.
+    content = (
+        "In Malaysia, gross monthly pay is the amount earned before statutory "
+        "deductions. The Employees Provident Fund (EPF), the Social Security "
+        "Organisation (SOCSO), and the Employment Insurance System (EIS) are "
+        "deducted from gross pay before it reaches the bank account. The remaining "
+        "take-home pay, also called net pay, is the amount available to spend and "
+        "save. A monthly budget should be built on take-home pay so the plan matches "
+        "the money that actually reaches the bank account. The exact deduction "
+        "amounts depend on current statutory rates, so the reliable figure to use is "
+        "the net take-home pay shown on the payslip or bank credit."
+    )
+    return RetrievedChunk(
+        id=chunk_id,
+        title="Gross versus net pay (Malaysian statutory deductions)",
+        source="Gross-vs-net pay note",
         page_number=None,
         chunk_index=None,
         content=content,

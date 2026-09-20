@@ -5,8 +5,10 @@ import unittest
 from app.rag.allocation import (
     allocation_split,
     financial_priority_chunk,
+    gross_income_chunk,
     is_allocation_query,
     is_diagnostic_query,
+    is_gross_income_query,
     parse_amount,
     synthetic_allocation_chunk,
 )
@@ -23,6 +25,15 @@ class AmountParsingTests(unittest.TestCase):
         # A plain 2-digit count is not an amount; a year alone is not an allocation.
         self.assertIsNone(parse_amount("how to budget"))
         self.assertEqual(parse_amount("EPF dividend in 2024"), 2024.0)  # >=3 digits
+
+    def test_rejects_identifiers_masquerading_as_amounts(self):
+        # A phone or account number must never be read as a ringgit amount, or an
+        # allocation query could inject a fabricated (and absurd) split figure.
+        self.assertIsNone(parse_amount("phone 0123456789 how to save"))     # 10-digit run
+        self.assertIsNone(parse_amount("account 1234567890123 split it"))    # 13-digit run
+        self.assertIsNone(parse_amount("how to split my budget, acct 1234567890123"))
+        # The magnitude ceiling also rejects a comma-grouped identifier.
+        self.assertIsNone(parse_amount("ref 12,345,678,901"))
 
 
 class IntentTests(unittest.TestCase):
@@ -42,6 +53,62 @@ class IntentTests(unittest.TestCase):
                 self.assertTrue(is_diagnostic_query(message))
         # With an amount it is a concrete allocation, not diagnostic.
         self.assertFalse(is_diagnostic_query("manage my RM5000 income"))
+
+
+class GrossIncomeTests(unittest.TestCase):
+    def test_detects_gross_pay_cues(self):
+        for message in (
+            "i earn 5000 before epf and socso, how to split my budget",
+            "my gross salary is RM4000, how to allocate it",
+            "gaji pokok 3500, macam mana nak bahagi",
+            "allocate my basic salary of 6000",
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(is_gross_income_query(message))
+
+    def test_gross_takes_precedence_over_plain_allocation(self):
+        # Both predicates match a gross allocation request; the injection path must
+        # pick gross first so it never splits pre-deduction pay.
+        message = "how to allocate my 5000 salary before epf"
+        self.assertTrue(is_gross_income_query(message))
+        self.assertTrue(is_allocation_query(message))
+
+    def test_net_allocation_is_not_flagged_gross(self):
+        # A plain (net-assumed) amount must NOT trip the gross path.
+        for message in (
+            "if i have 6000, how to allocate my monthly budget",
+            "how to split RM3000 across categories",
+            "my take-home pay is 4000, how to budget",
+        ):
+            with self.subTest(message=message):
+                self.assertFalse(is_gross_income_query(message))
+
+    def test_gross_chunk_carries_no_fabricated_figures(self):
+        # The whole point: no percentage, no computed net, no RM amount — only the
+        # stable fact that the deductions exist and are taken before take-home pay.
+        chunk = gross_income_chunk()
+        self.assertNotIn("%", chunk.content)
+        self.assertNotIn("RM", chunk.content)
+        for scheme in ("EPF", "SOCSO", "EIS"):
+            self.assertIn(scheme, chunk.content)
+        self.assertLess(chunk.id, 0)
+        self.assertEqual(chunk.source_type, "corpus")
+
+    def test_gross_answer_asking_for_net_passes_validation(self):
+        from app.rag.grounding import validate_coach_answer
+
+        chunk = gross_income_chunk()
+        answer = (
+            "**Insight**\n"
+            "EPF, SOCSO, and EIS are deducted from gross pay before it reaches your "
+            "bank account, so a budget should use your take-home pay [S1].\n"
+            "**Recommended action**\n"
+            "Tell me your monthly take-home pay so I can allocate it accurately.\n"
+            "**Educational guidance**\n"
+            "This is educational guidance, not licensed financial advice."
+        )
+        result = validate_coach_answer(answer, [chunk.content], "")
+        self.assertTrue(result.is_valid, result.errors)
 
 
 class SplitTests(unittest.TestCase):
