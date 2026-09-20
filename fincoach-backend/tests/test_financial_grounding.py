@@ -1,5 +1,20 @@
 import unittest
 
+from app.rag import grounding
+
+_SAVED_VALIDATION_FLAG = grounding._VALIDATION_ENABLED
+
+
+def setUpModule():
+    # The guard-behaviour tests here assert validation rejects bad drafts, so
+    # they force it on regardless of the COACH_ANSWER_VALIDATION kill switch
+    # (which defaults off in the live path).
+    grounding._VALIDATION_ENABLED = True
+
+
+def tearDownModule():
+    grounding._VALIDATION_ENABLED = _SAVED_VALIDATION_FLAG
+
 
 class FinancialGroundingRoutingTests(unittest.TestCase):
     def test_routes_malay_general_budget_and_emergency_fund_questions_to_rag(self):

@@ -5,7 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from math import ceil
+import os
 import re
+
+
+# Kill switch (default OFF). When COACH_ANSWER_VALIDATION is not explicitly
+# turned on, validate_coach_answer short-circuits to "valid" and every
+# provider draft ships unedited: no format check, no numeric-support check, no
+# citation check, no retry, no verifier. This removes the anti-fabrication guard
+# from the live path. Set COACH_ANSWER_VALIDATION=1 (or true/on/yes) to restore
+# the deterministic grounding guard.
+_VALIDATION_ENABLED = os.environ.get("COACH_ANSWER_VALIDATION", "").strip().lower() in (
+    "1",
+    "true",
+    "on",
+    "yes",
+)
 
 
 REQUIRED_HEADINGS = (
@@ -383,6 +398,10 @@ def validate_coach_answer(
     require_source_for_facts: bool = True,
 ) -> GroundingValidation:
     """Validate format and prevent unsupported financial claims from shipping."""
+    # Kill switch: when validation is disabled, accept every draft as-is. The
+    # provider output ships with no grounding guard. See _VALIDATION_ENABLED.
+    if not _VALIDATION_ENABLED:
+        return GroundingValidation(True)
     text = str(content or "").strip()
     hard_errors: list[str] = []
     uncertain_claims: list[GroundingClaim] = []
