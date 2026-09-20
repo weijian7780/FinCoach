@@ -87,14 +87,16 @@ DIAGNOSTIC_GUIDANCE = (
 )
 GROSS_INCOME_GUIDANCE = (
     "The stated amount is GROSS pay (before statutory deductions). Do NOT split it "
-    "with the 50/30/20 framework and do NOT state any RM figure or percentage. In "
-    "Insight, state the cited fact in POSITIVE, affirmative wording (avoid 'not' / "
-    "'isn't'): say that EPF, SOCSO, and EIS are deducted from gross pay before it "
-    "reaches the bank account, so a budget should use take-home (net) pay. Do NOT "
-    "compute, estimate, or cite a specific net figure or deduction rate. In "
-    "Recommended action, ask the user for their monthly take-home (net) pay — the "
-    "amount that actually reaches their bank account — so the next answer can "
-    "allocate it accurately."
+    "with the 50/30/20 framework. State NO ringgit figure and NO percentage anywhere "
+    "in the answer. In particular, do NOT repeat, restate, or quote the user's stated "
+    "gross amount — mentioning it counts as an unsupported figure and will be "
+    "rejected. In Insight, state the cited fact in POSITIVE, affirmative wording "
+    "(avoid 'not' / 'isn't') and WITHOUT any number: say that EPF, SOCSO, and EIS are "
+    "deducted from gross pay before it reaches the bank account, so a budget should "
+    "use take-home (net) pay. Do NOT compute, estimate, or cite a net figure or "
+    "deduction rate. In Recommended action, ask the user for their monthly take-home "
+    "(net) pay — the amount that actually reaches their bank account — so the next "
+    "answer can allocate it accurately."
 )
 
 
