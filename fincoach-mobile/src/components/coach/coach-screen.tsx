@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import { randomUUID } from 'expo-crypto';
 import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -40,10 +40,12 @@ import { isCoachAction } from '@/lib/coach-agent';
 import {
   canSendCoachMessage,
   coachErrorMessage,
+  getCoachFollowUpChips,
   mergeTurn,
   shouldRequestSpendingConsent,
   shouldShowCoachSuggestions,
   sortConversations,
+  type CoachFollowUpChip,
 } from '@/lib/coach-domain';
 import { buildCoachInsightCards, type CoachInsightCard } from '@/lib/coach-insights';
 import { coachMotion } from '@/lib/coach-motion';
@@ -126,6 +128,7 @@ export default function CoachScreen() {
   const { profile, session, updateProfile } = useAuth();
   const params = useLocalSearchParams<{ sessionId?: string }>();
   const listRef = useRef<FlatList<CoachMessageType>>(null);
+  const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const [conversation, setConversation] = useState<CoachConversation | null>(null);
   const [messages, setMessages] = useState<CoachMessageType[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
@@ -598,6 +601,24 @@ export default function CoachScreen() {
     () => [...messages].reverse().find((message) => message.role === 'assistant')?.id ?? null,
     [messages],
   );
+  // Paced micro-coaching: after a completed answer, surface any intent the single
+  // locked-format reply dropped (or the take-home figure it asked for) as a chip.
+  const followUpChips = useMemo<CoachFollowUpChip[]>(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant' || last.status !== 'completed') return [];
+    const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+    return getCoachFollowUpChips(lastUser?.content ?? '', last.content);
+  }, [messages]);
+  const onFollowUpChip = useCallback((chip: CoachFollowUpChip) => {
+    if (chip.kind === 'send') {
+      void send(chip.query);
+      return;
+    }
+    // Prefill only — the user types their own take-home figure; we never send a
+    // financial amount they did not enter.
+    setInput(chip.text);
+    inputRef.current?.focus();
+  }, [send]);
   const renderMessage = useCallback(
     ({ item }: { item: CoachMessageType }) => (
       <CoachMessage
@@ -786,9 +807,26 @@ export default function CoachScreen() {
         </Animated.View>
       ) : null}
 
+      {!showSuggestions && !isSending && followUpChips.length > 0 ? (
+        <Animated.View
+          entering={reduceMotion ? undefined : FadeInDown.duration(coachMotion.stateTransitionDuration)}
+          exiting={reduceMotion ? undefined : FadeOut.duration(coachMotion.stateTransitionDuration)}
+          style={styles.suggestionSection}>
+          <Text style={styles.suggestionLabel}>CONTINUE</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestions} keyboardShouldPersistTaps="handled">
+            {followUpChips.map((chip) => (
+              <AnimatedPressable key={chip.label} accessibilityRole="button" onPress={() => onFollowUpChip(chip)} style={styles.suggestionChip}>
+                <Text style={styles.suggestionText}>{chip.label}</Text>
+              </AnimatedPressable>
+            ))}
+          </ScrollView>
+        </Animated.View>
+      ) : null}
+
       <View style={[styles.composerBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <View style={styles.inputShell}>
           <TextInput
+            ref={inputRef}
             accessibilityLabel="Message FinCoach"
             value={input}
             onChangeText={setInput}
