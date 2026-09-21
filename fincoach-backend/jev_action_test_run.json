@@ -1,0 +1,1621 @@
+{
+  "summary": {
+    "cases": 36,
+    "task_recall": 0.95,
+    "task_precision": 0.8837,
+    "task_exact": 0.8333,
+    "topic_recall": 1.0,
+    "topic_precision": 0.7857,
+    "personal_access_acc": 0.9444,
+    "cadence_acc": 1.0,
+    "cadence_cases": 5,
+    "unneeded_clarify": 3,
+    "missed_clarify": 0,
+    "latency_median_ms": 308,
+    "latency_p95_ms": 394,
+    "in_tok_total": 53919,
+    "out_tok_total": 22932,
+    "tok_per_case": 2135,
+    "model": "jev-1.13.0"
+  },
+  "rows": [
+    {
+      "id": "t-spend-food-en",
+      "category": "personal_single",
+      "query": "What did I spend on groceries in July?",
+      "exp_actions": [
+        "get_spending_summary"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_spending_summary"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_spending_summary",
+          0.92
+        ],
+        [
+          "get_financial_profile",
+          0.29
+        ],
+        [
+          "search_transactions",
+          0.29
+        ],
+        [
+          "prepare_report",
+          0.12
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.26
+      },
+      "latency_ms": 924.234099999012,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-budget-ms",
+      "category": "personal_single",
+      "query": "Bajet saya okay tak bulan ni?",
+      "exp_actions": [
+        "get_budget_status"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_budget_status"
+      ],
+      "got_topics": [
+        "emergency_fund"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.06,
+      "top_actions": [
+        [
+          "get_budget_status",
+          0.83
+        ],
+        [
+          "get_cashflow_forecast",
+          0.66
+        ],
+        [
+          "get_financial_profile",
+          0.52
+        ],
+        [
+          "get_financial_overview",
+          0.49
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.18
+      },
+      "latency_ms": 307.9931999964174,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-goals-progress-en",
+      "category": "personal_single",
+      "query": "How close am I to my laptop savings goal?",
+      "exp_actions": [
+        "get_savings_goals"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_savings_goals",
+          0.94
+        ],
+        [
+          "get_budget_status",
+          0.67
+        ],
+        [
+          "get_financial_profile",
+          0.53
+        ],
+        [
+          "get_spending_summary",
+          0.13
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.09
+      },
+      "latency_ms": 288.74359999463195,
+      "in_tok": 1495,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-reminders-ms",
+      "category": "personal_single",
+      "query": "Ada bil apa yang saya kena bayar minggu depan?",
+      "exp_actions": [
+        "get_upcoming_reminders"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_upcoming_reminders"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_upcoming_reminders",
+          0.91
+        ],
+        [
+          "search_transactions",
+          0.59
+        ],
+        [
+          "get_financial_profile",
+          0.24
+        ],
+        [
+          "get_spending_summary",
+          0.2
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.15
+      },
+      "latency_ms": 404.02280000125756,
+      "in_tok": 1495,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-search-en",
+      "category": "personal_single",
+      "query": "List all my Grab rides last month",
+      "exp_actions": [
+        "search_transactions"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "search_transactions"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "search_transactions",
+          0.95
+        ],
+        [
+          "get_spending_summary",
+          0.56
+        ],
+        [
+          "prepare_report",
+          0.3
+        ],
+        [
+          "get_upcoming_reminders",
+          0.15
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.27
+      },
+      "latency_ms": 318.30480000644457,
+      "in_tok": 1492,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-profile-ms",
+      "category": "personal_single",
+      "query": "Apa sumber pendapatan yang saya dah set?",
+      "exp_actions": [
+        "get_financial_profile"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_financial_profile"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "get_financial_profile",
+          0.94
+        ],
+        [
+          "get_upcoming_reminders",
+          0.17
+        ],
+        [
+          "get_financial_overview",
+          0.13
+        ],
+        [
+          "search_transactions",
+          0.11
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.13
+      },
+      "latency_ms": 292.04570000001695,
+      "in_tok": 1495,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-plan-weekly-en",
+      "category": "planning",
+      "query": "Set up a weekly savings schedule for me",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_weekly_savings_plan",
+        "prepare_reminder"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.96
+        ],
+        [
+          "prepare_reminder",
+          0.86
+        ],
+        [
+          "education",
+          0.15
+        ],
+        [
+          "predict_savings",
+          0.14
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.02
+      },
+      "latency_ms": 320.3929000010248,
+      "in_tok": 1493,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-predict-ms",
+      "category": "planning",
+      "query": "Boleh ramal berapa saya boleh simpan bulan depan?",
+      "exp_actions": [
+        "predict_savings"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "predict_savings"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "predict_savings",
+          0.96
+        ],
+        [
+          "get_cashflow_forecast",
+          0.66
+        ],
+        [
+          "get_financial_profile",
+          0.5
+        ],
+        [
+          "education",
+          0.48
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.27
+      },
+      "latency_ms": 295.54880000068806,
+      "in_tok": 1498,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-cashflow-en",
+      "category": "planning",
+      "query": "Will I run out of money before payday?",
+      "exp_actions": [
+        "get_cashflow_forecast"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "get_budget_status",
+          0.64
+        ],
+        [
+          "get_cashflow_forecast",
+          0.61
+        ],
+        [
+          "get_financial_profile",
+          0.52
+        ],
+        [
+          "predict_savings",
+          0.33
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.12
+      },
+      "latency_ms": 312.2302999981912,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-plan-monthly-ms",
+      "category": "planning",
+      "query": "Buat pelan simpanan, sekali bayar setiap bulan",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": true,
+      "got_actions": [
+        "get_weekly_savings_plan",
+        "prepare_reminder"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.93
+        ],
+        [
+          "prepare_reminder",
+          0.74
+        ],
+        [
+          "education",
+          0.35
+        ],
+        [
+          "prepare_report",
+          0.29
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.97
+      },
+      "latency_ms": 348.3723000026657,
+      "in_tok": 1497,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-plan-nextmonth-period-en",
+      "category": "planning",
+      "query": "Draw up a savings plan for the coming month",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.95
+        ],
+        [
+          "prepare_report",
+          0.57
+        ],
+        [
+          "predict_savings",
+          0.5
+        ],
+        [
+          "education",
+          0.45
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.23
+      },
+      "latency_ms": 329.46000000083586,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-multi-spend-goals-en",
+      "category": "multi_action",
+      "query": "Show my spending this month and my savings goals",
+      "exp_actions": [
+        "get_savings_goals",
+        "get_spending_summary"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals",
+        "get_spending_summary"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_savings_goals",
+          0.96
+        ],
+        [
+          "get_spending_summary",
+          0.95
+        ],
+        [
+          "get_financial_profile",
+          0.61
+        ],
+        [
+          "get_financial_overview",
+          0.52
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.1
+      },
+      "latency_ms": 286.0731000037049,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-multi-cashflow-plan-en",
+      "category": "multi_action",
+      "query": "Check if my cash lasts the month and set me a weekly savings plan",
+      "exp_actions": [
+        "get_cashflow_forecast",
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_budget_status",
+        "get_cashflow_forecast",
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.97
+        ],
+        [
+          "get_cashflow_forecast",
+          0.81
+        ],
+        [
+          "get_budget_status",
+          0.77
+        ],
+        [
+          "predict_savings",
+          0.6
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.03
+      },
+      "latency_ms": 337.0761999976821,
+      "in_tok": 1499,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-multi-report-predict-en",
+      "category": "multi_action",
+      "query": "Generate a PDF report and predict my month-end savings",
+      "exp_actions": [
+        "predict_savings",
+        "prepare_report"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "predict_savings",
+        "prepare_report"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "prepare_report",
+          0.98
+        ],
+        [
+          "predict_savings",
+          0.97
+        ],
+        [
+          "get_cashflow_forecast",
+          0.61
+        ],
+        [
+          "get_financial_profile",
+          0.57
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.16
+      },
+      "latency_ms": 315.134800002852,
+      "in_tok": 1495,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-multi-overview-reminder-ms",
+      "category": "multi_action",
+      "query": "Macam mana kewangan saya secara keseluruhan, dan ingatkan saya bayar sewa 5hb",
+      "exp_actions": [
+        "get_financial_overview",
+        "prepare_reminder"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_budget_status",
+        "get_financial_overview",
+        "get_spending_summary",
+        "prepare_reminder"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_financial_overview",
+          0.87
+        ],
+        [
+          "prepare_reminder",
+          0.75
+        ],
+        [
+          "get_budget_status",
+          0.73
+        ],
+        [
+          "get_spending_summary",
+          0.71
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.14
+      },
+      "latency_ms": 299.7998999999254,
+      "in_tok": 1508,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-comb-budget-emergency-en",
+      "category": "combined",
+      "query": "Am I over budget, and how much should I keep as an emergency fund?",
+      "exp_actions": [
+        "education",
+        "get_budget_status"
+      ],
+      "exp_topics": [
+        "emergency_fund"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_budget_status"
+      ],
+      "got_topics": [
+        "emergency_fund"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_budget_status",
+          0.91
+        ],
+        [
+          "education",
+          0.87
+        ],
+        [
+          "get_financial_overview",
+          0.62
+        ],
+        [
+          "get_financial_profile",
+          0.45
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.13
+      },
+      "latency_ms": 278.44809999805875,
+      "in_tok": 1501,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-comb-spend-bnpl-ms",
+      "category": "combined",
+      "query": "Berapa saya belanja bulan ni, dan BNPL ni selamat tak?",
+      "exp_actions": [
+        "education",
+        "get_spending_summary"
+      ],
+      "exp_topics": [
+        "bnpl"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_spending_summary"
+      ],
+      "got_topics": [
+        "bnpl"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "education",
+          0.91
+        ],
+        [
+          "get_spending_summary",
+          0.89
+        ],
+        [
+          "get_upcoming_reminders",
+          0.68
+        ],
+        [
+          "get_budget_status",
+          0.64
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.22
+      },
+      "latency_ms": 286.31189999578055,
+      "in_tok": 1501,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-comb-plan-tax-en",
+      "category": "combined",
+      "query": "Make me a savings plan and tell me whether I pay tax on side income",
+      "exp_actions": [
+        "education",
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [
+        "tax"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [
+        "tax"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.95
+        ],
+        [
+          "education",
+          0.93
+        ],
+        [
+          "get_financial_profile",
+          0.63
+        ],
+        [
+          "predict_savings",
+          0.47
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.07
+      },
+      "latency_ms": 303.98979999881703,
+      "in_tok": 1500,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-edu-ccris-en",
+      "category": "education",
+      "query": "What is CCRIS and how do I check my record?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "credit_records"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "credit_records"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "education",
+          0.95
+        ],
+        [
+          "get_financial_profile",
+          0.63
+        ],
+        [
+          "prepare_report",
+          0.12
+        ],
+        [
+          "get_spending_summary",
+          0.09
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.15
+      },
+      "latency_ms": 268.5650999992504,
+      "in_tok": 1497,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-edu-pidm-ms",
+      "category": "education",
+      "query": "PIDM lindungi duit simpanan ke?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "pidm"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "pidm"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "education",
+          0.95
+        ],
+        [
+          "get_financial_overview",
+          0.08
+        ],
+        [
+          "predict_savings",
+          0.05
+        ],
+        [
+          "get_financial_profile",
+          0.05
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.08
+      },
+      "latency_ms": 343.4696000040276,
+      "in_tok": 1496,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-edu-shariah-en",
+      "category": "education",
+      "query": "How does Shariah-compliant investing actually work?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "shariah"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "shariah"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "education",
+          0.99
+        ],
+        [
+          "get_financial_overview",
+          0.06
+        ],
+        [
+          "search_transactions",
+          0.03
+        ],
+        [
+          "prepare_report",
+          0.03
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.15
+      },
+      "latency_ms": 289.1258000017842,
+      "in_tok": 1497,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-edu-akpk-complaints-en",
+      "category": "education",
+      "query": "What's the difference between AKPK help and filing a financial complaint?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "akpk",
+        "financial_complaints"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "akpk",
+        "financial_complaints"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "education",
+          0.97
+        ],
+        [
+          "get_financial_overview",
+          0.08
+        ],
+        [
+          "get_financial_profile",
+          0.04
+        ],
+        [
+          "prepare_report",
+          0.03
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.24
+      },
+      "latency_ms": 280.0820999982534,
+      "in_tok": 1499,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-edu-scam-en",
+      "category": "education",
+      "query": "How can I tell if an investment offer is a scam?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "scams"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "scams"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "education",
+          0.99
+        ],
+        [
+          "get_financial_overview",
+          0.04
+        ],
+        [
+          "search_transactions",
+          0.03
+        ],
+        [
+          "predict_savings",
+          0.02
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.15
+      },
+      "latency_ms": 306.18200000026263,
+      "in_tok": 1497,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-edu-ptptn-ms",
+      "category": "education",
+      "query": "Macam mana nak mohon pinjaman PTPTN?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "ptptn"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "ptptn",
+        "student_aid"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "education",
+          0.98
+        ],
+        [
+          "get_financial_profile",
+          0.06
+        ],
+        [
+          "get_financial_overview",
+          0.04
+        ],
+        [
+          "prepare_report",
+          0.03
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.15
+      },
+      "latency_ms": 311.9267000001855,
+      "in_tok": 1498,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-neg-noreminder-en",
+      "category": "negation",
+      "query": "Just show my upcoming bills, don't create any reminder",
+      "exp_actions": [
+        "get_upcoming_reminders"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_upcoming_reminders"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_upcoming_reminders",
+          0.97
+        ],
+        [
+          "search_transactions",
+          0.48
+        ],
+        [
+          "get_financial_profile",
+          0.26
+        ],
+        [
+          "get_spending_summary",
+          0.13
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.14
+      },
+      "latency_ms": 296.86450000008335,
+      "in_tok": 1496,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-neg-noplan-ms",
+      "category": "negation",
+      "query": "Terangkan simpanan mingguan sahaja, jangan buat sebarang pelan",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.03,
+      "top_actions": [
+        [
+          "education",
+          0.74
+        ],
+        [
+          "get_upcoming_reminders",
+          0.46
+        ],
+        [
+          "get_spending_summary",
+          0.38
+        ],
+        [
+          "predict_savings",
+          0.29
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.03
+      },
+      "latency_ms": 271.7735999976867,
+      "in_tok": 1502,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-casual-bye-en",
+      "category": "casual",
+      "query": "Alright, talk to you later!",
+      "exp_actions": [
+        "casual"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.98,
+      "top_actions": [
+        [
+          "get_financial_overview",
+          0.04
+        ],
+        [
+          "get_upcoming_reminders",
+          0.04
+        ],
+        [
+          "get_spending_summary",
+          0.02
+        ],
+        [
+          "get_budget_status",
+          0.02
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.08
+      },
+      "latency_ms": 338.1346999958623,
+      "in_tok": 1492,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-casual-howareyou-mix",
+      "category": "casual",
+      "query": "Apa khabar, you okay tak today?",
+      "exp_actions": [
+        "casual"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.98,
+      "top_actions": [
+        [
+          "get_financial_overview",
+          0.03
+        ],
+        [
+          "get_upcoming_reminders",
+          0.03
+        ],
+        [
+          "get_spending_summary",
+          0.02
+        ],
+        [
+          "get_budget_status",
+          0.02
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.14
+      },
+      "latency_ms": 388.969100000395,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-act-report-ms",
+      "category": "write_action",
+      "query": "Buatkan laporan kewangan dalam bentuk PDF",
+      "exp_actions": [
+        "prepare_report"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "prepare_report"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "prepare_report",
+          0.97
+        ],
+        [
+          "get_spending_summary",
+          0.43
+        ],
+        [
+          "get_financial_overview",
+          0.15
+        ],
+        [
+          "get_financial_profile",
+          0.07
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.12
+      },
+      "latency_ms": 393.8408000030904,
+      "in_tok": 1494,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-act-reminder-en",
+      "category": "write_action",
+      "query": "Set a reminder for my car insurance renewal on the 20th",
+      "exp_actions": [
+        "prepare_reminder"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "prepare_reminder"
+      ],
+      "got_topics": [
+        "takaful"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "prepare_reminder",
+          0.98
+        ],
+        [
+          "get_financial_profile",
+          0.03
+        ],
+        [
+          "get_financial_overview",
+          0.02
+        ],
+        [
+          "get_upcoming_reminders",
+          0.02
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.1
+      },
+      "latency_ms": 299.1933999946923,
+      "in_tok": 1499,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-amb-vague-en",
+      "category": "ambiguous",
+      "query": "I need help with some stuff",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": true,
+      "got_actions": [],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.48,
+      "top_actions": [
+        [
+          "get_financial_overview",
+          0.16
+        ],
+        [
+          "education",
+          0.1
+        ],
+        [
+          "get_upcoming_reminders",
+          0.09
+        ],
+        [
+          "prepare_reminder",
+          0.07
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.1
+      },
+      "latency_ms": 380.8629999984987,
+      "in_tok": 1491,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-amb-money-ms",
+      "category": "ambiguous",
+      "query": "Tolong uruskan duit saya sikit",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": true,
+      "got_actions": [],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.04,
+      "top_actions": [
+        [
+          "get_financial_overview",
+          0.56
+        ],
+        [
+          "get_spending_summary",
+          0.31
+        ],
+        [
+          "education",
+          0.29
+        ],
+        [
+          "get_weekly_savings_plan",
+          0.25
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.06
+      },
+      "latency_ms": 307.85089999699267,
+      "in_tok": 1495,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-unsup-sellstock-en",
+      "category": "unsupported",
+      "query": "Sell my Tenaga shares now",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "education",
+          0.18
+        ],
+        [
+          "prepare_reminder",
+          0.08
+        ],
+        [
+          "search_transactions",
+          0.07
+        ],
+        [
+          "predict_savings",
+          0.05
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.1
+      },
+      "latency_ms": 286.20950000185985,
+      "in_tok": 1491,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-unsup-robo-en",
+      "category": "unsupported",
+      "query": "Which robo-advisor is the best to invest with?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "education",
+          0.97
+        ],
+        [
+          "get_financial_overview",
+          0.06
+        ],
+        [
+          "get_financial_profile",
+          0.05
+        ],
+        [
+          "predict_savings",
+          0.03
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.18
+      },
+      "latency_ms": 309.73709999670973,
+      "in_tok": 1496,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-fu-nextmonth-en",
+      "category": "follow_up",
+      "query": "And what about next month?",
+      "exp_actions": [
+        "get_spending_summary"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.14,
+      "top_actions": [
+        [
+          "get_spending_summary",
+          0.62
+        ],
+        [
+          "predict_savings",
+          0.36
+        ],
+        [
+          "get_financial_profile",
+          0.3
+        ],
+        [
+          "get_upcoming_reminders",
+          0.25
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.37
+      },
+      "latency_ms": 291.54200000630226,
+      "in_tok": 1526,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "t-fu-topicchange-en",
+      "category": "follow_up",
+      "query": "Wait, what is compound interest anyway?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "compound_interest"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "compound_interest"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.04,
+      "top_actions": [
+        [
+          "education",
+          0.98
+        ],
+        [
+          "get_budget_status",
+          0.39
+        ],
+        [
+          "get_spending_summary",
+          0.14
+        ],
+        [
+          "get_financial_overview",
+          0.11
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.11
+      },
+      "latency_ms": 289.48530000343453,
+      "in_tok": 1520,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    }
+  ]
+}
