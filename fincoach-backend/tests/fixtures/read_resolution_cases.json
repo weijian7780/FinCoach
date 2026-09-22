@@ -1,0 +1,197 @@
+[
+  {
+    "id": "spending_default_period",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my spending",
+    "expected": {
+      "tool_name": "get_spending_summary",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-09-01", "end_date": "2026-09-30"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "explicit_month_spending",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my July spending",
+    "expected": {
+      "tool_name": "get_spending_summary",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "budget_invalid_week_keeps_intent",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my budget last week",
+    "expected": {
+      "tool_name": "get_budget_status",
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": ["month"]
+    }
+  },
+  {
+    "id": "invalid_iso_range_keeps_intent",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show spending from 2026-02-30 to 2026-03-05",
+    "expected": {
+      "tool_name": "get_spending_summary",
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": ["start_date", "end_date"]
+    }
+  },
+  {
+    "id": "ambiguous_savings",
+    "now": "2026-09-22",
+    "history": [{"role": "user", "content": "Show my spending on Food"}],
+    "query": "What about my savings?",
+    "expected": {
+      "tool_name": null,
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": ["savings_intent"],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "ambiguous_savings_malay",
+    "now": "2026-09-22",
+    "history": [{"role": "user", "content": "Tunjuk perbelanjaan Makanan saya"}],
+    "query": "Macam mana dengan simpanan saya?",
+    "expected": {
+      "tool_name": null,
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": ["savings_intent"],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "unresolved_transaction_reference",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show me that transaction",
+    "expected": {
+      "tool_name": null,
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": ["transaction_filter"],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "unresolved_transaction_reference_malay",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Tunjuk transaksi itu",
+    "expected": {
+      "tool_name": null,
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": ["transaction_filter"],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "unsupported_receipt_image",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show me the receipt image for that transaction",
+    "expected": {
+      "tool_name": null,
+      "readiness": "unsupported",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "explicit_comparison_two_months",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Compare my spending in June 2026 and August 2026",
+    "expected": {
+      "tool_name": "get_period_comparison",
+      "readiness": "ready",
+      "arguments": {"metric": "spending", "periods": ["2026-06", "2026-08"]},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "explicit_comparison_cross_year",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Compare my spending in November 2025 and January 2026",
+    "expected": {
+      "tool_name": "get_period_comparison",
+      "readiness": "ready",
+      "arguments": {"metric": "spending", "periods": ["2025-11", "2026-01"]},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "explicit_topic_reset_to_budget",
+    "now": "2026-09-22",
+    "history": [{"role": "user", "content": "Show spending only Food"}],
+    "query": "Show my budget this month",
+    "expected": {
+      "tool_name": "get_budget_status",
+      "readiness": "ready",
+      "arguments": {"month": "2026-09"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "mixed_language_month_continuation",
+    "now": "2026-09-22",
+    "history": [{"role": "user", "content": "Show my spending on Food in June"}],
+    "query": "What about July?",
+    "expected": {
+      "tool_name": "get_spending_summary",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-07-01", "end_date": "2026-07-31", "category_name": "Food"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "education_topic_has_no_read",
+    "now": "2026-09-22",
+    "history": [{"role": "user", "content": "Show my spending on Food"}],
+    "query": "What is PTPTN?",
+    "expected": {
+      "tool_name": null,
+      "readiness": "ready",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "casual_thanks_has_no_read",
+    "now": "2026-09-22",
+    "history": [{"role": "user", "content": "Show my spending on Food"}],
+    "query": "Thanks",
+    "expected": {
+      "tool_name": null,
+      "readiness": "ready",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  }
+]

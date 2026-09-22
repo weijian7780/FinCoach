@@ -1608,7 +1608,7 @@ class CoachingService:
             # write-enabled check so a read continuation never depends on write
             # actions and always re-runs the validated read path below.
             resumed_read = None
-            if interaction_reply:
+            if interaction_reply and interaction_reply.get("assistant_message_id"):
                 interaction_message = self.repository.require_interaction_message(
                     interaction_reply["assistant_message_id"]
                 )
@@ -1679,8 +1679,9 @@ class CoachingService:
                     # that saved state. A message that is itself a read, a new
                     # topic, an educational follow-up, or a cancellation does not.
                     if (
-                        resolved_read.tool_name is None
-                        and resolved_read.readiness != ReadReadiness.UNSUPPORTED
+                        getattr(resolved_read, "tool_name", None) is None
+                        and getattr(resolved_read, "readiness", ReadReadiness.READY)
+                        != ReadReadiness.UNSUPPORTED
                         and not knowledge_analysis.inherited
                     ):
                         pending_payload = _latest_pending_read_clarification(
