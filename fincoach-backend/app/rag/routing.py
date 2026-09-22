@@ -1,7 +1,7 @@
 """Deterministic routing for the four FinCoach response paths."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import Enum
 from zoneinfo import ZoneInfo
@@ -16,6 +16,45 @@ class CoachingRoute(str, Enum):
     COMBINED = "combined"
 
 
+class ReadReadiness(str, Enum):
+    """Whether a resolved read can execute, needs a question, or is out of scope."""
+
+    READY = "ready"
+    NEEDS_CLARIFICATION = "needs_clarification"
+    UNSUPPORTED = "unsupported"
+
+
+# Stable read-intent labels, kept separate from the coarse CoachingRoute and from
+# the tool name so the contract can name an intent even before a tool is chosen
+# (ambiguous savings) or when no read applies (casual/education -> None).
+_TOOL_INTENT = {
+    "get_spending_summary": "spending_summary",
+    "get_period_comparison": "period_comparison",
+    "search_transactions": "transaction_search",
+    "get_budget_status": "budget_status",
+    "get_financial_overview": "financial_overview",
+    "get_financial_profile": "financial_profile",
+    "get_savings_goals": "savings_goals",
+    "predict_savings": "savings_prediction",
+    "get_weekly_savings_plan": "weekly_savings_plan",
+    "get_cashflow_forecast": "cashflow_forecast",
+    "get_upcoming_reminders": "upcoming_reminders",
+    "get_report_summary": "report_summary",
+}
+
+# Tools whose default period is a calendar-month date range, and those whose
+# default period is a single month key. Missing periods are materialised from the
+# request's `now` with provenance "default"; the executor keeps its own defaults
+# for older callers that pass no dates at all.
+_RANGE_PERIOD_TOOLS = {"get_spending_summary", "get_report_summary", "search_transactions"}
+_MONTH_PERIOD_TOOLS = {
+    "get_budget_status",
+    "get_financial_overview",
+    "predict_savings",
+    "get_weekly_savings_plan",
+}
+
+
 @dataclass(frozen=True)
 class ResolvedReadRequest:
     """The deterministic personal-data read selected for this message."""
@@ -25,6 +64,11 @@ class ResolvedReadRequest:
     arguments: dict[str, object]
     inherited: bool = False
     clarification: str | None = None
+    intent: str | None = None
+    readiness: ReadReadiness = ReadReadiness.READY
+    missing_required: tuple[str, ...] = ()
+    invalid_fields: tuple[str, ...] = ()
+    parameter_sources: dict[str, str] = field(default_factory=dict)
 
 
 _MONTH_NUMBERS = {
@@ -96,10 +140,11 @@ _PERSONAL_FINANCE = re.compile(
     r"this month|last month|previous month|compare|comparison|"
     r"recorded|expenses?|transactions?|purchases?|spent|spending|"
     r"cut spending|how am i doing|monthly budget|budget limit|"
-    r"savings? goals?|allowance|category limit|rm\s*\d|"
+    r"savings?\s+goals?|savings?\s+plan|allowance|category limit|rm\s*\d|"
+    r"weekly\s+savings?|monthly\s+savings?|"
     r"berapa\s+(?:saya|aku)\s+(?:belanja|habis)|"
     r"(?:belanja|perbelanjaan|transaksi|bajet|had\s+kategori|"
-    r"matlamat\s+simpanan)\s+(?:saya|aku)|"
+    r"matlamat\s+simpanan|pelan\s+simpanan)\s+(?:saya|aku)|"
     r"(?:pendapatan|elaun)\s+(?:saya|aku)|bulan\s+(?:ini|lepas))\b",
     re.IGNORECASE,
 )
@@ -117,7 +162,9 @@ _FINANCIAL_EDUCATION = re.compile(
     r"aset kripto|kredit|pelaburan|penipuan|"
     r"aduan|biasiswa|bantuan kewangan|bank digital|e-?dompet|"
     r"perlindungan deposit|cukai|insurans|patuh syariah)\b|"
-    r"\b(?:what is (?:a )?budget|what is budgeting|explain budgeting|how to budget)\b",
+    r"\b(?:what is (?:a )?budget|what is budgeting|explain budgeting|how to budget)\b|"
+    r"\b(?:how\s+to\s+save|ways?\s+to\s+save|saving\s+tips|tips?\s+(?:on|for)\s+saving|"
+    r"how\s+to\s+make\s+a\s+savings?\s+plan|cara\s+simpan\s+duit|cara\s+menabung)\b",
     re.IGNORECASE,
 )
 
@@ -219,11 +266,41 @@ _REPORT_CREATE_REQUEST = re.compile(
 )
 
 _SAVINGS_GOAL_QUERY = re.compile(
-    r"\b(?:savings?\s+goals?|saving\s+goal|goal|target|deadline|"
-    r"save\s+for|reach\s+(?:my\s+)?goal|matlamat\s+simpanan|"
-    r"simpanan\s+saya)\b",
+    r"\b(?:savings?\s+goals?|saving\s+goal|savings?\s+plan|saving\s+plan|"
+    r"plan\s+(?:my\s+)?savings?|weekly\s+savings?|monthly\s+savings?|"
+    r"goal|target|deadline|save\s+for|reach\s+(?:my\s+)?goal|"
+    r"matlamat\s+simpanan|simpanan\s+saya|pelan\s+simpanan|rancang\s+simpanan)\b",
     re.IGNORECASE,
 )
+
+_SAVINGS_MENTION = re.compile(r"\b(?:savings?|simpanan)\b", re.IGNORECASE)
+# A clear savings intent names a goal, a plan, or a saving amount to hit. Bare
+# "my savings" / "simpanan saya" does neither: the user could mean saved-goal
+# progress OR an estimate of how much they can save. That is ambiguous, so it
+# must ask which meaning rather than inherit an unrelated read or pick one.
+_SAVINGS_CLEAR_INTENT = re.compile(
+    r"\b(?:savings?\s+goals?|saving\s+goal|savings?\s+plan|saving\s+plan|"
+    r"plan\s+(?:my\s+)?savings?|weekly\s+savings?|monthly\s+savings?|"
+    r"matlamat\s+simpanan|pelan\s+simpanan|rancang\s+simpanan)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_ambiguous_savings(message: str) -> bool:
+    """Whether a savings mention names neither a goal nor a saving-capacity ask."""
+    if not _SAVINGS_MENTION.search(message):
+        return False
+    if _SAVINGS_CLEAR_INTENT.search(message) or _PREDICTION_QUERY.search(message):
+        return False
+    return not is_weekly_savings_plan_request(message)
+
+
+def is_weekly_savings_plan_request(content: str) -> bool:
+    """A weekly saving amount needs cash-flow evidence as well as goal progress."""
+    return bool(
+        re.search(r"\b(?:weekly|(?:each|every|per)\s+week|mingguan|setiap\s+minggu)\b", content, re.I)
+        and re.search(r"\b(?:save|savings?|simpanan|simpan|menabung)\b", content, re.I)
+    )
 
 _BUDGET_QUERY = re.compile(
     r"\b(?:budget|overspent|overspend|over\s+budget|spending\s+limit|"
@@ -278,6 +355,56 @@ _TRANSACTION_SEARCH_QUERY = re.compile(
     r"\b(?:find|list|show|view|search)\b.{0,50}\b(?:transactions?|purchases?)\b",
     re.IGNORECASE,
 )
+# A demonstrative reference to a single record ("that transaction", "transaksi
+# itu") cannot be resolved by a broad search. Without a concrete date/merchant
+# locator it must ask which record, not silently dump every transaction.
+_TRANSACTION_REFERENCE = re.compile(
+    r"\b(?:that|this|the)\s+(?:transaction|purchase|expense|payment|charge|"
+    r"one|record|item)\b|"
+    r"\b(?:transaksi|pembelian|perbelanjaan|bayaran|rekod)\s+"
+    r"(?:itu|ini|tersebut)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_transaction_locator(message: str) -> bool:
+    """Whether a single-record reference is pinned to a resolvable filter."""
+    if re.search(r"\b\d{4}-\d{2}-\d{2}\b", message):
+        return True
+    calendar_text = re.sub(r"\bmay\s+(?:i|we|you)\b", "", message, flags=re.I)
+    if _MONTH_NAME_QUERY.search(calendar_text):
+        return True
+    if re.search(
+        r"\b(?:yesterday|today|tomorrow|this\s+month|last\s+month|"
+        r"semalam|hari\s+ini|esok|bulan\s+(?:ini|lepas))\b",
+        message, re.I,
+    ):
+        return True
+    # A named merchant/description filter, e.g. "that transaction at Speedmart".
+    if re.search(r"\b(?:on|for|at|from|about|di|pada)\s+[\w&'\-]{2,}", message, re.I):
+        return True
+    return False
+
+
+# Inspecting a stored image/receipt/attachment is a known read the coach cannot
+# perform. It is UNSUPPORTED (out of capability), distinct from an ambiguous
+# request that only needs clarification.
+_UNSUPPORTED_MEDIA_READ = re.compile(
+    r"\b(?:image|images|photo|photos|picture|pictures|attachment|attachments|"
+    r"scan|scanned|screenshot|gambar|imej)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_unsupported_read(message: str) -> bool:
+    """A known but out-of-scope read: opening a transaction's image/attachment."""
+    if not _UNSUPPORTED_MEDIA_READ.search(message):
+        return False
+    return bool(
+        _TRANSACTION_QUERY.search(message)
+        or _TRANSACTION_REFERENCE.search(message)
+        or re.search(r"\b(?:receipt|resit|transaction|transaksi)\b", message, re.I)
+    )
 _PROFILE_QUERY = re.compile(
     r"\b(?:income\s+source|financial\s+profile|coaching\s+style|"
     r"year\s+of\s+study)\b",
@@ -310,6 +437,163 @@ _NEXT_WEEK_RANGE_QUERY = re.compile(
 _NEXT_MONTH_RANGE_QUERY = re.compile(
     r"\b(?:next\s+month|bulan\s+depan)\b", re.IGNORECASE
 )
+
+# --- Multi-period comparison parsing ---------------------------------------
+# A comparison over an arbitrary set of calendar months ("compare July, August
+# and September", "the last six months", "this month with the previous three")
+# routes to the dedicated get_period_comparison tool. Selection and the period
+# list are resolved deterministically here; the backend validates and computes
+# the figures, so no extra provider call is needed. Only calendar months are
+# supported in this version — custom day ranges still clarify.
+_MONTH_RANGE_SEPARATOR = re.compile(
+    r"^\s*(?:-|–|—|to|through|thru|till|until|hingga|sehingga|sampai)\s*$",
+    re.IGNORECASE,
+)
+_LAST_N_MONTHS_QUERY = re.compile(
+    r"\b(?:last|past|previous|recent)\s+(?P<n>\d{1,2}|two|three|four|five|six|"
+    r"seven|eight|nine|ten|eleven|twelve)\s+months?\b",
+    re.IGNORECASE,
+)
+_PREVIOUS_N_QUERY = re.compile(
+    r"\bprevious\s+(?P<n>\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve)\b",
+    re.IGNORECASE,
+)
+_COMPARISON_BASELINE_QUERY = re.compile(
+    r"\b(?:against|compared\s+to|relative\s+to|baseline\s+(?:of|month)?)\s+"
+    r"(?P<month>" + "|".join(_MONTH_NUMBERS) + r")\b(?:\s+(?P<year>20\d{2}))?",
+    re.IGNORECASE,
+)
+_WORD_NUMBERS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+_MAX_COMPARISON_MONTHS = 12
+
+
+def _word_or_int(token: str) -> int | None:
+    token = token.strip().casefold()
+    if token.isdigit():
+        return int(token)
+    return _WORD_NUMBERS.get(token)
+
+
+def _infer_comparison_year(month: int, explicit_year: str | None, current_day: date) -> int:
+    if explicit_year:
+        return int(explicit_year)
+    # A comparison looks backward: a month later than the current one belongs to
+    # the previous year (e.g. "December" asked in September is last December).
+    return current_day.year - (1 if month > current_day.month else 0)
+
+
+def _shift_month(anchor: date, delta: int) -> date:
+    """Return the first day of the month `delta` months from `anchor`."""
+    index = (anchor.year * 12 + (anchor.month - 1)) + delta
+    return date(index // 12, index % 12 + 1, 1)
+
+
+def _named_comparison_months(message: str, current_day: date) -> list[date]:
+    """Resolve every explicitly named calendar month, expanding a 'X to Y' range."""
+    cleaned = re.sub(r"\bmay\s+(?:i|we|you)\b", "", message, flags=re.I)
+    matches = list(_MONTH_NAME_QUERY.finditer(cleaned))
+    resolved: list[tuple[int, int, date]] = []  # (start, end, month-start)
+    for match in matches:
+        month = _MONTH_NUMBERS[match.group("month").casefold()]
+        year = _infer_comparison_year(month, match.group("year"), current_day)
+        resolved.append((match.start("month"), match.end(), date(year, month, 1)))
+
+    if len(resolved) == 2:
+        between = cleaned[resolved[0][1]:resolved[1][0]]
+        if _MONTH_RANGE_SEPARATOR.match(between):
+            start, end = sorted((resolved[0][2], resolved[1][2]))
+            months, cursor = [], start
+            while cursor <= end and len(months) <= _MAX_COMPARISON_MONTHS:
+                months.append(cursor)
+                cursor = _shift_month(cursor, 1)
+            return months
+    unique = sorted({item[2] for item in resolved})
+    return unique
+
+
+def parse_comparison_request(
+    content: str,
+    *,
+    now: datetime | date | None = None,
+) -> dict[str, object] | None:
+    """Resolve a multi-month comparison into metric, periods, category, baseline.
+
+    Returns ``None`` when the message is not a multi-period comparison. Raises
+    ``ValueError`` with a user-facing message when a comparison is clearly meant
+    but the months cannot be resolved to at least two calendar months.
+    """
+    message = " ".join(content.strip().split())
+    current_day = _malaysia_date(now)
+    current_start = current_day.replace(day=1)
+
+    months = _named_comparison_months(message, current_day)
+
+    if not months:
+        last_n = _LAST_N_MONTHS_QUERY.search(message)
+        if last_n:
+            count = _word_or_int(last_n.group("n")) or 0
+            if count >= 2:
+                includes_current = bool(_THIS_MONTH_QUERY.search(message))
+                # "last six months" means six completed months; "including this
+                # month" keeps the in-progress current month in the window.
+                offset = 0 if includes_current else 1
+                months = sorted(
+                    _shift_month(current_start, -(i + offset)) for i in range(count)
+                )
+
+    if not months:
+        previous_n = _PREVIOUS_N_QUERY.search(message)
+        if previous_n and _THIS_MONTH_QUERY.search(message):
+            count = _word_or_int(previous_n.group("n")) or 0
+            if count >= 1:
+                months = sorted(
+                    [current_start, *(_shift_month(current_start, -(i + 1)) for i in range(count))]
+                )
+
+    if not months:
+        return None
+
+    months = sorted(set(months))[:_MAX_COMPARISON_MONTHS]
+
+    # A single resolvable month is an ordinary month lookup, not a comparison —
+    # unless the user clearly asked to compare, in which case ask for the months.
+    if len(months) < 2:
+        if _PERIOD_COMPARISON_QUERY.search(message):
+            raise ValueError(
+                "Please name at least two calendar months to compare, for "
+                "example 'compare July and September 2026'."
+            )
+        return None
+
+    metric = "budget" if (_BUDGET_QUERY.search(message) and not _TRANSACTION_QUERY.search(message)) else "spending"
+
+    baseline = None
+    baseline_match = _COMPARISON_BASELINE_QUERY.search(message)
+    if baseline_match:
+        b_month = _MONTH_NUMBERS[baseline_match.group("month").casefold()]
+        b_year = _infer_comparison_year(b_month, baseline_match.group("year"), current_day)
+        baseline = date(b_year, b_month, 1)
+
+    return {
+        "metric": metric,
+        "periods": [month.strftime("%Y-%m") for month in months],
+        "category_name": _category_filter(message),
+        "baseline": baseline.strftime("%Y-%m") if baseline else None,
+    }
+
+
+def is_multi_period_comparison(content: str, *, now: datetime | date | None = None) -> bool:
+    """Whether the message compares two or more explicit calendar months."""
+    try:
+        return parse_comparison_request(content, now=now) is not None
+    except ValueError:
+        # A comparison was clearly meant but under-specified; the tool selector
+        # still claims it so the resolver can raise a clarification.
+        return True
 
 # These are the short, data-dependent Coach quick actions shown in the mobile
 # UI.  They must not fall through to casual chat: an answer about what the user
@@ -380,6 +664,11 @@ def route_coach_message(content: str) -> CoachingRoute:
     if not message or _CASUAL_ONLY.fullmatch(message) or _CASUAL_NON_FINANCIAL.search(message):
         return CoachingRoute.CASUAL
 
+    if (re.search(r"^(?:what\s+is|what\s+are|explain|how\s+to)\b", message, re.I)
+            and (is_weekly_savings_plan_request(message) or _SAVINGS_GOAL_QUERY.search(message))
+            and not re.search(r"\b(?:my|me|i|saya|aku)\b", message, re.I)):
+        return CoachingRoute.FINANCIAL_EDUCATION
+
     # The mobile Coach exposes these without finance keywords. They are still
     # personal-finance questions because a useful answer requires live records.
     if is_financial_triage_query(message):
@@ -403,6 +692,8 @@ def route_coach_message(content: str) -> CoachingRoute:
         or _PROFILE_QUERY.search(message)
         or _CASHFLOW_FORECAST_QUERY.search(message)
         or _PREDICTION_QUERY.search(message)
+        or is_weekly_savings_plan_request(message)
+        or is_multi_period_comparison(message)
     )
 
     needs_personal_context = bool(_PERSONAL_FINANCE.search(message))
@@ -511,8 +802,12 @@ def required_read_agent_tool_name(
         return None
 
     message = " ".join(content.strip().split())
+    if is_multi_period_comparison(message):
+        return "get_period_comparison"
     if _CASHFLOW_FORECAST_QUERY.search(message):
         return "get_cashflow_forecast"
+    if is_weekly_savings_plan_request(message):
+        return "get_weekly_savings_plan"
     if _PREDICTION_QUERY.search(message):
         return "predict_savings"
     if _PROFILE_QUERY.search(message):
@@ -542,10 +837,24 @@ def required_read_agent_tool_arguments(
     message = " ".join(content.strip().split())
     arguments: dict[str, object] = {}
     current_day = _malaysia_date(now)
+    if tool_name == "get_period_comparison":
+        parsed = parse_comparison_request(message, now=now)
+        if not parsed:
+            raise ValueError(
+                "Please name at least two calendar months to compare, for "
+                "example 'compare July and September 2026'."
+            )
+        arguments["metric"] = parsed["metric"]
+        arguments["periods"] = parsed["periods"]
+        if parsed["category_name"]:
+            arguments["category_name"] = parsed["category_name"]
+        if parsed["baseline"]:
+            arguments["baseline"] = parsed["baseline"]
+        return arguments
     start, end = _explicit_period(message, tool_name, current_day)
     if tool_name in {"get_spending_summary", "get_report_summary", "search_transactions"} and start and end:
         arguments.update({"start_date": start.isoformat(), "end_date": end.isoformat()})
-    elif tool_name in {"get_budget_status", "get_financial_overview", "predict_savings"} and start:
+    elif tool_name in {"get_budget_status", "get_financial_overview", "predict_savings", "get_weekly_savings_plan"} and start:
         arguments["month"] = start.strftime("%Y-%m")
     category = _category_filter(message)
     if category and tool_name in {
@@ -598,31 +907,100 @@ def resolve_read_request(
         ))
         if route in (CoachingRoute.FINANCIAL_EDUCATION, CoachingRoute.COMBINED) or required_agent_tool_names(text):
             is_modifier = False
-        inherited = bool(is_modifier and context and context.tool_name)
+        # Opening a stored image/attachment is a known but unsupported read; a
+        # bare savings mention or a demonstrative single-record reference is
+        # ambiguous. None of these may inherit a read or run a broad search.
+        unsupported = _is_unsupported_read(text)
+        ambiguous_savings = _is_ambiguous_savings(text)
+        unresolved_txn_ref = bool(
+            _TRANSACTION_REFERENCE.search(text) and not _has_transaction_locator(text)
+        )
+        inherited = bool(
+            is_modifier and context and context.tool_name
+            and not (unsupported or ambiguous_savings or unresolved_txn_ref)
+        )
         tool = context.tool_name if inherited else direct_tool
         arguments = dict(context.arguments) if inherited else {}
-        clarification = None
-        if tool:
+        # Inherited parameters carry provenance "context"; explicit/default are
+        # recorded as they are resolved below.
+        parameter_sources: dict[str, str] = (
+            {key: "context" for key in (context.parameter_sources if context else {})}
+            if inherited else {}
+        )
+        clarification: str | None = None
+        readiness = ReadReadiness.READY
+        missing_required: tuple[str, ...] = ()
+        invalid_fields: tuple[str, ...] = ()
+        intent = _TOOL_INTENT.get(tool) if tool else None
+
+        if unsupported:
+            tool, arguments, parameter_sources, intent = None, {}, {}, None
+            readiness = ReadReadiness.UNSUPPORTED
+            clarification = (
+                "I can't open receipts or images from here. I can still summarise "
+                "that transaction if you tell me its date, merchant, or amount."
+            )
+        elif ambiguous_savings:
+            tool, arguments, parameter_sources = None, {}, {}
+            intent = "savings_unspecified"
+            readiness = ReadReadiness.NEEDS_CLARIFICATION
+            missing_required = ("savings_intent",)
+            clarification = (
+                "Do you mean your savings-goal progress, or an estimate of how "
+                "much you could save? Let me know which and I'll pull it up."
+            )
+        elif unresolved_txn_ref:
+            tool, arguments, parameter_sources = None, {}, {}
+            intent = "transaction_reference"
+            readiness = ReadReadiness.NEEDS_CLARIFICATION
+            missing_required = ("transaction_filter",)
+            clarification = (
+                "Which transaction do you mean? Share its date, the merchant, or "
+                "a short description and I'll find it."
+            )
+        elif tool:
             try:
-                arguments.update(required_read_agent_tool_arguments(text, tool, now=now))
+                explicit = required_read_agent_tool_arguments(text, tool, now=now)
+                for key in explicit:
+                    parameter_sources[key] = "explicit"
+                arguments.update(explicit)
                 if re.search(r"\b(?:all\s+categories|semua\s+kategori)\b", text, re.I):
                     arguments.pop("category_name", None)
-                if tool in {"get_budget_status", "get_financial_overview", "predict_savings"}:
+                    parameter_sources.pop("category_name", None)
+                if tool in _MONTH_PERIOD_TOOLS:
                     start, end = _explicit_period(text, tool, _malaysia_date(now))
                     if start and end and (start.day != 1 or end != _month_end(start)):
-                        subject = "Savings predictions" if tool == "predict_savings" else "Budgets"
+                        subject = "Savings plans and predictions" if tool in {"predict_savings", "get_weekly_savings_plan"} else "Budgets"
                         raise ValueError(f"{subject} use calendar months. Please specify a month and year.")
+                # Materialise the default period with provenance so the answer can
+                # state it; the executor keeps its own default for bare callers.
+                for key, value in _default_period_arguments(tool, now).items():
+                    if key not in arguments:
+                        arguments[key] = value
+                        parameter_sources[key] = "default"
             except ValueError as error:
-                arguments = {}
+                arguments, parameter_sources = {}, {}
+                readiness = ReadReadiness.NEEDS_CLARIFICATION
+                invalid_fields = _period_invalid_fields(tool)
                 clarification = str(error) if "Please" in str(error) else "Please provide valid dates in YYYY-MM-DD format, with the start before the end."
         elif is_modifier and route == CoachingRoute.CASUAL:
+            readiness = ReadReadiness.NEEDS_CLARIFICATION
+            missing_required = ("read_intent",)
             clarification = "Which financial record should I use? For example, ask for your expenses, budget, savings goal, or reminders."
+
         resolved = ResolvedReadRequest(
             route=CoachingRoute.PERSONAL_FINANCE if inherited else route,
             tool_name=tool, arguments=arguments, inherited=inherited,
-            clarification=clarification,
+            clarification=clarification, intent=intent, readiness=readiness,
+            missing_required=missing_required, invalid_fields=invalid_fields,
+            parameter_sources=parameter_sources,
         )
-        context = resolved if tool and not clarification and not required_agent_tool_names(text) else None
+        context = (
+            resolved
+            if tool and readiness == ReadReadiness.READY and not clarification
+            and not required_agent_tool_names(text)
+            else None
+        )
     return resolved
 
 
@@ -684,7 +1062,7 @@ def _explicit_period(
     explicit_year = match.group("year")
     if explicit_year:
         year = int(explicit_year)
-    elif is_budget_planning_request(message) or tool_name == "predict_savings":
+    elif is_budget_planning_request(message) or tool_name in {"predict_savings", "get_weekly_savings_plan"}:
         year = current_day.year + (month < current_day.month)
     else:
         year = current_day.year - (month > current_day.month)
@@ -699,6 +1077,29 @@ def _month_end(start: date) -> date:
         1,
     )
     return next_month - timedelta(days=1)
+
+
+def _default_period_arguments(
+    tool_name: str, now: datetime | date | None
+) -> dict[str, object]:
+    """The current-Malaysia-month range a spending-style read falls back to.
+
+    Only date-range reads materialise a concrete default here so the answer can
+    state the period it used. Month-key reads (budget/overview/prediction/plan)
+    keep the executor's own current-month default, so a broad overview is not
+    silently narrowed and older callers stay unchanged.
+    """
+    if tool_name in _RANGE_PERIOD_TOOLS:
+        start = _malaysia_date(now).replace(day=1)
+        return {"start_date": start.isoformat(), "end_date": _month_end(start).isoformat()}
+    return {}
+
+
+def _period_invalid_fields(tool_name: str) -> tuple[str, ...]:
+    """Which parameter a rejected period maps to, for the read contract."""
+    if tool_name in _MONTH_PERIOD_TOOLS:
+        return ("month",)
+    return ("start_date", "end_date")
 
 
 def _category_filter(message: str) -> str | None:

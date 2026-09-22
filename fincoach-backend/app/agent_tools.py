@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 import re
 from typing import Any, Callable
 from uuid import uuid4
@@ -18,6 +18,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from app.category_resolution import resolve_category_phrase
 
 
 _DAY_OF_MONTH_HINT = re.compile(
@@ -100,6 +102,33 @@ def _function(name: str, description: str, properties: dict, required: list[str]
 DATE = {"type": "string", "description": "ISO date in YYYY-MM-DD format."}
 OPTIONAL_CATEGORY = {"type": "string", "description": "Category name, if the user named one."}
 
+# Read tools that accept a category filter and therefore share one resolver.
+_CATEGORY_FILTER_TOOLS = frozenset(
+    {
+        "get_spending_summary",
+        "get_budget_status",
+        "search_transactions",
+        "get_report_summary",
+        "get_financial_overview",
+        "get_period_comparison",
+    }
+)
+
+
+def _category_clarification(suggestion: str | None = None) -> dict:
+    if suggestion:
+        return {
+            "status": "needs_clarification",
+            "message": (
+                f"I couldn't find that category. Did you mean {suggestion}? "
+                "Please use an exact category name from FinCoach."
+            ),
+        }
+    return {
+        "status": "needs_clarification",
+        "message": "That category was not found. Please use an exact category name from FinCoach.",
+    }
+
 AGENT_TOOL_DEFINITIONS = [
     _function(
         "get_financial_overview",
@@ -126,6 +155,31 @@ AGENT_TOOL_DEFINITIONS = [
         },
     ),
     _function(
+        "get_period_comparison",
+        "Compare recorded spending (or monthly budget limits) across two or more "
+        "specific calendar months. Use for 'compare July, August and September', "
+        "'the last six months', or 'June vs September'. Provide each month as "
+        "YYYY-MM in `periods`.",
+        {
+            "metric": {
+                "type": "string",
+                "enum": ["spending", "budget"],
+                "description": "What to compare across the months. Defaults to spending.",
+            },
+            "periods": {
+                "type": "array",
+                "items": {"type": "string", "description": "Calendar month as YYYY-MM."},
+                "description": "Two or more calendar months to compare, as YYYY-MM.",
+            },
+            "category_name": OPTIONAL_CATEGORY,
+            "baseline": {
+                "type": "string",
+                "description": "Optional YYYY-MM month to compare every period against. "
+                "Omit to compare each month with the previous listed month.",
+            },
+        },
+    ),
+    _function(
         "get_budget_status",
         "Read monthly budget and category-limit status for the authenticated user.",
         {"month": DATE, "category_name": OPTIONAL_CATEGORY},
@@ -134,6 +188,11 @@ AGENT_TOOL_DEFINITIONS = [
         "get_savings_goals",
         "Read the authenticated user's savings goals and progress.",
         {"name": {"type": "string", "description": "Optional goal name to match."}},
+    ),
+    _function(
+        "get_weekly_savings_plan",
+        "Calculate a weekly savings schedule using the authenticated user's income or allowance, expense history, and savings goals. Compare required goal contributions with an estimated shared savings amount; never treat goal targets as expenses.",
+        {"month": DATE},
     ),
     _function(
         "get_upcoming_reminders",
@@ -252,6 +311,32 @@ class _SpendingArgs(_Args):
     end_date: date | None = None
     category_name: str | None = Field(default=None, max_length=80)
     compare_previous_period: bool = False
+
+
+class _PeriodComparisonArgs(_Args):
+    metric: str = "spending"
+    periods: list[date] = Field(default_factory=list)
+    category_name: str | None = Field(default=None, max_length=80)
+    baseline: date | None = None
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric(cls, value: str) -> str:
+        if value not in {"spending", "budget"}:
+            raise ValueError("Unsupported comparison metric.")
+        return value
+
+    @field_validator("periods", mode="before")
+    @classmethod
+    def accept_month_keys(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [_normalise_month(item) for item in value]
+        return value
+
+    @field_validator("baseline", mode="before")
+    @classmethod
+    def accept_baseline_key(cls, value: Any) -> Any:
+        return _normalise_month(value)
 
 
 class _TransactionSearchArgs(_Args):
@@ -394,8 +479,10 @@ class AgentToolExecutor:
         self._handlers = {
             "get_financial_overview": self._financial_overview,
             "get_spending_summary": self._spending_summary,
+            "get_period_comparison": self._period_comparison,
             "get_budget_status": self._budget_status,
             "get_savings_goals": self._savings_goals,
+            "get_weekly_savings_plan": self._weekly_savings_plan,
             "get_upcoming_reminders": self._upcoming_reminders,
             "get_report_summary": self._report_summary,
             "search_transactions": self._search_transactions,
@@ -436,14 +523,24 @@ class AgentToolExecutor:
             )
         try:
             arguments = dict(arguments or {})
-            if arguments.get("category_name") and name in {
-                "get_spending_summary", "get_budget_status", "search_transactions",
-                "get_report_summary", "get_financial_overview",
-            }:
-                category = self._resolve_category(str(arguments["category_name"]))
-                if category is None:
-                    return {"status": "needs_clarification", "message": "That category was not found. Please use an exact category name from FinCoach."}
-                arguments["category_name"] = category
+            if name in _CATEGORY_FILTER_TOOLS:
+                # Resolve the category against the user's real names from the
+                # original message: this fixes a partial or date-contaminated
+                # phrase the router extracted ("Public Transport", "Food across
+                # July to September") and never silently drops an unknown one.
+                if self.request_text:
+                    resolution = resolve_category_phrase(
+                        self.request_text, self._available_category_names()
+                    )
+                    if resolution.status == "resolved":
+                        arguments["category_name"] = resolution.category
+                    elif resolution.status == "unresolved":
+                        return _category_clarification(resolution.suggestion)
+                if arguments.get("category_name"):
+                    category = self._resolve_category(str(arguments["category_name"]))
+                    if category is None:
+                        return _category_clarification()
+                    arguments["category_name"] = category
             return handler(arguments)
         except ValidationError as error:
             return {
@@ -455,14 +552,30 @@ class AgentToolExecutor:
                 ],
             }
 
-    def _resolve_category(self, requested: str) -> str | None:
+    def _available_category_names(self) -> list[str]:
         # Two explicit scopes avoid exposing another owner's custom categories
-        # through the service-role connection. No fuzzy auto-selection of money.
+        # through the service-role connection. Cached for the life of one request.
+        cached = getattr(self, "_category_names_cache", None)
+        if cached is not None:
+            return cached
         own = self._execute(self.admin_client.table("categories").select("name").eq("user_id", self.user_id)) or []
         shared = self._execute(self.admin_client.table("categories").select("name").is_("user_id", "null")) or []
+        names = [
+            str(row.get("name"))
+            for row in [*own, *shared]
+            if row.get("name")
+        ]
+        self._category_names_cache = names
+        return names
+
+    def _resolve_category(self, requested: str) -> str | None:
+        # No fuzzy auto-selection of money: only an exact (case/space-insensitive)
+        # name is accepted here.
         key = " ".join(requested.split()).casefold()
-        matches = {str(row["name"]) for row in [*own, *shared]
-                   if " ".join(str(row.get("name") or "").split()).casefold() == key}
+        matches = {
+            name for name in self._available_category_names()
+            if " ".join(name.split()).casefold() == key
+        }
         return sorted(matches)[0] if matches else None
 
     def _profile(self) -> dict:
@@ -756,6 +869,67 @@ class AgentToolExecutor:
             "disclaimer": "An estimate from recorded data, not a bank balance or guarantee. Missing transactions can change the result.",
         }
 
+    def _weekly_savings_plan(self, raw: dict) -> dict:
+        args = _PredictionArgs.model_validate(raw)
+        today = self._malaysia_now().date()
+        month_start, next_month = _month_bounds(args.month or today)
+        if next_month <= today:
+            return {"status": "needs_clarification", "message":
+                    "Weekly savings plans use this month or a future month. Please choose a planning month."}
+
+        # Reuse the forecast's consent checks, complete transaction reads and
+        # income selection. Read goals even when income/spending is missing:
+        # a deadline requirement is calculable without claiming affordability.
+        forecast = self._predict_savings({"month": month_start.isoformat(), "include_goals": False})
+        if forecast.get("status") not in {"ok", "needs_data"}:
+            return forecast
+        goals = self._savings_goals({})["goals"]
+        plan_start = max(today, month_start - timedelta(days=1))
+        daily_surplus = (Decimal(forecast["projected_saveable"][2:]) / (next_month - month_start).days
+                         if forecast["status"] == "ok" else None)
+        weekly = ((daily_surplus * 7).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                  if daily_surplus is not None else None)
+
+        schedule = []
+        cursor = plan_start
+        month_end = next_month - timedelta(days=1)
+        while daily_surplus is not None and daily_surplus > 0 and cursor < month_end:
+            due = min(cursor + timedelta(days=7), month_end)
+            # Prorate the last partial week and round down: the suggested total
+            # must not exceed the projected surplus for the remaining period.
+            amount = (daily_surplus * (due - cursor).days).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            schedule.append({"date": due.isoformat(), "amount": _money(amount)})
+            cursor = due
+
+        goal_plans = []
+        for goal in goals:
+            target, current = Decimal(str(goal["target_amount"])), Decimal(str(goal["current_amount"]))
+            remaining = max(Decimal("0"), target - current)
+            deadline = date.fromisoformat(goal["deadline"]) if goal.get("deadline") else None
+            days = (deadline - plan_start).days if deadline else None
+            status = ("completed" if remaining == 0 else "no_deadline" if days is None
+                      else "overdue" if days < 0 else "due_today" if days == 0 else "scheduled")
+            count = max(1, (days + 6) // 7) if status == "scheduled" else None
+            required = (remaining / count).quantize(Decimal("0.01"), rounding=ROUND_UP) if count else None
+            if required is not None:
+                # A tiny balance may be paid off before every available week.
+                # Stop at payoff rather than returning a negative final payment.
+                count = min(count, int((remaining / required).to_integral_value(rounding=ROUND_UP)))
+            goal_plans.append({
+                "name": goal["name"], "target_amount": _money(target), "current_amount": _money(current),
+                "remaining_to_goal": _money(remaining), "deadline": goal.get("deadline"), "status": status,
+                "contributions_remaining": count,
+                "required_per_contribution": _money(required) if required is not None else None,
+                "final_contribution": _money(remaining - required * (count - 1)) if count else None,
+                "exceeds_estimated_pace": (remaining > daily_surplus * days
+                                           if count and daily_surplus is not None else None),
+            })
+        return {
+            "status": "ok", "month": month_start.isoformat(), "as_of": plan_start.isoformat(),
+            "forecast": forecast, "weekly_saveable": _money(weekly) if weekly is not None else None,
+            "schedule": schedule, "goals": goal_plans,
+        }
+
     def _spending_summary(self, raw: dict) -> dict:
         args = _SpendingArgs.model_validate(raw)
         blocked = self._require_spending_consent()
@@ -815,6 +989,121 @@ class AgentToolExecutor:
                 "difference": _money(current_total - previous_total),
             }
         return result
+
+    def _month_spending_total(
+        self, month_start: date, category_name: str | None
+    ) -> tuple[Decimal, int]:
+        """Sum recorded expenses for one calendar month. Returns (total, count)."""
+        _, next_month = _month_bounds(month_start)
+        rows = self._transaction_rows(month_start, next_month - timedelta(days=1), category_name)
+        expenses = [
+            row for row in rows if (row.get("category") or {}).get("type") == "expense"
+        ]
+        total = sum(
+            (Decimal(str(row.get("amount") or 0)) for row in expenses), Decimal("0")
+        )
+        return total, len(expenses)
+
+    def _month_budget_limit(self, month_start: date) -> Decimal | None:
+        """The set monthly budget limit for one month, or None when none is set."""
+        monthly = _normalise_row(
+            self._execute(
+                self.admin_client.table("monthly_budgets")
+                .select("limit_amount")
+                .eq("user_id", self.user_id)
+                .eq("month", month_start.isoformat())
+                .maybe_single()
+            )
+        )
+        if not monthly:
+            return None
+        return Decimal(str(monthly.get("limit_amount") or 0))
+
+    def _period_comparison(self, raw: dict) -> dict:
+        args = _PeriodComparisonArgs.model_validate(raw)
+        if args.metric == "spending":
+            blocked = self._require_spending_consent()
+            if blocked:
+                return blocked
+
+        months = sorted({period.replace(day=1) for period in args.periods})
+        if len(months) < 2:
+            return {
+                "status": "invalid_arguments",
+                "message": "Provide at least two calendar months to compare.",
+            }
+        if len(months) > 12:
+            return {
+                "status": "invalid_arguments",
+                "message": "Compare at most twelve months at a time.",
+            }
+
+        baseline = args.baseline.replace(day=1) if args.baseline else None
+        today = self._malaysia_now().date()
+
+        # Compute each month once (baseline included even if not itself listed).
+        needed = sorted(set(months) | ({baseline} if baseline else set()))
+        totals: dict[date, tuple[Decimal, bool]] = {}  # month -> (amount, has_records)
+        for month_start in needed:
+            _, next_month = _month_bounds(month_start)
+            if args.metric == "spending":
+                amount, count = self._month_spending_total(month_start, args.category_name)
+                totals[month_start] = (amount, count > 0)
+            else:
+                limit = self._month_budget_limit(month_start)
+                totals[month_start] = (limit or Decimal("0"), limit is not None)
+
+        def _is_incomplete(month_start: date) -> bool:
+            _, next_month = _month_bounds(month_start)
+            return month_start <= today < next_month
+
+        periods: list[dict[str, Any]] = []
+        for index, month_start in enumerate(months):
+            amount, has_records = totals[month_start]
+            _, next_month = _month_bounds(month_start)
+            end = next_month - timedelta(days=1)
+            incomplete = _is_incomplete(month_start)
+            base_month = baseline if baseline is not None else (months[index - 1] if index > 0 else None)
+            change: dict[str, Any] | None = None
+            if base_month is not None and base_month != month_start and base_month in totals:
+                base_amount, _base_has = totals[base_month]
+                if incomplete or _is_incomplete(base_month):
+                    change = {"withheld": True, "baseline_month": base_month.strftime("%Y-%m")}
+                else:
+                    diff = amount - base_amount
+                    direction = "more" if diff > 0 else "less" if diff < 0 else "same"
+                    percent = None if base_amount == 0 else str(
+                        (abs(diff) / base_amount * 100).quantize(Decimal("1"))
+                    )
+                    change = {
+                        "withheld": False,
+                        "baseline_month": base_month.strftime("%Y-%m"),
+                        "amount": _money(abs(diff)),
+                        "direction": direction,
+                        "percent": percent,
+                    }
+            periods.append(
+                {
+                    "month": month_start.strftime("%Y-%m"),
+                    "label": month_start.strftime("%B %Y"),
+                    "start": month_start.isoformat(),
+                    "end": end.isoformat(),
+                    "total": _money(amount),
+                    "has_records": has_records,
+                    "incomplete": incomplete,
+                    "recorded_through": today.isoformat() if incomplete else None,
+                    "change": change,
+                }
+            )
+
+        return {
+            "status": "ok",
+            "metric": args.metric,
+            "category_name": args.category_name,
+            "baseline": baseline.strftime("%Y-%m") if baseline else "consecutive",
+            "range": {"start": months[0].strftime("%Y-%m"), "end": months[-1].strftime("%Y-%m")},
+            "periods": periods,
+        }
 
     def _budget_status(self, raw: dict) -> dict:
         args = _BudgetArgs.model_validate(raw)
