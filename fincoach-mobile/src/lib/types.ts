@@ -41,6 +41,7 @@ export type Category = {
   color: string | null;
   id: number;
   icon: string | null;
+  icon_image_path?: string | null;
   name: string;
   type: 'expense' | 'income';
   user_id: string | null;
@@ -49,6 +50,7 @@ export type Category = {
 export type CustomCategoryInput = {
   color: string;
   icon: string;
+  icon_image_path?: string | null;
   name: string;
 };
 
@@ -361,6 +363,13 @@ export type Report = {
   user_id: string;
   period: string;
   type: ReportType;
+  title: string | null;
+  file_name: string | null;
+  storage_path: string | null;
+  report_key: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  category_id: number | null;
   generated_at: string;
 };
 
@@ -463,6 +472,72 @@ export type CoachSource = {
   rank: number;
 };
 
+export type CoachChoiceOption = {
+  id: string;
+  label: string;
+  value: string;
+};
+
+export type CoachInteractionReply = {
+  assistant_message_id: string;
+  value: string;
+};
+
+export type CoachClarificationPayload = {
+  type: 'clarification';
+  action_type: 'create_reminder' | 'generate_report';
+  question: string;
+  input_type: 'single_select' | 'multi_select' | 'date' | 'date_range' | 'time' | 'amount' | 'text';
+  field: string;
+  options: CoachChoiceOption[];
+  allow_other: boolean;
+  draft: Record<string, unknown>;
+};
+
+// A read question (ambiguous savings, unresolved transaction reference,
+// invalid/missing period). It shares the clarification card UI but has no write
+// `action_type` or `draft`. The server keeps the resumable state; the client
+// never reads or transmits it, only the assistant message id and the answer.
+export type CoachReadClarificationPayload = {
+  type: 'read_clarification';
+  question: string;
+  input_type: 'single_select' | 'multi_select' | 'date' | 'date_range' | 'time' | 'amount' | 'text';
+  field: string;
+  options: CoachChoiceOption[];
+  allow_other: boolean;
+};
+
+export type CoachActionPayload = {
+  type: 'action';
+  action_id: string;
+  action_type: 'create_reminder' | 'generate_report';
+  status: 'pending' | 'approved' | 'executed' | 'cancelled' | 'failed';
+  title: string;
+  description: string;
+  confirm_label: string;
+  arguments: Record<string, unknown>;
+  fields: { label: string; value: string }[];
+  result?: Record<string, unknown>;
+};
+
+export type CoachFollowUpSuggestion = {
+  label: string;
+  query: string;
+};
+
+// A plain data answer may carry backend-selected next-step chips. It has no
+// discriminating `type`, so clarification/action guards ignore it.
+export type CoachSuggestionsPayload = {
+  follow_ups: CoachFollowUpSuggestion[];
+};
+
+export type CoachUiPayload =
+  | CoachClarificationPayload
+  | CoachReadClarificationPayload
+  | CoachActionPayload
+  | CoachSuggestionsPayload
+  | Record<string, never>;
+
 export type CoachMessage = {
   id: string;
   session_id: string;
@@ -475,8 +550,15 @@ export type CoachMessage = {
   model: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
+  feedback: 'helpful' | 'not_helpful' | null;
+  ui_payload?: CoachUiPayload;
   created_at: string;
   sources: CoachSource[];
+};
+
+export type CoachMessagePage = {
+  messages: CoachMessage[];
+  next_before: string | null;
 };
 
 export type CoachConversation = {
@@ -492,4 +574,12 @@ export type CoachTurnResponse = {
   user_message: CoachMessage;
   assistant_message: CoachMessage;
   sources: CoachSource[];
+};
+
+export type CoachActionResponse = {
+  message: CoachMessage;
+  effect: {
+    type: 'generate_report';
+    arguments: Record<string, unknown>;
+  } | null;
 };
