@@ -73,7 +73,7 @@ from app.rag.grounding import (
     validate_coach_answer,
 )
 from app.rag.prompts import build_casual_prompt, build_coach_prompt
-from app.rag.query_analysis import analyze_knowledge_query
+from app.rag.query_analysis import KnowledgeQueryAnalysis, analyze_knowledge_query
 from app.rag.retrieval import RetrievedChunk, retrieve
 from app.rag.verifier import verify_grounding_claims
 from app.rag.web_research import (
@@ -84,6 +84,7 @@ from app.rag.web_research import (
 from app.rag.routing import (
     CoachingRoute,
     FinancialContextScope,
+    ReadReadiness,
     ambiguous_reminder_title,
     is_budget_planning_request,
     is_financial_triage_query,
@@ -91,6 +92,11 @@ from app.rag.routing import (
     required_agent_tool_name,
     required_agent_tool_names,
     resolve_read_request,
+)
+from app.rag.read_clarification import (
+    PAYLOAD_TYPE as READ_CLARIFICATION_TYPE,
+    build_read_clarification,
+    resume_read_clarification,
 )
 
 
@@ -265,6 +271,30 @@ def _is_fast_verified_read(
         and route == CoachingRoute.PERSONAL_FINANCE
         and not _DEEP_FINANCIAL_ADVICE_QUERY.search(content)
     )
+
+
+def _latest_pending_read_clarification(
+    history: list[dict], *, current_message_id: str | None
+) -> dict | None:
+    """The most recent assistant read clarification, if it is still the latest turn.
+
+    A later completed user or assistant turn supersedes it; the current (or a
+    failed/retried) user turn does not. Absence of a trustworthy pending payload
+    means an ordinary reply is resolved fresh, never against stale state.
+    """
+    for message in reversed(history):
+        if current_message_id and message.get("id") == current_message_id:
+            continue
+        if message.get("status") == "failed":
+            continue
+        payload = message.get("ui_payload") or {}
+        if (
+            message.get("role") == "assistant"
+            and payload.get("type") == READ_CLARIFICATION_TYPE
+        ):
+            return payload
+        return None
+    return None
 
 
 def _short_month_label(month_key: str) -> str:
@@ -1574,8 +1604,30 @@ class CoachingService:
             grounding_fallback = False
             read_context_inherited = False
             facts_block = None
-            response_mode = "interaction" if interaction_reply else "standard"
+            # A reply may resume a saved read clarification. Resolve it before the
+            # write-enabled check so a read continuation never depends on write
+            # actions and always re-runs the validated read path below.
+            resumed_read = None
             if interaction_reply:
+                interaction_message = self.repository.require_interaction_message(
+                    interaction_reply["assistant_message_id"]
+                )
+                if interaction_message.get("session_id") != session_id:
+                    raise CoachingConflict(
+                        "Clarification does not belong to this conversation."
+                    )
+                if (interaction_message.get("ui_payload") or {}).get("type") == READ_CLARIFICATION_TYPE:
+                    resumed_read = resume_read_clarification(
+                        interaction_message.get("ui_payload") or {},
+                        interaction_reply.get("value", ""),
+                        now=datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date(),
+                    )
+            response_mode = (
+                "interaction"
+                if (interaction_reply and resumed_read is None)
+                else "standard"
+            )
+            if interaction_reply and resumed_read is None:
                 route = CoachingRoute.PERSONAL_FINANCE
                 context_ms = 0.0
                 retrieval_ms = 0.0
@@ -1599,27 +1651,66 @@ class CoachingService:
                     )
             else:
                 history = self.repository.list_messages(session_id, COACH_HISTORY_LIMIT)
-                resolved_read = resolve_read_request(
-                    content,
-                    history,
-                    current_message_id=message_id,
-                )
-                route = resolved_read.route
-                knowledge_analysis = analyze_knowledge_query(
-                    content,
-                    history=history,
-                    current_message_id=message_id,
-                )
-                if route == CoachingRoute.CASUAL and knowledge_analysis.inherited:
-                    route = CoachingRoute.FINANCIAL_EDUCATION
-                    # `resolve_read_request` ran before topic inheritance.  Clear its
-                    # generic personal-record clarification now that this is known to
-                    # be an educational follow-up such as "what about repayment?".
-                    resolved_read = replace(
-                        resolved_read,
-                        route=route,
-                        clarification=None,
+                if resumed_read is not None:
+                    # Server-saved state drives the read; the reply text is not
+                    # re-parsed as a new topic.
+                    resolved_read = resumed_read
+                    route = resolved_read.route
+                    knowledge_analysis = KnowledgeQueryAnalysis(
+                        original=content,
+                        normalized=content,
+                        topic_matches=(),
+                        subqueries=(),
                     )
+                else:
+                    resolved_read = resolve_read_request(
+                        content,
+                        history,
+                        current_message_id=message_id,
+                    )
+                    route = resolved_read.route
+                    knowledge_analysis = analyze_knowledge_query(
+                        content,
+                        history=history,
+                        current_message_id=message_id,
+                    )
+                    # Plain-text continuation for clients without chips: a bare
+                    # short answer to the latest pending read clarification resumes
+                    # that saved state. A message that is itself a read, a new
+                    # topic, an educational follow-up, or a cancellation does not.
+                    if (
+                        resolved_read.tool_name is None
+                        and resolved_read.readiness != ReadReadiness.UNSUPPORTED
+                        and not knowledge_analysis.inherited
+                    ):
+                        pending_payload = _latest_pending_read_clarification(
+                            history, current_message_id=message_id
+                        )
+                        if pending_payload is not None:
+                            candidate = resume_read_clarification(
+                                pending_payload,
+                                content,
+                                now=datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date(),
+                            )
+                            if candidate.tool_name is not None or candidate.clarification:
+                                resolved_read = candidate
+                                route = resolved_read.route
+                                knowledge_analysis = KnowledgeQueryAnalysis(
+                                    original=content,
+                                    normalized=content,
+                                    topic_matches=(),
+                                    subqueries=(),
+                                )
+                    if route == CoachingRoute.CASUAL and knowledge_analysis.inherited:
+                        route = CoachingRoute.FINANCIAL_EDUCATION
+                        # `resolve_read_request` ran before topic inheritance.  Clear its
+                        # generic personal-record clarification now that this is known to
+                        # be an educational follow-up such as "what about repayment?".
+                        resolved_read = replace(
+                            resolved_read,
+                            route=route,
+                            clarification=None,
+                        )
                 read_context_inherited = resolved_read.inherited
                 financial_triage = is_financial_triage_query(content)
                 required_write_tool_names = required_agent_tool_names(content)
@@ -1800,10 +1891,18 @@ class CoachingService:
                     # A read that cannot execute yet (ambiguous savings, an
                     # unresolved transaction reference, an invalid period) must
                     # ask its targeted question before the casual fallback can
-                    # answer around it.
+                    # answer around it. Persist versioned state so the next plain
+                    # answer or chip can resume the read without a write action.
                     result = AgentLLMResult(
                         content=resolved_read.clarification,
                         model="fincoach-router",
+                        ui_payload=build_read_clarification(
+                            resolved_read,
+                            origin_message_id=message_id,
+                            anchor_date=datetime.now(
+                                ZoneInfo("Asia/Kuala_Lumpur")
+                            ).date(),
+                        ),
                     )
                     response_mode = "clarification"
                 elif route == CoachingRoute.CASUAL:
