@@ -3,10 +3,13 @@
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from enum import Enum
 from zoneinfo import ZoneInfo
 
+from app.category_resolution import extract_category_candidate, is_category_ranking_query
 from app.rag.query_analysis import detect_knowledge_topics
+from app.rag.text_normalize import normalize_for_intent
 
 
 class CoachingRoute(str, Enum):
@@ -24,6 +27,10 @@ class ReadReadiness(str, Enum):
     UNSUPPORTED = "unsupported"
 
 
+class UnsupportedTransactionFilter(ValueError):
+    """A requested search constraint has no faithful executor representation."""
+
+
 # Stable read-intent labels, kept separate from the coarse CoachingRoute and from
 # the tool name so the contract can name an intent even before a tool is chosen
 # (ambiguous savings) or when no read applies (casual/education -> None).
@@ -32,6 +39,7 @@ _TOOL_INTENT = {
     "get_period_comparison": "period_comparison",
     "search_transactions": "transaction_search",
     "get_budget_status": "budget_status",
+    "get_category_budget_recommendation": "category_budget_recommendation",
     "get_financial_overview": "financial_overview",
     "get_financial_profile": "financial_profile",
     "get_savings_goals": "savings_goals",
@@ -49,6 +57,7 @@ _TOOL_INTENT = {
 _RANGE_PERIOD_TOOLS = {"get_spending_summary", "get_report_summary", "search_transactions"}
 _MONTH_PERIOD_TOOLS = {
     "get_budget_status",
+    "get_category_budget_recommendation",
     "get_financial_overview",
     "predict_savings",
     "get_weekly_savings_plan",
@@ -288,6 +297,7 @@ _SAVINGS_CLEAR_INTENT = re.compile(
 
 def _is_ambiguous_savings(message: str) -> bool:
     """Whether a savings mention names neither a goal nor a saving-capacity ask."""
+    message = normalize_for_intent(message)
     if not _SAVINGS_MENTION.search(message):
         return False
     if _SAVINGS_CLEAR_INTENT.search(message) or _PREDICTION_QUERY.search(message):
@@ -297,6 +307,7 @@ def _is_ambiguous_savings(message: str) -> bool:
 
 def is_weekly_savings_plan_request(content: str) -> bool:
     """A weekly saving amount needs cash-flow evidence as well as goal progress."""
+    content = normalize_for_intent(content)
     return bool(
         re.search(r"\b(?:weekly|(?:each|every|per)\s+week|mingguan|setiap\s+minggu)\b", content, re.I)
         and re.search(r"\b(?:save|savings?|simpanan|simpan|menabung)\b", content, re.I)
@@ -306,6 +317,36 @@ _BUDGET_QUERY = re.compile(
     r"\b(?:budget|overspent|overspend|over\s+budget|spending\s+limit|"
     r"category\s+limit|cut\s+spending|afford|allowance|bajet|"
     r"had\s+kategori|had\s+belanja)\b",
+    re.IGNORECASE,
+)
+_BUDGET_SAVE_COMMAND = re.compile(
+    r"^\s*(?:please\s+)?(?:save|set|add|create|update|change|edit)\b.{0,60}"
+    r"\b(?:budget|category\s+limit|spending\s+limit|bajet|had\s+kategori)\b|"
+    r"^\s*(?:can|could)\s+i\s+(?:save|set|add|create|update|change)\b.{0,45}"
+    r"\b(?:budget|category\s+limit|spending\s+limit|bajet|had\s+kategori)\b|"
+    r"^\s*(?:can|could)\s+you\s+(?:save|set|add|create|update|change)\b.{0,45}"
+    r"\b(?:budget|category\s+limit|spending\s+limit|bajet|had\s+kategori)\b",
+    re.IGNORECASE,
+)
+_CATEGORY_BUDGET_RECOMMENDATION_QUERY = re.compile(
+    r"\b(?:suggest|recommend)\b.{0,60}\b(?:another|new|categor(?:y|ies))\b"
+    r".{0,60}\b(?:budget|limit|bajet|had)\b|"
+    r"\b(?:which|what)\s+(?:(?:other|another|additional)\s+)?"
+    r"(?:(?:expense|spending)\s+)?categor(?:y|ies)\b.{0,60}"
+    r"\b(?:need|needs|should|deserve|deserves|can\s+i\s+add|could\s+i\s+add)\b.{0,35}"
+    r"\b(?:budget|limit|cap|bajet|had)\b|"
+    r"\b(?:which|what)\s+(?:expense|spending)\b.{0,45}"
+    r"\b(?:need|needs|should)\b.{0,35}\b(?:budget|limit|cap)\b|"
+    r"\b(?:what|which)\s+(?:other|another|additional)\s+"
+    r"(?:budget|limit)\b.{0,45}\b(?:add|set|create|make)\b|"
+    r"\b(?:pick|choose|select)\b.{0,45}\bcategor(?:y|ies)\b"
+    r".{0,45}\b(?:budget|limit|cap)\b|"
+    r"\b(?:suggest|recommend)\b.{0,60}\b(?:budget|limit|bajet|had)\b.{0,30}"
+    r"\bfor\s+(?!me\b|myself\b|our\b|overall\b|everyone\b|all\b|every\b|"
+    r"(?:this|last|next|current)\s+month\b|a\s+student\b)"
+    r"[\w&'-]+|"
+    r"\bwhat\s+(?:budget|category\s+budget)\b.{0,45}"
+    r"\b(?:can|could|should)\s+i\s+(?:add|set|create|allocate)\b",
     re.IGNORECASE,
 )
 _BUDGET_PLANNING_QUERY = re.compile(
@@ -345,15 +386,126 @@ _HYPOTHETICAL_AMOUNT = re.compile(
     re.IGNORECASE,
 )
 
+# "spend" as a verb about money vs about time is decided by what follows it.
+# These objects mark the non-financial sense ("spend time", "spend the weekend").
+_SPEND_NONFIN_OBJECT = (
+    r"(?:time|times|hours?|the\s+(?:night|day|evening|weekend|afternoon|morning)|"
+    r"quality\s+time|ages|forever|all\s+day)"
+)
 _TRANSACTION_QUERY = re.compile(
-    r"\b(?:expenses?|transactions?|purchases?|i\s+spent|i\s+spend|"
-    r"spent|spending|overspent|overspend|where\s+(?:did|does).*(?:money|spend)|"
-    r"belanja|perbelanjaan|transaksi|pembelian)\b",
+    r"\b(?:expenses?|transactions?|purchases?|overspent|overspend|"
+    r"belanja|perbelanjaan|transaksi|pembelian)\b"
+    r"|\b(?:i\s+spend|i\s+spent|spent|spending)\b(?!\s+" + _SPEND_NONFIN_OBJECT + r"\b)"
+    r"|\bwhere\s+(?:did|does).*(?:money|spend(?!\s+" + _SPEND_NONFIN_OBJECT + r"\b))\b"
+    # Shorthand "<category> spend" ("food spend") is a spending lookup, but not
+    # when "spend" takes a non-financial or non-category object.
+    r"|\b[\w&'-]+\s+spend\b(?!\s+(?:time|times|hours?|money|cash|it|them|less|"
+    r"more|wisely|the|a|an|my|your|his|her|our|their|to|with|on)\b)",
+    re.IGNORECASE,
+)
+# A clearly non-financial "spend time/hours/..." with no financial signal must
+# not be pulled onto the personal-records path by an incidental "my" or "I".
+_NON_FINANCIAL_ACTIVITY = re.compile(
+    r"\bspen[dt](?:ing)?\s+" + _SPEND_NONFIN_OBJECT + r"\b",
     re.IGNORECASE,
 )
 _TRANSACTION_SEARCH_QUERY = re.compile(
-    r"\b(?:find|list|show|view|search)\b.{0,50}\b(?:transactions?|purchases?)\b",
+    r"\b(?:find|list|show|view|search|tunjuk|senarai|cari)\b.{0,50}"
+    r"\b(?:transactions?|purchases?|transaksi|pembelian)\b",
     re.IGNORECASE,
+)
+_TRANSACTION_NOUN = re.compile(r"\b(?:transactions?|purchases?|transaksi|pembelian)\b", re.IGNORECASE)
+# "top/biggest 5 transactions" implies ranking by value, which is not supported.
+_TXN_TOP_QUERY = re.compile(
+    r"\b(?:top|biggest|largest|highest)\s+(?:\d+\s+)?(?:transactions?|purchases?)\b",
+    re.IGNORECASE,
+)
+# "how many / number of / count of transactions" -> a count, not a list.
+_TXN_COUNT_QUERY = re.compile(
+    r"\b(?:how\s+many|number\s+of|count\s+of|berapa\s+banyak)\b[\w\s'&\-]{0,30}?"
+    r"\b(?:transactions?|purchases?|transaksi|pembelian)\b",
+    re.IGNORECASE,
+)
+_TXN_OLDEST_QUERY = re.compile(
+    r"\b(?:first|oldest|earliest)\s+(?:\d{1,2}\s+)?"
+    r"(?:transactions?|purchases?|transaksi|pembelian)\b",
+    re.IGNORECASE,
+)
+_TXN_TYPE_QUERY = re.compile(
+    r"\b(?P<type>income|expense)\s+(?:transactions?|purchases?)\b",
+    re.IGNORECASE,
+)
+_TXN_EXCLUSION_QUERY = re.compile(
+    r"\b(?:not|except|excluding|without|kecuali|selain)\s+"
+    r"(?:category\s+|kategori\s+)?[\w&'\-]+",
+    re.IGNORECASE,
+)
+_TXN_MERCHANT_JOIN = re.compile(
+    r"\b(?:at|from|di|daripada)\s+[\w'&\-]+\s+"
+    r"(?:and|or|atau|&)\s+(?:(?:at|from|di|daripada)\s+)?[\w'&\-]+",
+    re.IGNORECASE,
+)
+# "how much did I spend at Grab" -> a filtered expense total, not an unfiltered
+# summary. The merchant after at/from must not be a month or a filler word.
+_TXN_MERCHANT_TOTAL = re.compile(
+    r"\b(?:how\s+much|berapa|total)\b.{0,40}?\b(?:spend|spent|spending|belanja)\b"
+    r".{0,40}?\b(?:at|from|di|daripada)\s+"
+    r"(?!(?:" + "|".join(_MONTH_NUMBERS) + r"|all|least|most|the|home|work)\b)[A-Za-z]",
+    re.IGNORECASE,
+)
+# Keep merchant extraction shared between tool selection and argument building.
+# Numeric-leading names such as 7-Eleven are valid; date phrases are not names.
+# A following at/from/di/daripada starts a *new* merchant, so it never extends the
+# current name — "at Grab at Foodpanda" yields two merchants, not "Grab".
+_TXN_MERCHANT_PHRASE = re.compile(
+    r"\b(?:at|from|di|daripada)\s+(?P<merchant>[A-Za-z0-9][\w'&\-]*"
+    r"(?:\s+(?!(?:at|from|di|daripada)\b)[A-Za-z0-9][\w'&\-]*){0,2})",
+    re.IGNORECASE,
+)
+
+
+def _transaction_merchant_texts(message: str) -> list[str]:
+    merchants = []
+    for match in _TXN_MERCHANT_PHRASE.finditer(message):
+        text = re.split(
+            r"\s+(?:for|and|or|atau|on|in|to|at|from|di|daripada|rm|"
+            r"last|latest|recent|over|under|about|around|between|"
+            r"this|next|previous|bulan|hari|today|yesterday|tomorrow|"
+            r"semalam|esok)\b",
+            match.group("merchant"), flags=re.I,
+        )[0].strip()
+        if (not text or _MONTH_NAME_QUERY.fullmatch(text)
+                or _NAMED_DAY_DATE_QUERY.fullmatch(text)
+                or re.match(r"rm\s*\d", text, re.I)):
+            continue
+        # A date following "from" belongs to the period parser. Never turn it
+        # into a text filter and accidentally return zero matching transactions.
+        if re.match(
+            r"^(?:\d{4}-\d{2}-\d{2}\b|\d{1,2}\s+(?:"
+            + "|".join(_MONTH_NUMBERS)
+            + r")\b|today\b|yesterday\b|tomorrow\b|semalam\b|esok\b|"
+            r"hari\s+ini\b|this\s+month\b|last\s+month\b|next\s+month\b)",
+            text, re.I,
+        ):
+            continue
+        merchants.append(text)
+    return merchants
+
+
+def _transaction_merchant_text(message: str) -> str | None:
+    merchants = _transaction_merchant_texts(message)
+    return merchants[0] if merchants else None
+# A period phrase ("from July", "this month", "2026-07") turns a verb-free
+# "transactions ..." into a list, unless it is an aggregate or ranking question.
+_TXN_PERIOD_CUE = re.compile(
+    r"\b(?:this|last|next|previous)\s+month\b|\bbulan\s+(?:ini|lepas|depan)\b|"
+    r"\b(?:today|yesterday|tomorrow|semalam|hari\s+ini|esok)\b|"
+    r"\bfrom\s+\d|\bsince\s+\d|\d{4}-\d{2}|"
+    r"\b(?:" + "|".join(_MONTH_NUMBERS) + r")\b",
+    re.IGNORECASE,
+)
+_TXN_AGGREGATE_CUE = re.compile(
+    r"\b(?:how\s+much|total|average|avg|sum)\b", re.IGNORECASE
 )
 # A demonstrative reference to a single record ("that transaction", "transaksi
 # itu") cannot be resolved by a broad search. Without a concrete date/merchant
@@ -530,6 +682,14 @@ def parse_comparison_request(
     current_day = _malaysia_date(now)
     current_start = current_day.replace(day=1)
 
+    # A pair of named days is a date range, even when the days fall in
+    # different months. Treating its month words as a month comparison drops
+    # the stated day boundaries.
+    if _NAMED_DAY_DATE_QUERY.search(message):
+        if _PERIOD_COMPARISON_QUERY.search(message):
+            raise ValueError("Please use calendar months for a comparison, or ask for a date-range spending total.")
+        return None
+
     months = _named_comparison_months(message, current_day)
 
     if not months:
@@ -660,7 +820,7 @@ def ambiguous_reminder_title(content: str) -> str | None:
 
 def route_coach_message(content: str) -> CoachingRoute:
     """Classify without another provider call, keeping routing fast and predictable."""
-    message = " ".join(content.strip().split())
+    message = normalize_for_intent(content)
     if not message or _CASUAL_ONLY.fullmatch(message) or _CASUAL_NON_FINANCIAL.search(message):
         return CoachingRoute.CASUAL
 
@@ -679,16 +839,31 @@ def route_coach_message(content: str) -> CoachingRoute:
     # The agent still prepares a confirmation card; it never writes data here.
     if required_agent_tool_name(message):
         return CoachingRoute.PERSONAL_FINANCE
+    if is_category_budget_recommendation_request(message):
+        return CoachingRoute.PERSONAL_FINANCE
     if ambiguous_reminder_title(message):
         return CoachingRoute.PERSONAL_FINANCE
     if _REMINDER_REFERENCE.search(message) or _REPORT_REFERENCE.search(message):
         return CoachingRoute.PERSONAL_FINANCE
     if _DEADLINE_QUERY.search(message):
         return CoachingRoute.PERSONAL_FINANCE
+    # "I spend time with friends", "spend hours on homework": a non-financial
+    # activity with no financial signal is casual, even though "my"/"I" appears.
+    if _NON_FINANCIAL_ACTIVITY.search(message) and not (
+        _TRANSACTION_QUERY.search(message)
+        or _BUDGET_QUERY.search(message)
+        or _SAVINGS_GOAL_QUERY.search(message)
+        or _PREDICTION_QUERY.search(message)
+        or _FINANCIAL_EDUCATION.search(message)
+        or detect_knowledge_topics(message)
+        or re.search(r"\brm\s*\d", message, re.I)
+    ):
+        return CoachingRoute.CASUAL
     is_saved_finance_topic = bool(
         _SAVINGS_GOAL_QUERY.search(message)
         or _BUDGET_QUERY.search(message)
         or _TRANSACTION_QUERY.search(message)
+        or is_category_ranking_query(message)
         or _PROFILE_QUERY.search(message)
         or _CASHFLOW_FORECAST_QUERY.search(message)
         or _PREDICTION_QUERY.search(message)
@@ -737,7 +912,25 @@ def route_coach_message(content: str) -> CoachingRoute:
 
 def is_budget_planning_request(content: str) -> bool:
     """Whether a user wants a proposed monthly limit rather than a saved status."""
-    return bool(_BUDGET_PLANNING_QUERY.search(" ".join(content.strip().split())))
+    message = normalize_for_intent(content)
+    return bool(
+        _BUDGET_PLANNING_QUERY.search(message)
+        and not is_category_budget_recommendation_request(message)
+    )
+
+
+def is_category_budget_recommendation_request(content: str) -> bool:
+    """Whether the user wants a data-backed category limit recommendation."""
+    return bool(_CATEGORY_BUDGET_RECOMMENDATION_QUERY.search(normalize_for_intent(content)))
+
+
+def is_budget_save_command(content: str) -> bool:
+    """Whether the user is commanding a budget write from the Coach chat."""
+    message = normalize_for_intent(content)
+    return bool(
+        _BUDGET_SAVE_COMMAND.search(message)
+        and not is_category_budget_recommendation_request(message)
+    )
 
 
 _MARKET_PRODUCT_NOUN = re.compile(
@@ -801,13 +994,17 @@ def required_read_agent_tool_name(
     if route not in (CoachingRoute.PERSONAL_FINANCE, CoachingRoute.COMBINED):
         return None
 
-    message = " ".join(content.strip().split())
+    message = normalize_for_intent(content)
     if is_multi_period_comparison(message):
         return "get_period_comparison"
     if _CASHFLOW_FORECAST_QUERY.search(message):
         return "get_cashflow_forecast"
     if is_weekly_savings_plan_request(message):
         return "get_weekly_savings_plan"
+    if is_category_budget_recommendation_request(message):
+        return "get_category_budget_recommendation"
+    if is_budget_save_command(message):
+        return None
     if _PREDICTION_QUERY.search(message):
         return "predict_savings"
     if _PROFILE_QUERY.search(message):
@@ -820,9 +1017,30 @@ def required_read_agent_tool_name(
         return "get_savings_goals"
     if _BUDGET_QUERY.search(message):
         return "get_budget_status"
+    # Transaction search covers verb-free lists, counts, and merchant totals, so
+    # a stated filter is never answered by an unfiltered summary. Ranking asks
+    # for clarification (handled when arguments are derived).
+    if (_TXN_TOP_QUERY.search(message) or _TXN_OLDEST_QUERY.search(message)
+            or _TXN_MERCHANT_TOTAL.search(message)):
+        return "search_transactions"
+    has_transaction_noun = bool(_TRANSACTION_NOUN.search(message))
+    if has_transaction_noun and _TXN_COUNT_QUERY.search(message):
+        return "search_transactions"
     if _TRANSACTION_SEARCH_QUERY.search(message):
         return "search_transactions"
-    if _TRANSACTION_QUERY.search(message):
+    if has_transaction_noun and (
+        re.search(r"\b(?:last|latest|recent)\s+\d", message, re.I)
+        or _transaction_merchant_text(message)
+        or re.search(r"\brm\s*\d", message, re.I)
+        or extract_category_candidate(message)
+        or (
+            _TXN_PERIOD_CUE.search(message)
+            and not is_category_ranking_query(message)
+            and not _TXN_AGGREGATE_CUE.search(message)
+        )
+    ):
+        return "search_transactions"
+    if _TRANSACTION_QUERY.search(message) or is_category_ranking_query(message):
         return "get_spending_summary"
     return "get_financial_overview"
 
@@ -851,17 +1069,24 @@ def required_read_agent_tool_arguments(
         if parsed["baseline"]:
             arguments["baseline"] = parsed["baseline"]
         return arguments
-    start, end = _explicit_period(message, tool_name, current_day)
+    # Reminder reads accept a relative range enum, not an arbitrary date span.
+    # In a write command, a named date belongs to the reminder draft parser.
+    start, end = ((None, None) if tool_name == "get_upcoming_reminders"
+                  else _explicit_period(message, tool_name, current_day))
     if tool_name in {"get_spending_summary", "get_report_summary", "search_transactions"} and start and end:
         arguments.update({"start_date": start.isoformat(), "end_date": end.isoformat()})
-    elif tool_name in {"get_budget_status", "get_financial_overview", "predict_savings", "get_weekly_savings_plan"} and start:
+    elif tool_name in {"get_budget_status", "get_category_budget_recommendation", "get_financial_overview", "predict_savings", "get_weekly_savings_plan"} and start:
         arguments["month"] = start.strftime("%Y-%m")
+    type_match = _TXN_TYPE_QUERY.search(message) if tool_name == "search_transactions" else None
     category = _category_filter(message)
+    if type_match and category and category.casefold() == type_match.group("type").casefold():
+        category = None
     if category and tool_name in {
         "get_spending_summary",
         "get_report_summary",
         "search_transactions",
         "get_budget_status",
+        "get_category_budget_recommendation",
         "get_financial_overview",
     }:
         arguments["category_name"] = category
@@ -876,6 +1101,66 @@ def required_read_agent_tool_arguments(
             arguments["range"] = "next_week"
         elif _NEXT_MONTH_RANGE_QUERY.search(message):
             arguments["range"] = "next_month"
+    if tool_name == "search_transactions":
+        # Amount-ranked lists ("top 5 transactions") are not supported yet.
+        if _TXN_TOP_QUERY.search(message):
+            raise ValueError(
+                "Please tell me which transactions you mean — ranking transactions "
+                "by value isn't supported yet, but I can show your recent "
+                "transactions or search by merchant."
+            )
+        if _TXN_OLDEST_QUERY.search(message):
+            raise UnsupportedTransactionFilter(
+                "Please ask for recent transactions; earliest-first ordering is not supported yet."
+            )
+        if _TXN_EXCLUSION_QUERY.search(message):
+            raise UnsupportedTransactionFilter(
+                "Please choose a category to include; excluding a category is not supported yet."
+            )
+        merchants = _transaction_merchant_texts(message)
+        if _TXN_MERCHANT_JOIN.search(message) or len(merchants) > 1:
+            raise UnsupportedTransactionFilter(
+                "Please search one merchant at a time; combining merchants is not supported yet."
+            )
+        if type_match:
+            arguments["transaction_type"] = type_match.group("type").casefold()
+        if _TXN_COUNT_QUERY.search(message):
+            arguments["result_mode"] = "count"
+        elif _TXN_MERCHANT_TOTAL.search(message):
+            arguments["result_mode"] = "expense_total"
+        # "last 5 [transactions]" / "5 transactions" -> newest N (list mode only).
+        count = (
+            re.search(r"\b(?:last|latest|recent)\s+(\d{1,2})\b", message, re.I)
+            or re.search(r"\b(\d{1,2})\s+(?:transactions?|purchases?|records?)\b", message, re.I)
+        )
+        if count and arguments.get("result_mode", "list") == "list":
+            value = int(count.group(1))
+            if 1 <= value <= 50:
+                arguments["limit"] = value
+        # Match the complete money token before validating it. A prefix match on
+        # RM1,000 or RM25.999 would query the wrong amount; a magnitude suffix
+        # (RM25k) or a sign (RM-25) must also reach validation, not be truncated
+        # to RM25 or dropped so the token leaks into the category filter.
+        amounts = re.findall(r"\brm\s*(-?[\w.,]+)", message, re.I)
+        if amounts:
+            if len(amounts) != 1 or not re.fullmatch(
+                r"(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?",
+                amounts[0].rstrip("."),
+            ):
+                raise ValueError("Please provide one exact amount, with at most two decimal places.")
+            if re.search(
+                r"\b(?:over|under|above|below|more\s+than|less\s+than|at\s+least|"
+                r"at\s+most|greater\s+than|fewer\s+than|between|min|max|minimum|"
+                r"maximum|around|about|approximately)\b",
+                message, re.I,
+            ):
+                raise ValueError(
+                    "I can match an exact amount like RM25 for now. Which exact "
+                    "amount should I search for?"
+                )
+            arguments["amount"] = f"{Decimal(amounts[0].rstrip('.').replace(',', '')):.2f}"
+        if merchants:
+            arguments["text"] = merchants[0]
     return arguments
 
 
@@ -899,12 +1184,13 @@ def resolve_read_request(
              if message.get("role") == "user" and message.get("status") != "failed"
              and not (current_message_id and message.get("id") == current_message_id)]
     for text in [*turns, content]:
+        intent_text = normalize_for_intent(text)
         route = route_coach_message(text)
         direct_tool = required_read_agent_tool_name(text, route)
-        is_modifier = _is_follow_up_modifier(text) and not any(pattern.search(text) for pattern in (
+        is_modifier = _is_follow_up_modifier(text) and not any(pattern.search(intent_text) for pattern in (
             _TRANSACTION_QUERY, _BUDGET_QUERY, _SAVINGS_GOAL_QUERY,
             _PROFILE_QUERY, _REMINDER_REFERENCE, _CASHFLOW_FORECAST_QUERY, _PREDICTION_QUERY,
-        ))
+        )) and not is_category_ranking_query(intent_text)
         if route in (CoachingRoute.FINANCIAL_EDUCATION, CoachingRoute.COMBINED) or required_agent_tool_names(text):
             is_modifier = False
         # Opening a stored image/attachment is a known but unsupported read; a
@@ -981,8 +1267,19 @@ def resolve_read_request(
             except ValueError as error:
                 arguments, parameter_sources = {}, {}
                 readiness = ReadReadiness.NEEDS_CLARIFICATION
-                invalid_fields = _period_invalid_fields(tool)
-                clarification = str(error) if "Please" in str(error) else "Please provide valid dates in YYYY-MM-DD format, with the start before the end."
+                message_text = str(error)
+                if isinstance(error, UnsupportedTransactionFilter):
+                    invalid_fields = ("transaction_filter",)
+                    clarification = message_text
+                elif "amount" in message_text.lower():
+                    invalid_fields = ("amount",)
+                    clarification = message_text
+                elif "ranking" in message_text.lower():
+                    invalid_fields = ()
+                    clarification = message_text
+                else:
+                    invalid_fields = _period_invalid_fields(tool)
+                    clarification = message_text if "Please" in message_text else "Please provide valid dates in YYYY-MM-DD format, with the start before the end."
         elif is_modifier and route == CoachingRoute.CASUAL:
             readiness = ReadReadiness.NEEDS_CLARIFICATION
             missing_required = ("read_intent",)
@@ -1014,17 +1311,79 @@ def _malaysia_date(value: datetime | date | None) -> date:
     return value
 
 
+_NAMED_DAY_DATE_QUERY = re.compile(
+    r"\b(?:"
+    r"(?P<day_first>\d{1,2})(?:st|nd|rd|th)?\s+"
+    r"(?P<month_first>" + "|".join(_MONTH_NUMBERS) + r")\b"
+    r"(?:,?\s+(?P<year_first>20\d{2}))?"
+    r"|(?P<month_second>" + "|".join(_MONTH_NUMBERS) + r")\s+"
+    r"(?P<day_second>\d{1,2})(?:st|nd|rd|th)?\b"
+    r"(?:,?\s+(?P<year_second>20\d{2}))?"
+    r")",
+    re.I,
+)
+
+
+def _named_day_period(message: str, current_day: date) -> tuple[date, date] | None:
+    matches = list(_NAMED_DAY_DATE_QUERY.finditer(message))
+    if not matches:
+        return None
+    if len(matches) > 2:
+        raise ValueError("Please specify one date or a start and end date.")
+    if len(matches) == 2:
+        connector = message[matches[0].end():matches[1].start()]
+        if not re.fullmatch(r"\s*(?:to|until|through|and|-|–|—)\s*", connector, re.I):
+            raise ValueError("Please specify the start and end dates clearly.")
+    elif re.search(r"(?:\b(?:to|until|through|and)\s+|[-–—]\s*)"
+                   r"(?:\d{1,2}|(?:" + "|".join(_MONTH_NUMBERS) + r")\b)",
+                   message[matches[0].end():], re.I):
+        # A partial second endpoint must never silently collapse to one day.
+        raise ValueError("Please specify both dates with their day and month.")
+
+    explicit_years = {
+        int(year) for match in matches
+        if (year := match.group("year_first") or match.group("year_second"))
+    }
+    if not explicit_years and len(matches) == 2:
+        first_month = _MONTH_NUMBERS[(matches[0].group("month_first") or matches[0].group("month_second")).casefold()]
+        last_month = _MONTH_NUMBERS[(matches[1].group("month_first") or matches[1].group("month_second")).casefold()]
+        if first_month > last_month:
+            raise ValueError("Please include the year for a range crossing calendar years.")
+    inferred_year = None
+    if len(explicit_years) == 1:
+        inferred_year = next(iter(explicit_years))
+    elif not explicit_years:
+        last_month = _MONTH_NUMBERS[(matches[-1].group("month_first") or matches[-1].group("month_second")).casefold()]
+        inferred_year = current_day.year - (last_month > current_day.month)
+
+    dates = []
+    for match in matches:
+        month_name = match.group("month_first") or match.group("month_second")
+        day_text = match.group("day_first") or match.group("day_second")
+        year_text = match.group("year_first") or match.group("year_second")
+        dates.append(date(int(year_text) if year_text else inferred_year,
+                          _MONTH_NUMBERS[month_name.casefold()], int(day_text)))
+    if dates[0] > dates[-1]:
+        raise ValueError("Please provide a start date before the end date.")
+    return dates[0], dates[-1]
+
+
 def _explicit_period(
     message: str,
     tool_name: str,
     current_day: date,
 ) -> tuple[date | None, date | None]:
     iso_dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", message)
+    named_day = _named_day_period(message, current_day)
+    if iso_dates and named_day:
+        raise ValueError("Please use the same date format for both range endpoints.")
     if iso_dates:
         parsed = [date.fromisoformat(value) for value in iso_dates]
         if len(parsed) > 2 or parsed[0] > parsed[-1]:
             raise ValueError("Provide a valid start date followed by an end date.")
         return parsed[0], parsed[-1]
+    if named_day:
+        return named_day
     if re.search(r"\b(?:yesterday|semalam)\b", message, re.I):
         day = current_day - timedelta(days=1)
         return day, day
@@ -1050,6 +1409,14 @@ def _explicit_period(
         return start, _month_end(start)
     # 'May I ...' is a modal request, not an explicit calendar month.
     calendar_text = re.sub(r"\bmay\s+(?:i|we|you)\b", "", message, flags=re.I)
+    # A month word inside an explicit category marker or quotes is a CATEGORY
+    # name, not a period ("category May", "\"May\" spending"): mask it so the read
+    # uses the default month while the resolver keeps the category.
+    calendar_text = re.sub(r"[\"“”][^\"“”]*[\"“”]", " ", calendar_text)
+    calendar_text = re.sub(
+        r"\b(?:category|categories|kategori)\s*:?\s+[\w&'\-]+",
+        " ", calendar_text, flags=re.I,
+    )
     match = _MONTH_NAME_QUERY.search(calendar_text)
     if not match:
         if tool_name != "get_upcoming_reminders" and re.search(
@@ -1092,6 +1459,8 @@ def _default_period_arguments(
     if tool_name in _RANGE_PERIOD_TOOLS:
         start = _malaysia_date(now).replace(day=1)
         return {"start_date": start.isoformat(), "end_date": _month_end(start).isoformat()}
+    if tool_name == "get_category_budget_recommendation":
+        return {"month": _malaysia_date(now).strftime("%Y-%m")}
     return {}
 
 
@@ -1113,13 +1482,19 @@ def _category_filter(message: str) -> str | None:
     only = _category_only(text)
     if only:
         return only
+    candidate = extract_category_candidate(text)
+    if candidate:
+        return candidate
     match = re.search(
         r"\b(?:spend(?:ing)?|spent|expenses?|transactions?|belanja|perbelanjaan|"
         r"budget|bajet)\s+(?:on|for|untuk|kategori|category)\s+"
         r"(?P<category>[\w&'\- ]{1,80}?)[?.!\s]*$", text, re.I,
     )
     if match:
-        return " ".join(match.group("category").split()).title()
+        candidate = " ".join(match.group("category").split())
+        # An amount ("RM25") or bare number is a search filter, not a category.
+        if not re.fullmatch(r"(?:rm\s*)?\d+(?:\.\d+)?", candidate, re.I):
+            return candidate.title()
     return None
 
 
@@ -1162,10 +1537,10 @@ def select_financial_context_scope(
     if route not in (CoachingRoute.PERSONAL_FINANCE, CoachingRoute.COMBINED):
         return None
 
-    message = " ".join(content.strip().split())
+    message = normalize_for_intent(content)
     asks_about_goals = bool(_SAVINGS_GOAL_QUERY.search(message))
     asks_about_budget = bool(_BUDGET_QUERY.search(message))
-    asks_about_transactions = bool(_TRANSACTION_QUERY.search(message))
+    asks_about_transactions = bool(_TRANSACTION_QUERY.search(message) or is_category_ranking_query(message))
     asks_for_comparison = bool(_PERIOD_COMPARISON_QUERY.search(message))
 
     if not (asks_about_goals or asks_about_budget or asks_about_transactions):
