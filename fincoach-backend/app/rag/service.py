@@ -80,7 +80,7 @@ from app.rag.prompts import (
     build_casual_prompt, build_coach_prompt, build_research_recovery_prompt,
     RESEARCH_EXPLANATION_SYSTEM_PROMPT,
 )
-from app.rag.research_answer import recover_research_answer
+from app.rag.research_answer import recover_research_answer, research_answer_word_limit
 from app.rag.research_coverage import requires_full_clarification, clarification_question
 from app.rag.query_analysis import KnowledgeQueryAnalysis, analyze_knowledge_query
 from app.rag.research_policy import (
@@ -93,6 +93,11 @@ from app.rag.research_policy import (
 )
 from app.rag.retrieval import RetrievedChunk, retrieve
 from app.rag.verifier import verify_grounding_claims
+from app.rag.research_answer_budget import (
+    initial_writer_budget,
+    research_phase_budget,
+    research_work_budget,
+)
 
 _RESEARCH_EXPLANATION_MODES = frozenset({
     "research_explanation", "research_explanation_recovery", "research_explanation_unavailable",
@@ -119,19 +124,15 @@ def _research_explanation_result(*, plan, decision, budget, question, personal_f
                         f"\nRequested parts: {json.dumps(plan.required_facts)}")
     draft = None
     failure = None
-    if decision.assessment.supported_quotes and budget.remaining_seconds() > 15:
+    writer_budget = initial_writer_budget(budget)
+    if decision.assessment.supported_quotes and writer_budget is not None and writer_budget.remaining_seconds() > 0:
         try:
             draft = generate_result(
-                build_research_recovery_prompt(public_question, decision),
-                # Early evidence permits a larger primary explanation window
-                # inside the same deadline, rather than timing out at 12s while
-                # the request still has time. Late evidence retains 15s + check.
-                # When evidence arrives late, spend the 20-second reserve on
-                # 15 seconds of explanation and five of checking. With more
-                # time, retain the existing 15-second recovery allowance.
-                budget=budget.for_stage(stage_name="answer_generation", max_seconds=(25 if budget.remaining_seconds() >= 35 else 15),
-                    reserve_after_seconds=(10 if budget.remaining_seconds() >= 35 else
-                                           15 if budget.remaining_seconds() >= 30 else 5)),
+                build_research_recovery_prompt(public_question, decision,
+                    max_words=max(80, research_answer_word_limit(plan) - len((
+                        clarification_question(plan) or '').split()))),
+                budget=writer_budget,
+                reasoning_effort='low',
                 system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
             )
         except Exception as error:
@@ -142,6 +143,8 @@ def _research_explanation_result(*, plan, decision, budget, question, personal_f
                 failure = "provider_configuration_error"
             else:
                 failure = "answer_generation_unavailable"
+    elif decision.assessment.supported_quotes and (writer_budget is None or writer_budget.remaining_seconds() <= 0):
+        failure = "writer_budget_insufficient"
     return recover_research_answer(plan=plan, decision=decision, draft=draft,
         budget=budget, public_question=public_question, personal_facts=personal_facts,
         initial_failure=failure)
@@ -156,6 +159,7 @@ from app.rag.routing import (
     ReadReadiness,
     ambiguous_reminder_title,
     is_budget_planning_request,
+    is_hypothetical_allocation_request,
     is_budget_save_command,
     is_financial_triage_query,
     is_product_selection_request,
@@ -2088,7 +2092,10 @@ class CoachingService:
                     COACH_RESEARCH_POLICY_ENABLED
                     and resumed_read is None
                     and not clear_personal_read
+                    and not is_hypothetical_allocation_request(content)
                 ):
+                    from app.llm_provider_session import ProviderSession
+                    request_budget = replace(request_budget, provider_session=ProviderSession())
                     research_plan = interpret_question(
                         content,
                         history,
@@ -2221,7 +2228,8 @@ class CoachingService:
                     CoachingRoute.COMBINED,
                 )
                 chunks = []
-                if is_knowledge_route and not (research_plan and requires_full_clarification(research_plan)):
+                if (is_knowledge_route and not is_hypothetical_allocation_request(content)
+                    and not (research_plan and requires_full_clarification(research_plan))):
                     try:
                         chunks = retrieve(
                             research_plan.topic if research_plan else content,
@@ -2278,14 +2286,21 @@ class CoachingService:
                     and not knowledge_analysis.clarification
                     and not requires_full_clarification(research_plan)
                 ):
+                    work_budget = research_work_budget(request_budget)
+                    research_child = research_phase_budget(work_budget)
                     decision = run_research_policy(
                         research_plan, chunks,
                         generate=generate_structured_result,
-                        budget=request_budget,
+                        budget=research_child,
                         api_key=TAVILY_API_KEY,
                         web_enabled=WEB_FALLBACK_ENABLED,
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
+                        # This child already ends at the reserved research second.
+                        # Passing 0.0 makes the answer-time reservation single-owned:
+                        # a second stage-derived reserve here would stop research
+                        # far earlier than the reserved research end.
+                        answer_reserve_seconds=0.0,
                     )
                     chunks = decision.chunks
                     evidence_assessment = decision.assessment
@@ -2327,11 +2342,12 @@ class CoachingService:
                 )
 
                 def explain_public(personal_facts=""):
+                    work_budget = research_work_budget(request_budget)
                     outcome = _research_explanation_result(
                         plan=research_plan,
                         decision=ResearchDecision(chunks, evidence_assessment, web_fallback_used,
                                                   research_failure, research_quotes, research_diagnostics),
-                        budget=request_budget, question=content, personal_facts=personal_facts,
+                        budget=work_budget, question=content, personal_facts=personal_facts,
                     )
                     research_diagnostics["explanation"] = outcome.diagnostics
                     return replace(outcome.result, content=_strip_source_markers(outcome.result.content)), outcome.mode

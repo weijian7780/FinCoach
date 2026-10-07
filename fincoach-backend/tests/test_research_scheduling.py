@@ -13,12 +13,12 @@ def test_research_then_writer_preserves_full_recovery_path():
         work = scheduling.research_work_budget(total)
         research = scheduling.research_phase_budget(work)
         assert total.remaining_seconds() == 120
-        assert work.stage_deadline_at == 110
-        assert research.stage_deadline_at == 35
-        with patch.object(llm, "monotonic", return_value=35):
+        assert work.stage_deadline_at == 115
+        assert research.stage_deadline_at == 75
+        with patch.object(llm, "monotonic", return_value=75):
             writer = scheduling.initial_writer_budget(work)
-            assert writer.remaining_seconds() == 35
-            assert work.remaining_seconds() - writer.remaining_seconds() == 40
+            assert writer.remaining_seconds() == 20
+            assert work.remaining_seconds() - writer.remaining_seconds() == 20
 
 
 def test_expired_child_cannot_extend_parent_deadline():

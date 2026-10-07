@@ -349,13 +349,32 @@ def _citation_supports_claim(line: str, source_texts: list[str]) -> bool:
     if not claim_tokens:
         return True
     claim_is_negative = bool(_NEGATION.search(line))
-    evidence_tokens: set[str] = set()
     for source_text in source_texts:
-        for passage in _PASSAGE_BOUNDARY.split(source_text):
-            if claim_is_negative == bool(_NEGATION.search(passage)):
-                evidence_tokens.update(_support_tokens(passage))
-    matched = claim_tokens.intersection(evidence_tokens)
-    return len(matched) >= ceil(len(claim_tokens) * 0.8)
+        passages = list(_PASSAGE_BOUNDARY.split(source_text))
+        # Markdown titles qualify their following paragraph. Retain that local
+        # hierarchy without combining independent statements or sources.
+        headings = []
+        for source_line in source_text.splitlines():
+            heading = re.match(r'^(#{1,6})\s+(.+)', source_line.strip())
+            if heading:
+                level = len(heading.group(1))
+                headings = [(depth, label) for depth, label in headings if depth < level]
+                headings.append((level, heading.group(2)))
+            elif source_line.strip() and headings:
+                passages.extend(' '.join(label for _, label in headings) + ' ' + passage
+                                for passage in _PASSAGE_BOUNDARY.split(source_line))
+        for passage in passages:
+            if claim_is_negative != bool(_NEGATION.search(passage)):
+                continue
+            # Unrelated passages cannot pool vocabulary into proof of a new
+            # relationship. Conditional audience labels must also survive.
+            qualifier = re.match(r'\s*(?:for|if|when|only for|untuk|jika|bagi)\s+([^,:.]+)[,:]', passage, re.I)
+            if qualifier and not _support_tokens(qualifier.group(1)).issubset(claim_tokens):
+                continue
+            matched = claim_tokens.intersection(_support_tokens(passage))
+            if len(matched) >= ceil(len(claim_tokens) * 0.8):
+                return True
+    return False
 
 
 def _has_same_negation_polarity(line: str, source_texts: list[str]) -> bool:

@@ -13,8 +13,32 @@ def normalized_anchor(text):
     return ' '.join(text.casefold().split())
 
 
+_FRAGMENT = re.compile(r'[;•*\n]+|(?<=[a-z0-9])\.\s+(?=[A-Z])')
+
+
+def ordered_literal_anchor(anchor, reference) -> bool:
+    """Whether the anchor's literal fragments occur contiguously and in order.
+
+    A checker may join two clauses of ONE rule (``"Apply online; collect the
+    paper form"``) where the page happens to use different punctuation. The
+    fragments must still be adjacent, so an anchor that skips intervening source
+    text is rejected and sent back for one literal recheck.
+    """
+    fragments = [f.rstrip('.,;:') for f in (_clean(a) for a in _FRAGMENT.split(anchor)) if f]
+    if len(fragments) < 2:
+        return False
+    return ' '.join(fragments) in _clean(reference)
+
+
+def _clean(text) -> str:
+    text = re.sub(r'\[S\d+\]', ' ', str(text or ''))
+    return ' '.join(text.casefold().replace(';', ' ').split())
+
+
 def _owned_source_anchor(anchor, reference, bindings):
     if normalized_anchor(anchor) in normalized_anchor(reference):
+        return True
+    if ordered_literal_anchor(anchor, reference):
         return True
     # A checker may concatenate a parent/child path. Resolve it only when it
     # exactly names a backend-proven hierarchy and every component is literal.

@@ -25,6 +25,7 @@ import ssl
 from html.parser import HTMLParser
 from ipaddress import ip_address
 from pathlib import Path
+from time import monotonic
 from urllib.parse import urljoin, urlparse
 
 EXTRA_INTERMEDIATES = Path(__file__).with_name("certs") / "extra_intermediates.pem"
@@ -180,11 +181,15 @@ def html_to_text(html: str, base_url: str) -> str:
     return _relocate_menus(parser.text())
 
 
-def _pdf_to_text(body: bytes) -> str:
+def _pdf_to_text(body: bytes, *, deadline: float | None = None) -> str:
     from pypdf import PdfReader
     reader = PdfReader(io.BytesIO(body))
     pages = []
     for page in reader.pages[:40]:
+        # Parsing is the expensive half of a PDF fetch. Stop at the deadline
+        # rather than continuing to burn request time after the caller moved on.
+        if deadline is not None and monotonic() >= deadline:
+            break
         try:
             pages.append(page.extract_text() or "")
         except Exception:
@@ -192,14 +197,23 @@ def _pdf_to_text(body: bytes) -> str:
     return "\n\n".join(p.strip() for p in pages if p.strip())
 
 
-def fetch_official_page(url: str, *, timeout: float) -> str | None:
+def fetch_official_page(url: str, *, timeout: float,
+                        deadline: float | None = None) -> str | None:
     """Return readable text for one official public page, or ``None``.
 
     Never raises. ``None`` covers guard rejection, TLS failure, bot challenge
     (202/empty), non-text content, oversize bodies and network errors.
+
+    ``deadline`` is an absolute ``monotonic`` instant shared with the caller. It is
+    checked while the body is streamed and again before PDF parsing, so a slow
+    response or a slow parser stops early instead of outliving the request budget.
+    The caller also runs this on daemon threads: a blocking socket read cannot be
+    cancelled cooperatively, so daemon threads are the backstop that keeps a stuck
+    fetch from holding the process open.
     """
     if timeout < 1:
         return None
+    expired = (lambda: deadline is not None and monotonic() >= deadline)
     current = str(url or "").strip()
     if not _allowed_url(current):
         return None
@@ -216,6 +230,8 @@ def fetch_official_page(url: str, *, timeout: float) -> str | None:
                               "Accept-Language": "en,ms;q=0.8",
                           }) as client:
             for _ in range(MAX_REDIRECTS + 1):
+                if expired():
+                    return None
                 host = urlparse(current).hostname or ""
                 if not _allowed_url(current) or not _resolves_publicly(host):
                     return None
@@ -239,17 +255,19 @@ def fetch_official_page(url: str, *, timeout: float) -> str | None:
                         body.extend(chunk)
                         if len(body) > MAX_BODY_BYTES:
                             return None
+                        if expired():
+                            return None
                     encoding = response.encoding or "utf-8"
                 break
             else:
                 return None
     except Exception:
         return None
-    if not body:
+    if expired() or not body:
         return None
     if content_type == "application/pdf" or bytes(body[:5]) == b"%PDF-":
         try:
-            text = _pdf_to_text(bytes(body))
+            text = _pdf_to_text(bytes(body), deadline=deadline)
         except Exception:
             return None
     else:

@@ -271,7 +271,13 @@ def test_policy_broadens_targeted_gaps_without_researching_answered_parts():
     later = searches.call_args_list[1:]
     assert later and all(not ("documents" in c.args[0] and "eligibility" in c.args[0]) for c in later)
     assert any(c.kwargs.get("discovery_mode") == "broader" for c in searches.call_args_list)
-    assert result.assessment.supported_quotes and result.diagnostics["search_calls"] <= 3
+    # The bound is the request-local envelope, not the legacy three-round stop.
+    # This plan has three requested parts, so the fair budget allows each missing
+    # part one query plus one second variant, while still never re-searching the
+    # part already confirmed. The old `<= 3` bound is exactly what left a third
+    # requested part with no discovery attempt at all.
+    assert result.assessment.supported_quotes
+    assert result.diagnostics["search_calls"] <= 4
 
 
 def test_verifier_shares_part_scope_and_rejects_unknown_answered_ids():
@@ -290,7 +296,7 @@ def test_verifier_shares_part_scope_and_rejects_unknown_answered_ids():
         factory.return_value.chat.completions.create.return_value = response
         result = verify_grounding_claims([GroundingClaim(1, "Apply online", (1,))], ["Apply online"],
                                         timeout_seconds=5, research_context=context)
-    assert result.error_code == "invalid_verifier_response"
+    assert result.error_code == "verifier_invalid_json"
     assert "no separate application" in factory.return_value.chat.completions.create.call_args.kwargs["messages"][1]["content"].lower()
 
 

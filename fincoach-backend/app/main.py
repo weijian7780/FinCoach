@@ -87,9 +87,15 @@ if _admin_dist.is_dir() and (_admin_dist / "index.html").is_file():
         return FileResponse(_admin_dist / "index.html", headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"})
 
 
+from app.build_info import capture_build_info, get_public_config
+
+_ROOT_DIR = Path(__file__).resolve().parent.parent
+BUILD_INFO = capture_build_info(_ROOT_DIR, get_public_config())
+
+
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", **BUILD_INFO}
 
 
 @app.get("/ready")

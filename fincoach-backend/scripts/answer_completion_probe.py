@@ -19,7 +19,6 @@ from app.rag.research_coverage import PartCoverage
 from app.rag.research_source_spans import SourceSpan
 from app.rag.research_fact_bindings import EvidenceFactBinding
 from app.rag.prompts import build_research_recovery_prompt, RESEARCH_EXPLANATION_SYSTEM_PROMPT
-from app.rag.prompts import build_research_block_prompt
 from app.rag.research_answer import check_research_draft
 from app.rag.research_answer import recover_research_answer
 
@@ -116,9 +115,10 @@ def main():
         parser.error('Explicit --live, 1..10 trials and approved cap required')
     query, plan, decision = load_public_decision(args.decision)
     provider = isolated_provider(args.role)
-    prompt = (build_research_block_prompt(query, decision) if args.candidate and decision.assessment.parts
-              else build_research_recovery_prompt(query, decision))
-    system_prompt = RESEARCH_EXPLANATION_SYSTEM_PROMPT + (' For part records, the prompt’s JSON-lines format replaces the three Markdown sections.' if args.candidate else '')
+    # Replay the current Markdown writer contract. The retired block-prompt
+    # import must not break collection or mislabel a different prompt as live.
+    prompt = build_research_recovery_prompt(query, decision)
+    system_prompt = RESEARCH_EXPLANATION_SYSTEM_PROMPT
     from openai import OpenAI
     rows = []
     output = dict(schema_version=1, query=query, public_plans=[asdict(plan)],

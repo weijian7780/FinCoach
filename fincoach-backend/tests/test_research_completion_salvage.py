@@ -67,3 +67,17 @@ def test_expected_incompleteness_does_not_erase_verified_prefix():
             budget=CoachRequestBudget.start(), completion=LLMResult(text, 'primary', finish_reason='length'))
     assert 'Apply through the portal' in (result.approved_text or '')
     assert not result.is_valid
+
+
+def test_global_missing_part_does_not_erase_all_verified_complete_sentences():
+    from app.rag.grounding import DISCLAIMER
+    text = '**Insight**\nApply through the portal [S1].\n\n**Educational guidance**\n' + DISCLAIMER
+    def verdict(claims, *_a, **_kw):
+        return GroundingVerification({c.id: 'supported' for c in claims}, {c.id: 1 for c in claims},
+            quality_errors=('incomplete_supported_answer',), requested_scope_covered=False,
+            unanswered_requested_parts=('documents',))
+    with patch('app.rag.research_answer.verify_grounding_claims', side_effect=verdict):
+        result = check_research_draft(text, public_question='Apply and documents?', decision=decision(),
+            budget=CoachRequestBudget.start())
+    assert not result.is_valid
+    assert 'Apply through the portal' in (result.approved_text or '')

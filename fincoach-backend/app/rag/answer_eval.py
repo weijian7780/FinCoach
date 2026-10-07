@@ -45,12 +45,13 @@ SUPPORTED = "supported"
 UNSUPPORTED = "unsupported"
 FABRICATED = "fabricated"
 REFUSED = "refused"
-VERDICTS = (SUPPORTED, UNSUPPORTED, FABRICATED, REFUSED)
+MISAPPLIED = "misapplied"
+VERDICTS = (SUPPORTED, UNSUPPORTED, FABRICATED, REFUSED, MISAPPLIED)
 
 # Everything that is not a refusal is an "answer" the coach committed to.
-_ANSWERED = (SUPPORTED, UNSUPPORTED, FABRICATED)
+_ANSWERED = (SUPPORTED, UNSUPPORTED, FABRICATED, MISAPPLIED)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -80,10 +81,11 @@ class BucketCounts:
     unsupported: int
     fabricated: int
     refused: int
+    misapplied: int = 0
 
     @property
     def answered(self) -> int:
-        return self.supported + self.unsupported + self.fabricated
+        return self.supported + self.unsupported + self.fabricated + self.misapplied
 
     @property
     def grounding_precision(self) -> float | None:
@@ -106,6 +108,8 @@ class BucketCounts:
             "unsupported": self.unsupported,
             "fabricated": self.fabricated,
             "refused": self.refused,
+            "misapplied": self.misapplied,
+            "misapplied_rate": self.misapplied / self.total if self.total else None,
             "answered": self.answered,
             "grounding_precision": self.grounding_precision,
             "refusal_rate": self.refusal_rate,
@@ -120,6 +124,7 @@ def _count_bucket(verdicts: list[str]) -> BucketCounts:
         unsupported=verdicts.count(UNSUPPORTED),
         fabricated=verdicts.count(FABRICATED),
         refused=verdicts.count(REFUSED),
+        misapplied=verdicts.count(MISAPPLIED),
     )
 
 

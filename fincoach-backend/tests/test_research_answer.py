@@ -92,6 +92,22 @@ def test_same_fact_with_different_words_is_accepted():
     assert check(answer(), decision("Apply online using the official application website.")).is_valid
 
 
+def test_explicit_compound_word_budget_is_not_clamped_to_two_hundred():
+    from app.rag import research_answer as module
+    text = answer('Apply ' + 'online ' * 205 + 'using the portal [S1].')
+    with patch.object(module, 'verify_grounding_claims', side_effect=supported):
+        result = module.check_research_draft(text, public_question=QUESTION,
+            decision=decision(), budget=CoachRequestBudget.start(), max_words=240)
+    assert result.is_valid
+
+
+def test_recovery_prompt_and_system_use_the_explicit_word_budget():
+    from app.rag.prompts import build_research_recovery_prompt, RESEARCH_EXPLANATION_SYSTEM_PROMPT
+    prompt = build_research_recovery_prompt(QUESTION, decision(), max_words=240)
+    assert 'Answer within 240 words' in prompt
+    assert 'at most 200 words' not in RESEARCH_EXPLANATION_SYSTEM_PROMPT
+
+
 def test_changed_number_or_negation_is_rejected():
     result = check(answer("Applications close in 24 months [S1]."),
                    decision("Applications close in 12 months."))
@@ -267,6 +283,14 @@ def test_comma_grouped_source_markers_are_verified_and_do_not_leak_into_reply():
     assert result.is_valid
     assert "[S1, S2]" not in result.approved_text
     assert "[S" not in _strip_source_markers(result.approved_text)
+
+
+def test_numeric_provider_citations_are_normalized_before_checking_and_display():
+    from app.rag.service import _strip_source_markers
+    result = check(answer('Apply through the portal [1].'))
+    assert result.is_valid
+    assert '[1]' not in result.approved_text
+    assert '[1]' not in _strip_source_markers(result.approved_text)
 
 
 def recover(draft, evidence=None, *, generated=None, verifier=supported, personal_facts=""):
@@ -458,7 +482,7 @@ def test_recovery_semantic_calls_share_request_start_and_caps():
     assert outcome.recovery_used and starts == [0, 0]
 
 
-@pytest.mark.parametrize("elapsed, expected_generation", [(30.0, 18.0), (52.0, None)])
+@pytest.mark.parametrize("elapsed, expected_generation", [(30.0, 15.0), (52.0, None)])
 def test_rewrite_can_use_remaining_time_without_spending_final_check_reserve(elapsed, expected_generation):
     from app import llm
     from app.rag import research_answer as module

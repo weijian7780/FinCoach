@@ -17,6 +17,12 @@ from unittest.mock import patch
 
 if str(Path(__file__).parent) != '/tmp':
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    for _parent in Path(__file__).resolve().parents:
+        _backend_env = _parent / 'fincoach-backend' / '.env'
+        if _backend_env.exists():
+            from dotenv import load_dotenv
+            load_dotenv(_backend_env)
+            break
 
 
 class PublicHistory:
@@ -165,7 +171,13 @@ def run_public_conversation(questions: list[str], *, warmup: bool = True, source
     finally:
         logger.removeHandler(recorder)
         logger.setLevel(old_level)
-    return dict(primary_model=config.LLM_PRIMARY_MODEL, deadline_seconds=config.COACH_REQUEST_DEADLINE_SECONDS,
+    from app.build_info import capture_build_info, get_public_config
+    root = Path(__file__).resolve().parents[1]
+    build_info = capture_build_info(root, get_public_config())
+    return dict(build_id=build_info.get("build_id"),
+                source_fingerprint=build_info.get("source_fingerprint"),
+                config_fingerprint=build_info.get("config_fingerprint"),
+                primary_model=config.LLM_PRIMARY_MODEL, deadline_seconds=config.COACH_REQUEST_DEADLINE_SECONDS,
                 turns=results, events=recorder.events, research_inputs=research_inputs,
                 search_results=search_results, generated_drafts=generated_drafts, private_reads=0, persisted_messages=0)
 

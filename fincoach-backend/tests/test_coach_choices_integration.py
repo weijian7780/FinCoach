@@ -43,6 +43,7 @@ class ChoiceEmissionTests(unittest.TestCase):
 
         repository = _education_repository()
         with (
+            patch("app.rag.service.COACH_RESEARCH_POLICY_ENABLED", False),
             patch("app.rag.service.COACH_LLM_CHOICES_ENABLED", flag),
             patch("app.rag.service.retrieve", return_value=[]),
             patch(

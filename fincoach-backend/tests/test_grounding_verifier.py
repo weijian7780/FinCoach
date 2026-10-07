@@ -330,7 +330,7 @@ class GroundingVerifierTests(unittest.TestCase):
                 timeout_seconds=5,
             )
 
-        self.assertEqual(result.error_code, "invalid_verifier_response")
+        self.assertEqual(result.error_code, "verifier_invalid_json")
 
     def test_rejects_a_verifier_response_that_omits_a_claim_id(self):
         from app.rag.grounding import GroundingClaim
@@ -368,4 +368,4 @@ class GroundingVerifierTests(unittest.TestCase):
             )
 
         self.assertFalse(result.all_supported)
-        self.assertEqual(result.error_code, "invalid_verifier_response")
+        self.assertEqual(result.error_code, "verifier_invalid_json")

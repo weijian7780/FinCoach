@@ -119,6 +119,7 @@ def test_rejected_optional_sentence_does_not_erase_verified_requested_coverage()
             decision=evidence, budget=CoachRequestBudget.start(), part_units=part_unit_keys(blocks))
     assert checked.is_valid and 'unrelated' not in checked.approved_text
     assert checked.diagnostics['answered_part_ids'] == ['p1','p2']
+    assert checked.diagnostics['unanswered_requested_parts'] == []
 
 
 def test_rejected_second_part_cannot_erase_first_verified_part():

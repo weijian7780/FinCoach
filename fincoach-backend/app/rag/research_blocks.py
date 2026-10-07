@@ -58,6 +58,8 @@ def parse_finished_blocks(text: str, *, allowed_part_ids: tuple[str, ...],
         # the claim and unknown IDs remain unusable.
         raw['text'] = re.sub(r'\[(\d{1,2})\]', lambda m: f'[S{int(m.group(1))}]'
             if int(m.group(1)) in allowed_source_ids else m.group(), raw['text'])
+        if re.search(r'\[\d{1,2}\]', raw['text']):
+            continue  # Unresolved numeric markers cannot become uncited facts.
         identity = (raw['part_id'], unit_key(raw['text']))
         # A requested part can contain explanatory facts and procedural actions.
         # Their presentation section does not change source ownership. Reject

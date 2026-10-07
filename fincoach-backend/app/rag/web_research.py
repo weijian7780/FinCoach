@@ -1,13 +1,13 @@
-"""Web-research fallback: search the open web when the corpus cannot answer.
+﻿"""Web-research fallback: search the open web when the corpus cannot answer.
 
 This is a *fallback*, invoked only when internal RAG retrieval is inadequate for
 a knowledge-route question (see the trigger in ``CoachingService.send_message``).
-Corpus is always tried first and is never discarded — web evidence *augments* it
+Corpus is always tried first and is never discarded â€” web evidence *augments* it
 (see ``merge_evidence``), it does not replace it.
 
 Results are ranked into trust tiers by domain and adapted into ``RetrievedChunk``
 objects so they flow through the SAME citation + grounding + verifier machinery as
-corpus chunks — the web path gets no private exemption from the guards. A claim
+corpus chunks â€” the web path gets no private exemption from the guards. A claim
 with no supporting fetched text fails closed exactly like an unsupported corpus
 claim.
 
@@ -32,6 +32,7 @@ before any network call.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from time import monotonic
 from dataclasses import dataclass, field
@@ -63,13 +64,13 @@ _GOV_HOSTS = frozenset({
     "mof.gov.my",        # Ministry of Finance
     "sc.com.my",         # Securities Commission Malaysia
     "bursamalaysia.com", # Exchange (regulated market operator)
-    "akpk.org.my",       # AKPK — credit counselling agency, a BNM subsidiary
+    "akpk.org.my",       # AKPK â€” credit counselling agency, a BNM subsidiary
 })
 
 # Tier 2 = licensed commercial financial entities' OWN official domains (banks,
 # licensed digital banks, SC-licensed investment managers). Trusted for factual
 # product attributes (fees, minimums, eligibility, mechanics, licensing/Shariah
-# status) — NOT for promotional or performance claims, and never to override a
+# status) â€” NOT for promotional or performance claims, and never to override a
 # statutory rate from a tier-1 source. The prompt enforces that scope.
 #
 # Inclusion criterion: verifiable on the SC Malaysia register of licence holders
@@ -83,14 +84,14 @@ _OFFICIAL_INSTITUTIONS = frozenset({
     "standardchartered.com.my", "tnbc.com.my", "touchngo.com.my", "boost.my",
     "grab.com", "bigpay.com.my", "principal.com.my", "publicmutual.com.my",
     # Verified 2026-09-19 against each entity's own official site:
-    "stashaway.my",      # StashAway Malaysia Sdn Bhd — SC DIM (eCMSL/A0352/2018)
-    "gxbank.my",         # GX Bank Berhad — BNM digital bank, PIDM member
-    "aeonbank.com.my",   # AEON Bank — BNM Islamic digital bank, PIDM member
-    "kenanga.com.my",    # Kenanga Investment Bank — SC-licensed investment bank
+    "stashaway.my",      # StashAway Malaysia Sdn Bhd â€” SC DIM (eCMSL/A0352/2018)
+    "gxbank.my",         # GX Bank Berhad â€” BNM digital bank, PIDM member
+    "aeonbank.com.my",   # AEON Bank â€” BNM Islamic digital bank, PIDM member
+    "kenanga.com.my",    # Kenanga Investment Bank â€” SC-licensed investment bank
     # Verified against SC register + Investor Alert clearance (2026-09-19):
-    "versa.com.my",      # Versa Asia Sdn Bhd — SC RMO e-Services Platform
-    "wahed.com",         # Wahed Technologies Sdn Bhd — SC DIM (primary apex)
-    "wahedinvest.com",   # Wahed — legacy/redirect apex, same entity
+    "versa.com.my",      # Versa Asia Sdn Bhd â€” SC RMO e-Services Platform
+    "wahed.com",         # Wahed Technologies Sdn Bhd â€” SC DIM (primary apex)
+    "wahedinvest.com",   # Wahed â€” legacy/redirect apex, same entity
     "digitalinvesting.com.my",  # Kenanga Digital Investing (KDI) product portal
 })
 
@@ -132,7 +133,7 @@ _TIER_LABEL = {
 
 # Domains the search is biased toward (Tavily `include_domains` + `prefer` mode):
 # every known-trustworthy finance host (tier 1-3). "prefer" favours these without
-# excluding others, so a legitimate site not yet on the list still surfaces — it
+# excluding others, so a legitimate site not yet on the list still surfaces â€” it
 # just ranks below a trusted one. Paired with `topic="finance"` this steers the
 # open-web search toward financial sources instead of arbitrary pages, without
 # caging it to the allowlist.
@@ -313,7 +314,7 @@ def classify_tier(url: str) -> int | None:
 def tier_to_confidence(tier: int | None) -> str:
     """Map a trust tier to one of the four confidence classes.
 
-    An unknown tier (``None``) is "insufficient" — it establishes nothing.
+    An unknown tier (``None``) is "insufficient" â€” it establishes nothing.
     """
     if tier is None:
         return "insufficient"
@@ -363,8 +364,8 @@ def build_research_query(question: str) -> str:
 
     Strips sign-off blocks (and the names/refs that trail them), emails, phone
     numbers, reference/account numbers, RM amounts, and long digit runs, then
-    collapses whitespace and caps length. Only the current question is used —
-    never conversation history — so no prior turns leave the server.
+    collapses whitespace and caps length. Only the current question is used â€”
+    never conversation history â€” so no prior turns leave the server.
 
     This is a conservative topic extractor, not a certified PII scrubber: plain
     years and small in-topic numbers (e.g. "EPF dividend 2024") are preserved so
@@ -400,6 +401,30 @@ class ResearchOutcome:
     extraction_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class FetchDiagnostic:
+    """One observed fetch attempt for one URL, without guessed causes.
+
+    ``outcome`` is deliberately coarse: ``unknown`` is the honest answer when the
+    provider returns only a generic error. A target HTTP 403, a JavaScript-only
+    page and a missing PDF parser are different facts and must not be inferred
+    from each other.
+    """
+    url: str
+    method: Literal["cache", "tavily_extract", "direct_fetch"]
+    outcome: Literal["ok", "partial", "no_content", "timeout", "access_denied",
+                     "provider_failure", "unsupported_format", "unknown"]
+    observed_status: int | None = None
+    content_hash: str | None = None
+    truncated: bool = False
+    provider_status: int | None = None
+
+
+def _truncated_flag(raw: str) -> bool:
+    """Whether a passage was clipped by our own bounded window, not by the page."""
+    return len(raw) > _MAX_PASSAGE_CHARS
+
+
 @dataclass
 class WebResearchCache:
     """Request-local public evidence only; bounded by the policy's three rounds."""
@@ -411,9 +436,19 @@ class WebResearchCache:
     public_source_diagnostics: dict[str, Any] = field(default_factory=dict)
     search_calls: int = 0
     extract_calls: int = 0
-    # Guarded official-page fetches after a failed/clipped Tavily extraction.
-    # Free of Tavily credit, so counted separately but capped per request.
+    max_search_calls: int = 6
+    max_extract_calls: int = 6
+    max_unique_urls: int = 6
+    # Guarded official-page fetches after a failed or clipped Tavily extraction.
+    # Free of Tavily credit, so counted separately but still capped per request.
     direct_fetches: int = 0
+    # Per-URL fetch outcomes for this request. ``observed_status`` is separate
+    # from the provider's own HTTP status: a generic provider error leaves the
+    # target status unknown rather than asserting a diagnosis it cannot support.
+    fetch_diagnostics: list[FetchDiagnostic] = field(default_factory=list)
+    # URLs whose advanced/basic escalation already failed this request, so a mode
+    # that did not work is never repeated for the same page.
+    advanced_failed_urls: set[str] = field(default_factory=set)
     cache_hits: int = 0
     credits: float | None = None
     last_error: str | None = None
@@ -470,8 +505,8 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
     """Run one Tavily search pass, returning ``[]`` on any error.
 
     Pass 1 (``caged=True``): ``topic="finance"`` + ``include_domains`` restricted
-    to the trusted finance allowlist — authoritative, on-list results only.
-    Pass 2 (``caged=False``): ``topic="general"`` + ``country="malaysia"`` — the
+    to the trusted finance allowlist â€” authoritative, on-list results only.
+    Pass 2 (``caged=False``): ``topic="general"`` + ``country="malaysia"`` â€” the
     regional boost only works OUTSIDE the finance topic (finance routes to US
     data), so this is where breaking news / new platforms surface. Scrapers are
     excluded. Each pass fails closed to ``[]`` so one bad call can't break a turn.
@@ -480,7 +515,8 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
     if cache is not None and key in cache.searches:
         cache.cache_hits += 1
         return list(cache.searches[key])
-    if cache is not None and cache.search_calls >= 3:
+    max_search = getattr(cache, "max_search_calls", 6) if cache is not None else 6
+    if cache is not None and cache.search_calls >= max_search:
         cache.last_error = "search_call_limit"
         if errors is not None:
             errors.append(cache.last_error)
@@ -563,9 +599,9 @@ def search_web(
     """Two-pass Tavily search. Degrades to ``[]`` on any failure.
 
     Pass 1 is caged to trusted finance domains (authoritative). Only when pass 1
-    is thinner than ``_MIN_CAGED_RESULTS`` does pass 2 fire — an un-caged,
+    is thinner than ``_MIN_CAGED_RESULTS`` does pass 2 fire â€” an un-caged,
     Malaysia-boosted general search that reaches breaking news and brand-new
-    platforms the allowlist can't cover — and its results FILL the remaining
+    platforms the allowlist can't cover â€” and its results FILL the remaining
     slots (deduped by URL) rather than replacing pass 1. The tier classifier in
     ``to_retrieved_chunks`` then re-ranks the merged set so trusted domains lead
     regardless of which pass found them; un-trusted pass-2 hits classify as
@@ -712,7 +748,38 @@ def _complete_page_window(raw: str, query: str, *, subject_query: str = "") -> s
         # headings. A requested procedural section must beat menus/footers that
         # repeat the programme name. Its statements still require assessment.
         first_line = window.splitlines()[0].strip("#* ")
+        question_heading = re.match(r'(?:(?:\d{1,3}\.\s*)?[SQ]\s*:\s*)([^?]{1,240})\?', window, re.I)
+        intent_heading = (question_heading.group(1) if question_heading else first_line
+                          if len(first_line) <= 100 and len(words(first_line)) <= 8
+                          and not first_line.endswith(('.', '!', '?')) else '')
+        # Rank the question actually answered by the section, rather than
+        # repeated programme vocabulary in a status FAQ, menu or footer.
+        intent_score = 0
+        if terms & {'document', 'documents', 'dokumen', 'documentation'}:
+            intent_score = 3 if re.search(r'document|dokumen|what you need|sokongan', intent_heading, re.I) else 0
+        elif terms & {'eligibility', 'eligible', 'kelayakan', 'syarat', 'qualifies'}:
+            if re.search(r'check|semak|status', intent_heading, re.I):
+                intent_score = -1
+            elif re.search(r'who.*(?:apply|eligible|qualif)|siapa.*layak|syarat|eligibility|qualification', intent_heading, re.I):
+                intent_score = 3
+        elif terms & {'application', 'apply', 'permohonan', 'memohon'}:
+            if re.search(r'check|semak|status|pembelian|purchase', intent_heading, re.I):
+                intent_score = -1
+            elif re.search(r'apply|application|memohon|permohonan', intent_heading, re.I):
+                intent_score = 3
         section_terms = set(words(first_line))
+        # A compound request needs the programme's whole bounded section,
+        # including its eligibility and document subheadings. Prefer that
+        # owner section over a single matching child label when both fit.
+        requested_intents = sum(bool(terms & group) for group in (
+            {'document', 'documents', 'dokumen', 'documentation'},
+            {'eligibility', 'eligible', 'kelayakan', 'syarat', 'qualifies'},
+            {'application', 'apply', 'permohonan', 'memohon'},
+        ))
+        if (requested_intents > 1 and subject_is_explicit
+                and re.match(r'^#{1,6}\s', window)
+                and subject_terms <= section_terms):
+            intent_score = 4
         section_focus = bool(not document_is_flat and len(first_line) <= 100
             and len(section_terms) <= 8 and focus_terms & section_terms
             and (not subject_terms or subject_terms & tokens))
@@ -730,7 +797,7 @@ def _complete_page_window(raw: str, query: str, *, subject_query: str = "") -> s
         # terms still contribute, and the assessor checks actual applicability.
         # On flattened documents, the programme name often occurs only on the
         # cover page. It must not defeat the actual requested document section.
-        windows.append((int(role_section), int(heading_method) if document_is_flat else 0,
+        windows.append((int(role_section), intent_score, int(heading_method) if document_is_flat else 0,
                         int(heading_focus) if document_is_flat else int(section_focus),
                         focus_score if document_is_flat else subject_score if subject_is_explicit else subject_score + score,
                         score, -focus_distance if document_is_flat else 0, -len(window), window))
@@ -747,6 +814,7 @@ def extract_passages(
     cache: WebResearchCache | None = None,
     complete_context: bool = False,
     subject_query: str = "",
+    force_refresh: bool = False,
 ) -> dict[str, str]:
     """Pull real page text via Tavily's extract endpoint, keyed by URL.
 
@@ -754,18 +822,24 @@ def extract_passages(
     the response's ``failed_results`` (or any error/timeout/missing SDK) simply
     do not appear, so the caller falls back to the search snippet. When ``query``
     is supplied, Tavily reranks and returns the topic-relevant chunks joined by
-    ``[...]`` — still genuine page text, just focused. Each passage is capped at
+    ``[...]`` â€” still genuine page text, just focused. Each passage is capped at
     ``_MAX_PASSAGE_CHARS`` so one page cannot dominate the verifier budget.
     ``complete_context`` omits Tavily's query parameter to avoid its short snippet
     cutoffs, then selects one bounded section from full page text locally.
+
+    ``force_refresh`` bypasses BOTH the passage cache and ``cache.full_pages`` for
+    this operation. A deliberate advanced extraction must actually reach the
+    provider; serving basic full-page text for an ``extract_depth="advanced"``
+    request would make the escalation a no-op that still looked successful.
     """
     clean_urls = [str(u or "").strip() for u in urls if str(u or "").strip()]
     if not api_key or not clean_urls or timeout < 1:
         return {}
     # A different public gap can need a different passage from the same URL.
-    cached = {url: cache.passages[(url, query, extract_depth, complete_context, subject_query)] for url in clean_urls
-              if cache is not None and (url, query, extract_depth, complete_context, subject_query) in cache.passages}
-    if cache is not None and complete_context:
+    cached = {} if force_refresh else {
+        url: cache.passages[(url, query, extract_depth, complete_context, subject_query)] for url in clean_urls
+        if cache is not None and (url, query, extract_depth, complete_context, subject_query) in cache.passages}
+    if cache is not None and complete_context and not force_refresh:
         for url in clean_urls:
             if url not in cached and url in cache.full_pages:
                 cached[url] = _complete_page_window(cache.full_pages[url], query, subject_query=subject_query)
@@ -773,48 +847,71 @@ def extract_passages(
     clean_urls = [url for url in clean_urls if url not in cached]
     if cache is not None:
         cache.cache_hits += len(cached)
+        for url, text in cached.items():
+            cache.fetch_diagnostics.append(FetchDiagnostic(
+                url, "cache", "ok" if text else "no_content",
+                content_hash=hashlib.sha256(text.encode()).hexdigest() if text else None,
+                truncated=_truncated_flag(text)))
     if not clean_urls:
+        return cached
+    max_extract = getattr(cache, "max_extract_calls", 6) if cache is not None else 6
+    if cache is not None and cache.extract_calls >= max_extract:
+        # Do not even attempt the operation once the request-local extract ceiling
+        # is spent: callers count calls, so a no-op call must not be observable.
+        cache.last_error = "extract_call_limit"
         return cached
     started = monotonic()
     raw_pages: dict[str, tuple[str, str]] = {}  # url -> (title, raw page text)
-    if cache is not None and cache.extract_calls >= 4:
-        cache.last_error = "extract_call_limit"
-    else:
+    failed_urls: set[str] = set()
+    provider_generic_error = False
+    provider_status: int | None = None
+    try:
+        from tavily import TavilyClient  # lazy: optional dependency
+    except ImportError:
+        TavilyClient = None
+    response: Any = None
+    if TavilyClient is not None:
         try:
-            from tavily import TavilyClient  # lazy: optional dependency
-        except ImportError:
-            TavilyClient = None
-        response: Any = None
-        if TavilyClient is not None:
-            try:
-                client = TavilyClient(api_key=api_key)
-                kwargs: dict[str, Any] = {
-                    "urls": clean_urls[:20],  # Tavily extract accepts up to 20 URLs
-                    "extract_depth": extract_depth,
-                    "timeout": timeout,
-                }
-                if str(query or "").strip() and not complete_context:
-                    kwargs["query"] = query  # rerank extracted chunks to the topic
-                    kwargs["chunks_per_source"] = 3
-                if cache is not None:
-                    kwargs["include_usage"] = True
-                    cache.extract_calls += 1
-                response = client.extract(**kwargs)
-            except Exception as error:
-                if cache is not None:
-                    cache.last_error = _safe_error(error)
-                response = None
-        if response is not None and cache is not None:
-            cache.note_usage(response)
-            if response.get("failed_results"):
-                cache.last_error = "extraction_failed"
-        # Even on HTTP 200, failures surface in failed_results and results may be
-        # empty; we simply take whatever succeeded.
-        for item in (response or {}).get("results", []) or []:
-            url = str(item.get("url") or "").strip()
-            raw = str(item.get("raw_content") or "").strip()
-            if url in clean_urls and raw:
-                raw_pages[url] = (str(item.get("title") or raw[:180]), raw)
+            client = TavilyClient(api_key=api_key)
+            kwargs: dict[str, Any] = {
+                "urls": clean_urls[:20],  # Tavily extract accepts up to 20 URLs
+                "extract_depth": extract_depth,
+                "timeout": timeout,
+            }
+            if str(query or "").strip() and not complete_context:
+                kwargs["query"] = query  # rerank extracted chunks to the topic
+                kwargs["chunks_per_source"] = 3
+            if cache is not None:
+                kwargs["include_usage"] = True
+                cache.extract_calls += 1
+            response = client.extract(**kwargs)
+        except Exception as error:
+            if cache is not None:
+                cache.last_error = _safe_error(error)
+            response = None
+    if response is not None and cache is not None:
+        cache.note_usage(response)
+        provider_status = response.get("status_code") or response.get("status")
+        if response.get("failed_results"):
+            cache.last_error = "extraction_failed"
+    elif TavilyClient is None or response is None:
+        # No SDK, or the provider raised. The target's own status is unknown:
+        # a generic provider error is not evidence of a target 403.
+        provider_generic_error = True
+        failed_urls.update(clean_urls)
+    for entry in (response or {}).get("failed_results", []) or []:
+        failed = str((entry or {}).get("url") or "").strip()
+        if failed:
+            failed_urls.add(failed)
+    # Even on HTTP 200, failures surface in failed_results and results may be
+    # empty; we take whatever succeeded instead of discarding the successes.
+    for item in (response or {}).get("results", []) or []:
+        url = str(item.get("url") or "").strip()
+        raw = str(item.get("raw_content") or "").strip()
+        if url in clean_urls and raw:
+            raw_pages[url] = (str(item.get("title") or raw[:180]), raw)
+    # A failed or clipped official page may still be readable directly. This never
+    # upgrades coverage by itself: fetched text is an evidence candidate only.
     if cache is not None and complete_context:
         _direct_fetch_fallback(clean_urls, raw_pages, cache=cache,
                                remaining=timeout - (monotonic() - started))
@@ -833,6 +930,27 @@ def extract_passages(
                         title[:500], raw,
                         datetime.now(timezone.utc), sha256(raw.encode()).hexdigest())
             cache.passages[(url, query, extract_depth, complete_context, subject_query)] = passages[url]
+    if cache is not None:
+        # Record one observed outcome per requested URL. A generic provider error
+        # stays ``unknown`` instead of becoming an invented target 403. The hash
+        # describes exactly the text kept for this URL, so it can be compared with
+        # a later refresh without implying the page changed.
+        for url in clean_urls:
+            if url in passages:
+                text = passages[url]
+                truncated = len(raw_pages.get(url, ("", ""))[1]) > _MAX_PASSAGE_CHARS
+                cache.fetch_diagnostics.append(FetchDiagnostic(
+                    url, "tavily_extract", "partial" if truncated else "ok",
+                    content_hash=hashlib.sha256(text.encode()).hexdigest(),
+                    truncated=truncated, provider_status=provider_status))
+            elif url in failed_urls:
+                cache.fetch_diagnostics.append(FetchDiagnostic(
+                    url, "tavily_extract",
+                    "provider_failure" if provider_generic_error else "unknown",
+                    provider_status=provider_status))
+            else:
+                cache.fetch_diagnostics.append(FetchDiagnostic(
+                    url, "tavily_extract", "no_content", provider_status=provider_status))
     return passages
 
 
@@ -842,14 +960,43 @@ _DIRECT_FETCH_CAP = 3
 _DIRECT_FETCH_TIMEOUT = 6.0
 
 
+def _daemon_thread_pool(**kwargs):
+    """A ``ThreadPoolExecutor`` whose workers cannot hold the process open.
+
+    ``concurrent.futures`` exposes no daemon flag and a blocking socket read
+    cannot be cancelled cooperatively, so a stuck fetch must not be able to keep
+    the interpreter alive after the request has already given up on it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    class _DaemonPool(ThreadPoolExecutor):
+        def _adjust_thread_count(self):  # pragma: no cover - exercised via behaviour
+            original = threading.Thread
+            threading.Thread = type("_DaemonThread", (original,), {"daemon": True})
+            try:
+                return super()._adjust_thread_count()
+            finally:
+                threading.Thread = original
+
+    return _DaemonPool(**kwargs)
+
+
 def _direct_fetch_fallback(urls: list[str], raw_pages: dict[str, tuple[str, str]], *,
                            cache: WebResearchCache, remaining: float) -> None:
-    """Retry failed/clipped official URLs with the guarded direct fetcher.
+    """Retry failed or clipped official URLs with the guarded direct fetcher.
 
-    Only tier-1/2 hosts qualify (``fetch_official_page`` re-checks every guard).
-    Fetches run in parallel within the caller's remaining operation time, so
-    this never extends the shared request deadline. Fetched text is an
-    evidence candidate only; the assessor and verifier still decide.
+    Only tier-1/2 hosts qualify, and ``fetch_official_page`` re-checks every
+    guard (public DNS, TLS verification, redirect re-validation, body cap).
+    Fetches run in parallel inside the caller's remaining operation time, so this
+    never extends the shared request deadline. Fetched text is an evidence
+    candidate only; the assessor and verifier still decide.
+
+    Bound on a stuck fetch: ``shutdown(wait=False)`` does not stop a task that is
+    already running, and a blocking socket read cannot be cancelled
+    cooperatively. Workers are therefore daemon threads and each fetch gets an
+    absolute deadline it checks while streaming and before parsing, so a slow
+    host cannot hold the request (or the process) open.
     """
     from app import config
     if not getattr(config, "COACH_DIRECT_FETCH_ENABLED", False):
@@ -864,9 +1011,11 @@ def _direct_fetch_fallback(urls: list[str], raw_pages: dict[str, tuple[str, str]
     from app.rag.public_fetch import fetch_official_page
     cache.direct_fetches += len(retry)
     allowance = min(_DIRECT_FETCH_TIMEOUT, remaining - 0.5)
-    pool = ThreadPoolExecutor(max_workers=len(retry), thread_name_prefix="official-fetch")
+    fetch_deadline = monotonic() + allowance
+    pool = _daemon_thread_pool(max_workers=len(retry), thread_name_prefix="official-fetch")
     try:
-        futures = {pool.submit(fetch_official_page, url, timeout=allowance): url for url in retry}
+        futures = {pool.submit(fetch_official_page, url, timeout=allowance,
+                               deadline=fetch_deadline): url for url in retry}
         done, _ = wait(futures, timeout=allowance + 0.5)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
@@ -935,7 +1084,7 @@ def merge_evidence(
 ) -> list[RetrievedChunk]:
     """Merge corpus + web evidence with corpus PRIMARY (invariant #1).
 
-    Corpus chunks are kept whole and first — they are never dropped to make room
+    Corpus chunks are kept whole and first â€” they are never dropped to make room
     for web. Web chunks (already tier-ranked) are appended until adding one would
     exceed ``max_chars`` of total evidence text, so the merged block stays within
     the verifier's single-batch context budget. Fixes the earlier wholesale
@@ -971,8 +1120,8 @@ def research_evidence(
     ``query`` must already be de-identified (see ``build_research_query``). The
     search finds candidate pages; the extract endpoint pulls full passage text
     for those pages so the entailment verifier has genuine source text to check
-    against (not just a snippet). Degrades to an empty outcome — with a reason
-    code — on no key / no query / no results / SDK missing / error.
+    against (not just a snippet). Degrades to an empty outcome â€” with a reason
+    code â€” on no key / no query / no results / SDK missing / error.
     """
     if not api_key:
         return ResearchOutcome([], False, "no_api_key")

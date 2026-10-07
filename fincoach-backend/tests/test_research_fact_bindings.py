@@ -37,6 +37,31 @@ def test_optional_document_cannot_be_bound_as_mandatory():
     assert validate_binding(binding, chunk.content, chunk) is None
 
 
+def test_quote_positions_resolve_their_own_sources_not_the_first_span():
+    from types import SimpleNamespace
+    from app.rag.research_policy import _FactBindingProposal, _validated_fact_bindings
+    first_span, first = fixture('# Application\nApply through the portal.', 'Apply')
+    second_span, second = fixture('# Married applicants\nProvide a marriage certificate.', 'Provide')
+    rows = [_FactBindingProposal(binding_id='b1', quote_index=1,
+        source_span_id=first_span.unit_id),
+        _FactBindingProposal(binding_id='b2', quote_index=2,
+        source_span_id=second_span.unit_id, audience_anchor='Married applicants')]
+    result = _validated_fact_bindings(SimpleNamespace(fact_bindings=rows), [first, second],
+        ((1, 'Apply through the portal.'), (2, 'Provide a marriage certificate.')))
+    assert [binding.binding_id for binding in result] == ['b1', 'b2']
+
+
+def test_two_quote_positions_can_share_one_source_without_overwriting():
+    from types import SimpleNamespace
+    from app.rag.research_policy import _FactBindingProposal, _validated_fact_bindings
+    span, chunk = fixture('Apply through the portal. Submit the form.', 'Apply')
+    rows = [_FactBindingProposal(binding_id=f'b{i}', quote_index=i,
+        source_span_id=span.unit_id) for i in (1, 2)]
+    result = _validated_fact_bindings(SimpleNamespace(fact_bindings=rows), [chunk],
+        ((1, 'Apply through the portal.'), (1, 'Submit the form.')))
+    assert [binding.binding_id for binding in result] == ['b1', 'b2']
+
+
 def test_malay_scope_is_kept_literal_for_later_translation_checks():
     from app.rag.research_fact_bindings import EvidenceFactBinding, validate_binding
     span, chunk = fixture('# Anak angkat\nSalinan sijil pengangkatan diperlukan.', 'sijil')

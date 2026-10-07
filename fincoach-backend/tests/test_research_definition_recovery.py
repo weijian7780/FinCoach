@@ -26,7 +26,10 @@ def test_stalled_identity_search_does_not_broaden_untried_purpose_search():
         modes.append(kwargs.get('discovery_mode', 'institution'))
         return ResearchOutcome([], True, 'no_results')
     run(definition(), [chunk(web=True)], lambda *a,**k: assessment, search)
-    assert modes[:3] == ['institution', 'institution', 'institution']
+    # Identity and purpose each receive their own institutional dispatch. The
+    # removed overview no longer consumes a third institutional call first.
+    assert modes[:2] == ['institution', 'institution']
+    assert len(modes) >= 3 and modes[2] == 'broader'
 
 
 def test_extracted_footer_cannot_replace_substantive_search_evidence():

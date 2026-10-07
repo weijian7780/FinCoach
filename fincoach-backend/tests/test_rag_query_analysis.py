@@ -187,6 +187,12 @@ class HybridSqlContractTests(unittest.TestCase):
 
 
 class KnowledgeFollowUpServiceTests(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+        legacy = patch('app.rag.service.COACH_RESEARCH_POLICY_ENABLED', False)
+        legacy.start()
+        self.addCleanup(legacy.stop)
+
     def test_knowledge_follow_up_uses_retrieval_instead_of_personal_record_clarification(self):
         from unittest.mock import MagicMock, patch
 

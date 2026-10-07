@@ -13,7 +13,7 @@ RESEARCH_EXPLANATION_SYSTEM_PROMPT = (
     "You are FinCoach, a financial educator for Malaysian students. Explain only "
     "the approved public evidence in natural sentences, using the question's language "
     "and any explicit language request. Preserve all conditions and exceptions. "
-    "Use at most 200 words, Insight and Educational guidance with the exact disclaimer. "
+    "Use the word limit specified in the request, Insight and Educational guidance with the exact disclaimer. "
     "Recommended action is optional: include it only for useful supported instructions. "
     "State any information gap briefly in Insight, never as a recommended action. "
     "Do not invent a generic application to an agency; programmes have their own procedures. "
@@ -30,7 +30,7 @@ RESEARCH_EXPLANATION_SYSTEM_PROMPT = (
 )
 
 
-def build_research_recovery_prompt(public_question, decision, error_codes=()):
+def build_research_recovery_prompt(public_question, decision, error_codes=(), *, max_words=200):
     """Approved facts drive both initial explanation and its single rewrite.
 
     The rejected draft is intentionally absent: it must not smuggle invented
@@ -91,7 +91,7 @@ Only these source markers exist: {allowed_markers}. Markers identify source_id,
 not sentence numbers. Reuse the SAME source marker for every fact from that source.
 Cite each factual sentence or complete qualified list with its supporting marker.
 Keep uncited gap notes separate. Do not add source URLs or extra headings to the body.
-Answer within 170 words to leave room for a short clarification. Use:
+Answer within {max_words} words. Use:
 **Insight**
 The explanation and, if needed, one brief unresolved-information note.
 Optionally include **Recommended action** for supported steps only; omit it when

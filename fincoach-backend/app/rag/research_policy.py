@@ -20,12 +20,21 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.config import (
     COACH_RESEARCH_DEBUG, COACH_RESEARCH_MAX_ROUNDS,
     COACH_RESEARCH_MAX_ASSESSMENT_RETRIES,
+    COACH_RESEARCH_MAX_SEARCH_CALLS,
+    COACH_RESEARCH_MAX_EXTRACT_CALLS,
+    COACH_RESEARCH_MAX_ASSESSMENT_CALLS,
+    COACH_RESEARCH_MAX_UNIQUE_URLS,
+    COACH_RESEARCH_MAX_PART_VARIANTS,
+    COACH_RESEARCH_MAX_ADVANCED_RETRIES,
 )
 from app.llm import CoachRequestBudget, research_answer_reserve_seconds
 from app.rag.retrieval import RetrievedChunk
 from app.rag.evidence_text import complete_evidence_passages, match_evidence_quote
 from app.rag.research_coverage import (PartCoverage, RequestedPart, requested_parts,
     researchable_parts, requires_full_clarification, clarification_part_ids, select_unresolved_part)
+from app.rag.research_scheduler import (
+    ResearchScheduler, ResearchPartState, select_discovery_part, query_variants,
+)
 from app.rag.web_research import (
     build_research_query,
     research_evidence,
@@ -170,6 +179,9 @@ class EvidenceAssessment:
     supported_quotes: tuple[tuple[int, str], ...] = ()
     applicability_rejected: bool = False
     parts: tuple[PartCoverage, ...] = ()
+    # Literal, validated fact-to-qualification bindings that survived checking.
+    # An invalid binding is dropped here rather than erasing independent parts.
+    fact_bindings: tuple = ()
 
 
 class _EvidenceSupport(BaseModel):
@@ -190,6 +202,25 @@ class _CoverageProposal(BaseModel):
     complete: bool
 
 
+class _FactBindingProposal(BaseModel):
+    """One proposed literal qualification for one approved quotation."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+    binding_id: str = Field(min_length=1, max_length=40)
+    quote_index: Annotated[int, Field(ge=1, le=10)]
+    source_span_id: str = Field(min_length=1, max_length=128)
+    # Bounded but wide enough that an over-long or invented anchor reaches
+    # literal validation and is dropped individually, instead of failing the whole
+    # assessment schema and erasing independent approved parts.
+    audience_anchor: str = Field(default="", max_length=260)
+    condition_anchor: str = Field(default="", max_length=260)
+    requirement_kind: Literal["mandatory", "optional", "informational"] = "informational"
+    alternatives: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(default_factory=list, max_length=6)
+    relation: Literal["single", "any", "all"] = "single"
+    jurisdiction: str = Field(default="Malaysia", max_length=60)
+    period: str | None = Field(default=None, max_length=24)
+    scope_known: bool = False
+
+
 class _EvidenceProposal(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     status: Literal["sufficient", "partial", "insufficient"]
@@ -199,10 +230,16 @@ class _EvidenceProposal(BaseModel):
     period_matches: bool
     support: list[_EvidenceSupport] = Field(default_factory=list, max_length=10)
     coverage: list[_CoverageProposal] = Field(default_factory=list, max_length=6)
+    fact_bindings: list[_FactBindingProposal] = Field(default_factory=list, max_length=10)
 
 
 class _TrackedEvidenceProposal(_EvidenceProposal):
     coverage: list[_CoverageProposal] = Field(max_length=6)
+
+
+# Compatibility name used by the saved schema diagnostic; both names retain
+# the same strict local field and literal-evidence validation.
+_BoundEvidenceProposal = _TrackedEvidenceProposal
 
 
 @dataclass(frozen=True)
@@ -263,6 +300,13 @@ def _normalize_question_scope(plan: QuestionPlan, question: str) -> QuestionPlan
         if any(re.search(r"\b" + re.escape(alias).replace(r"\ ", r"[\s,]+") + r"\b", public, re.I)
                for alias in _institution_aliases(entity)):
             named.append(entity)
+    if not named and plan.entities:
+        has_contextual_ref = bool(re.search(
+            r"\b(?:that|this|it|they|them|itu|tersebut|the\s+(?:agency|programme|bank|institution|fund|department))\b",
+            public, re.I
+        ))
+        if not has_contextual_ref:
+            return replace(plan, entities=(), scope="general")
     if not role:
         # Explicitly naming a new institution/programme supersedes an inherited
         # comparison entity. Use model-deidentified facts, never raw names or
@@ -566,11 +610,9 @@ def _research_subject(plan: QuestionPlan) -> str:
 def _search_entities(plan: QuestionPlan) -> tuple[str, ...]:
     """Share the requested institution scope between queries and domains."""
     entities = plan.entities
-    if plan.definitional and plan.subject_kind == 'agency':
-        # Interpretation can add a parent department as if it were another
-        # requested agency. Prefer full public entity names actually mentioned
-        # by the user when available; retain all explicitly named comparisons.
-        # The original question is used only for matching, never sent to search.
+    # A comma can separate a unit from its parent department. It is not proof
+    # that the parent is an unrelated subject, so retain the full public name.
+    if plan.subject_kind == 'agency':
         mentioned = tuple(entity for entity in entities if re.search(
             r'(?<!\w)' + re.escape(entity) + r'(?!\w)', plan.original_question or '', re.I))
         entities = mentioned or entities
@@ -740,11 +782,19 @@ def _validated_coverage(plan, proposal, chunks, quotes):
                 r"|(?:application|documents?).{0,35}(?:not required|not necessary)"
                 r"|(?:do not|don't) need to (?:apply|submit)"
                 r"|tidak\s+perlu.{0,45}(?:memohon|permohonan|dokumen)"
-                r"|(?:permohonan|memohon).{0,100}\bTidak\b.{0,100}automatik"
+                r"|tiada\s+permohonan\s+(?:yang\s+)?diperlukan"
                 r"|无需.{0,15}(?:申请|文件)", passage, re.I)
             if not explicit:
                 result.append(PartCoverage(part.id, "missing"))
                 continue
+        elif re.search(r'\b(?:apply|application|memohon|permohonan)\b', part.label, re.I):
+            passage = ' '.join(quotes[i - 1][1] for i in indices)
+            status_only = re.search(r'\b(?:check|semak)\b.{0,45}\b(?:status|eligibility|kelayakan)\b', passage, re.I)
+            application_method = re.search(
+                r'\b(?:apply|submit|register)\b|applications?\s+(?:must\s+be\s+made|are\s+submitted|can\s+be\s+made)'
+                r'|permohonan\s+(?:boleh|perlu|hendaklah)\s+(?:dibuat|dihantar)|\bmemohon\b', passage, re.I)
+            if status_only and not application_method:
+                complete = False
         if basis == "reported" and not _independent_reports(plan, indices, quotes, chunks):
             complete = False
         if not proposal.period_matches or not proposal.jurisdiction_matches or proposal.conflicting:
@@ -764,8 +814,10 @@ def assess_evidence(
     reserve_after_seconds: float | None = None,
 ) -> EvidenceAssessment:
     """Check answerability separately from answer/numeric validation."""
+    from app.rag.research_source_scope import source_workflow_conflicts
     usable = [(index, chunk) for index, chunk in enumerate(chunks[:10], 1)
               if chunk.content.strip() and chunk.confidence != "insufficient"
+              and not source_workflow_conflicts(plan, chunk)
               and (not plan.part_tracking or chunk.source_type != "web"
                    or classify_tier(chunk.url or "") in {1, 2, 3, 4})]
     if not usable:
@@ -969,10 +1021,86 @@ def assess_evidence(
         labels = {p.id: p.label for p in requested_parts(plan)}
         missing = [labels[p.part_id] for p in parts if not p.complete] + guards
         status = "sufficient" if not missing and support and not proposal.conflicting else "partial" if support else "insufficient"
+    # Validate each proposed binding against the literal span it claims to own.
+    # A malformed or unowned binding is dropped so it cannot erase an independent
+    # approved part; only bindings that survive are exposed.
+    fact_bindings = _validated_fact_bindings(proposal, chunks, verified_quotes)
+    # Coverage cannot remain complete after its proposed qualification failed.
+    # Resolve failed bindings through the original support rows, then narrow
+    # only parts that cite those rows; unrelated approved parts survive.
+    accepted = {binding.binding_id for binding in fact_bindings}
+    failed_positions = {binding.quote_index for binding in proposal.fact_bindings
+                        if binding.binding_id not in accepted}
+    failed_quotes = set()
+    for position in failed_positions:
+        if 0 < position <= len(proposal.support):
+            row = proposal.support[position - 1]
+            if 0 < row.source_id <= len(chunks):
+                quote = match_evidence_quote(row.quote, chunks[row.source_id - 1].content)
+                failed_quotes.update(i for i, pair in enumerate(verified_quotes, 1)
+                                     if pair == (row.source_id, quote))
+    if failed_quotes:
+        parts = tuple(replace(part, complete=False)
+                      if failed_quotes.intersection(part.support_indices) else part
+                      for part in parts)
+        if parts:
+            labels = {part.id: part.label for part in requested_parts(plan)}
+            missing.extend(labels[part.part_id] for part in parts if not part.complete)
+        else:
+            missing.extend(plan.required_facts or ('qualified source details',))
+        status = 'partial' if support else 'insufficient'
     return EvidenceAssessment(status, tuple(dict.fromkeys(missing)), proposal.conflicting,
                               support, supported_quotes=verified_quotes,
                               applicability_rejected=not (
-                                  proposal.jurisdiction_matches and proposal.period_matches), parts=parts)
+                                  proposal.jurisdiction_matches and proposal.period_matches), parts=parts,
+                              fact_bindings=fact_bindings)
+
+
+def _validated_fact_bindings(proposal, chunks, verified_quotes):
+    """Keep only bindings whose literal anchors the cited source actually owns."""
+    from app.rag.research_fact_bindings import EvidenceFactBinding, validate_binding
+    proposals = getattr(proposal, "fact_bindings", ()) or ()
+    if not proposals:
+        return ()
+    validated, seen = [], set()
+    for item in proposals:
+        if item.binding_id in seen:
+            continue
+        # Binding indices refer to proposal support positions, whereas retained
+        # quotes carry source IDs. Never use either index as the other.
+        support_rows = getattr(proposal, 'support', ())
+        if support_rows:
+            if not 0 < item.quote_index <= len(support_rows):
+                continue
+            row = support_rows[item.quote_index - 1]
+            if not 0 < row.source_id <= len(chunks):
+                continue
+            matched = match_evidence_quote(row.quote, chunks[row.source_id - 1].content)
+            positions = [i for i, pair in enumerate(verified_quotes, 1)
+                         if pair == (row.source_id, matched)]
+            if len(positions) != 1:
+                continue
+            position = positions[0]
+        else:
+            position = item.quote_index
+        if not 0 < position <= len(verified_quotes):
+            continue
+        source_id, quote = verified_quotes[position - 1]
+        if not 0 < source_id <= len(chunks):
+            continue
+        candidate = chunks[source_id - 1]
+        binding = EvidenceFactBinding(
+            item.binding_id, position, item.source_span_id,
+            audience_anchor=item.audience_anchor, condition_anchor=item.condition_anchor,
+            requirement_kind=item.requirement_kind, alternatives=tuple(item.alternatives),
+            relation=item.relation, jurisdiction=item.jurisdiction, period=item.period,
+            scope_known=item.scope_known)
+        checked = validate_binding(binding, quote, candidate)
+        if checked is None:
+            continue
+        seen.add(item.binding_id)
+        validated.append(checked)
+    return tuple(validated)
 
 
 def _balanced_evidence(
@@ -1037,16 +1165,15 @@ def _institution_aliases(entity: str) -> tuple[str, ...]:
     says 'EPF'. Derive initials from that name instead of maintaining per-query
     exceptions. Domain classification still establishes whether a host is trusted.
     """
-    aliases = [entity, *re.findall(r"\(([^)]+)\)", entity)]
-    # Keep explicit acronyms when an interpreter adds a parent department to
-    # the institution name. They identify candidate hosts, never grant trust.
-    aliases.extend(re.findall(r'\b[A-Z]{3,8}\b', entity))
-    named_unit = re.match(r'^(.+?\b(?:Unit|Fund|Agency|Department|Bank))\b', entity)
+    agency_part = entity.split(",")[0].strip() if "," in entity else entity
+    aliases = [entity, agency_part, *re.findall(r"\(([^)]+)\)", entity)]
+    aliases.extend(re.findall(r'\b[A-Z]{3,8}\b', agency_part))
+    named_unit = re.match(r'^(.+?\b(?:Unit|Fund|Agency|Department|Bank))\b', agency_part)
     if named_unit:
         unit_words = re.findall(r'[^\W\d_]+', named_unit.group(1))
         if 3 <= len(unit_words) <= 8:
             aliases.append(''.join(word[0] for word in unit_words))
-    name = re.sub(r"\([^)]*\)", " ", entity)
+    name = re.sub(r"\([^)]*\)", " ", agency_part)
     words = [word for word in re.findall(r"[^\W\d_]+", name)
              if word.casefold() not in {"of", "the", "and", "dan"}]
     if 3 <= len(words) <= 8:
@@ -1077,22 +1204,25 @@ def _primary_institution_aliases(entity: str) -> tuple[str, ...]:
     These aliases select candidate domains only. The assessor still establishes
     actual identity, jurisdiction, applicability and the scope of every fact.
     """
-    aliases = [entity]
-    parenthesized = re.findall(r'\(([^)]+)\)', entity)
-    unit = re.match(r'^(.+?\b(?:Unit|Fund|Agency|Department|Bank))\b', entity)
+    agency_part = entity.split(",")[0].strip() if "," in entity else entity
+    aliases = [agency_part]
+    parenthesized = re.findall(r'\(([^)]+)\)', agency_part) or re.findall(r'\(([^)]+)\)', entity)
+    unit = re.match(r'^(.+?\b(?:Unit|Fund|Agency|Department|Bank))\b', agency_part)
     if unit:
         words = re.findall(r'[^\W\d_]+', unit.group(1))
         aliases.append(unit.group(1))
         if 3 <= len(words) <= 8:
             aliases.append(''.join(word[0] for word in words))
+        if parenthesized:
+            aliases.append(parenthesized[0])
     elif parenthesized:
         aliases.append(parenthesized[0])
     else:
-        explicit = re.findall(r'\b[A-Z]{3,8}\b', entity)
+        explicit = re.findall(r'\b[A-Z]{3,8}\b', agency_part)
         if explicit:
             aliases.append(explicit[0])
         else:
-            aliases.extend(_institution_aliases(entity))
+            aliases.extend(_institution_aliases(agency_part))
     return tuple(dict.fromkeys(alias.strip() for alias in aliases if len(alias.strip()) >= 3))
 
 
@@ -1202,6 +1332,33 @@ def passage_windows(evidence: list[RetrievedChunk], passages: dict[str, str], ca
     return result
 
 
+def _overview_covered_part(plan, query, parts, part_query, skip):
+    """Return the requested part the overview query primarily serves.
+
+    The overview query only names the first few requested facts, so matching a
+    whole projected part query is too strict. Several part labels can appear in
+    that text, so the part whose label occurs FIRST is the fact the overview
+    leads with; later labels are incidental and must not be marked as discovered.
+    Matching is by literal label, never by the model's coverage verdict.
+    """
+    normalized = " ".join(str(query or "").casefold().split())
+    if not normalized:
+        return None
+    best: tuple[int, str] | None = None
+    for part in parts:
+        if part.id in skip:
+            continue
+        label = " ".join(str(part.label or "").casefold().split())
+        if not label:
+            continue
+        position = normalized.find(label)
+        if position < 0:
+            continue
+        if best is None or position < best[0]:
+            best = (position, part.id)
+    return best[1] if best is not None else None
+
+
 def run_research_policy(
     plan: QuestionPlan,
     chunks: list[RetrievedChunk],
@@ -1213,11 +1370,28 @@ def run_research_policy(
     max_results: int,
     timeout: float,
     source_store: PublicSourceStore | None = None,
+    answer_reserve_seconds: float | None = None,
 ) -> ResearchDecision:
-    """Recover real public gaps with at most three request-budgeted rounds."""
+    """Recover real public gaps with at most three request-budgeted rounds.
+
+    ``answer_reserve_seconds`` exists so answer-time reservation has exactly one
+    owner. Legacy callers pass nothing and keep the current stage-derived
+    reserve. The active service passes an explicit ``0.0`` because it already
+    created an absolute research child that stops at the research second; a
+    second subtraction there would stop research around second 35 instead of the
+    reserved research end.
+    """
     chunks = _balanced_evidence(chunks, [])
-    answer_reserve = research_answer_reserve_seconds(has_evidence=False)
-    cache = WebResearchCache()
+    fixed_answer_reserve = answer_reserve_seconds
+    answer_reserve = (fixed_answer_reserve if fixed_answer_reserve is not None
+                      else research_answer_reserve_seconds(has_evidence=False))
+    parts = requested_parts(plan)
+    scheduler = ResearchScheduler(plan, parts)
+    cache = WebResearchCache(
+        max_search_calls=scheduler.max_search_calls,
+        max_extract_calls=scheduler.max_extract_calls,
+        max_unique_urls=scheduler.max_unique_urls,
+    )
     diagnostics = {"rounds": 0, "assessment_calls": 0, "checker_retries": 0, "local_repairs": 0,
                    "empty_evidence_recovery_used": 0,
                    "clarification_part_ids": list(clarification_part_ids(plan)),
@@ -1231,26 +1405,68 @@ def run_research_policy(
         parts = unresolved_parts(assessed)
         return (bool(parts) and all(p.complete for p in parts)
                 and not assessed.failure and not assessed.conflicting)
+
+    # Request-local bounded escalation state. Advanced extraction retries are
+    # limited per request and never repeat a mode that already failed for a URL.
+    advanced_tried_urls: set[str] = set()
+    advanced_retries = 0
+
+    def escalate_to_advanced(urls_to_retry, query_text, subject_text, allowance_seconds):
+        """Re-extract a page whose relevant section the basic pass did not return.
+
+        Bypasses both the passage cache and ``full_pages`` so the escalation
+        actually reaches the provider, is capped per request, and never repeats a
+        mode that already failed for the same URL.
+        """
+        nonlocal advanced_retries
+        candidates = [u for u in urls_to_retry
+                      if u not in advanced_tried_urls and u not in cache.advanced_failed_urls]
+        if not candidates:
+            return None
+        if advanced_retries >= COACH_RESEARCH_MAX_ADVANCED_RETRIES:
+            return None
+        advanced_retries += 1
+        advanced_tried_urls.update(candidates)
+        cache.last_error = None
+        refreshed = extract_passages(candidates, api_key=api_key, query=query_text,
+                                     timeout=allowance_seconds, cache=cache,
+                                     complete_context=True, subject_query=subject_text,
+                                     extract_depth="advanced", force_refresh=True)
+        if not refreshed:
+            # Remember the failure so the same URL is not re-purchased pointlessly.
+            cache.advanced_failed_urls.update(candidates)
+            return None
+        return refreshed
+
     validated: dict[str, tuple[RetrievedChunk, tuple[str, ...]]] = {}
     last_valid: tuple[tuple[RetrievedChunk, ...], EvidenceAssessment] | None = None
     part_attempts: dict[str, int] = {}
+    # Requested parts whose targeted search was actually dispatched. Prevent a repeat while
+    # another requested part still has no discovery attempt.
+    discovered_query_parts: set[str] = set()
     cached_part_windows: set[tuple[str, str, str]] = set()
     institution_stalled = False
     followed_links = False
     bootstrap_web = False
+    assessed_signatures = set()
+    last_assessment = None
 
     def check(evidence):
-        nonlocal last_valid, answer_reserve
-        if diagnostics["assessment_calls"] >= 6:
+        nonlocal last_valid, answer_reserve, last_assessment
+        sig = ResearchScheduler.evidence_signature(evidence)
+        if sig in assessed_signatures and last_assessment is not None:
+            return last_assessment
+        if diagnostics["assessment_calls"] >= scheduler.max_assessment_calls:
             return EvidenceAssessment("insufficient", failure="assessment_call_limit")
         started = monotonic()
         diagnostics["assessment_calls"] += 1
         assessed = assess_evidence(plan, evidence, generate=generate, budget=budget,
                                    diagnostics=diagnostics, reserve_after_seconds=answer_reserve)
         if (assessed.failure in {"assessment_invalid_json", "assessment_invalid_schema",
-                                "assessment_timeout", "assessment_unavailable"}
+                                "assessment_timeout", "assessment_unavailable",
+                                "assessment_evidence_rejected"}
                 and diagnostics["checker_retries"] < min(1, COACH_RESEARCH_MAX_ASSESSMENT_RETRIES)
-                and diagnostics["assessment_calls"] < 6
+                and diagnostics["assessment_calls"] < scheduler.max_assessment_calls
                 and budget.remaining_seconds() > answer_reserve + 1):
             diagnostics["checker_retries"] += 1
             diagnostics["assessment_calls"] += 1
@@ -1260,6 +1476,9 @@ def run_research_policy(
                                            *diagnostics.pop("_assessment_error_codes", ())),
                                        reserve_after_seconds=answer_reserve)
         diagnostics.pop("_assessment_error_codes", None)
+        assessed_signatures.add(sig)
+        last_assessment = assessed
+        scheduler.update_from_assessment(assessed)
         # A valid rejection supersedes earlier evidence. Only technical checker
         # failures may restore a prior snapshot; newly rejected rules cannot.
         if assessed.applicability_rejected:
@@ -1284,7 +1503,10 @@ def run_research_policy(
                 quotes = tuple(dict.fromkeys((*prior, *quotes)))
                 quotes = tuple(q for q in quotes if " ".join(q.split()) in " ".join(source.content.split()))
                 validated[_source_key(source)] = (source, quotes)
-        answer_reserve = research_answer_reserve_seconds(has_evidence=bool(validated))
+        # An explicitly owned reserve is never recomputed: evidence arriving late
+        # must not re-inflate a reservation the caller already accounted for.
+        if fixed_answer_reserve is None:
+            answer_reserve = research_answer_reserve_seconds(has_evidence=bool(validated))
         logger.info(json.dumps({"event": "research_stage", "stage": "assessment",
             "elapsed_ms": round((monotonic() - started) * 1000, 1),
             "remaining_seconds": round(budget.remaining_seconds(), 2),
@@ -1300,14 +1522,16 @@ def run_research_policy(
         # time. One final source operation + assessment stays in the ORIGINAL
         # deadline and the cache's whole-request paid-call caps.
         terminal = failure or assessed.failure
+        if terminal:
+            scheduler.record_stop(terminal)
         if (diagnostics["rounds"] and web_enabled and not validated
                 and not assessed.supported_quotes and not assessed.failure
                 and not diagnostics["empty_evidence_recovery_used"]
                 and terminal not in {"no_api_key", "sdk_unavailable", "auth_error", "quota", "assessment_call_limit"}
-                and diagnostics["assessment_calls"] < 6
+                and diagnostics["assessment_calls"] < scheduler.max_assessment_calls
                 and budget.remaining_seconds() > answer_reserve + 3):
             diagnostics["empty_evidence_recovery_used"] = 1
-            active_id = select_unresolved_part(unresolved_parts(assessed), part_attempts)
+            active_id = scheduler.select_part() or select_unresolved_part(unresolved_parts(assessed), part_attempts)
             active = next((p for p in requested_parts(plan) if p.id == active_id), None)
             query = (part_research_query(plan, active) if active else research_query(plan, missing=assessed.missing))
             hosts = _official_domains(plan, evidence)
@@ -1323,7 +1547,7 @@ def run_research_policy(
             # A free cache window that changes nothing has not spent the final
             # operation. Use a remaining search slot instead of exiting early.
             if (not new and cache.search_calls + cache.extract_calls == paid_before
-                    and cache.search_calls < 3
+                    and cache.search_calls < scheduler.max_search_calls
                     and budget.remaining_seconds() > answer_reserve + 3):
                 allowance = min(timeout, budget.remaining_seconds() - answer_reserve - 1)
                 recovered = research_evidence(query, api_key=api_key, max_results=min(4, max_results),
@@ -1332,6 +1556,8 @@ def run_research_policy(
                     **({"discovery_mode": "broader"} if plan.part_tracking else {}))
                 new = recovered.chunks
                 web_used = web_used or recovered.web_ran
+                if active:
+                    scheduler.record_search_attempt(active.id, query, "broader")
             diagnostics["empty_evidence_recovery_failure"] = cache.last_error
             updated = _balanced_evidence(evidence, new, prefer_corpus=plan.time_scope == "stable")
             if new and updated != evidence:
@@ -1389,10 +1615,19 @@ def run_research_policy(
         diagnostics.update(search_calls=cache.search_calls, extract_calls=cache.extract_calls,
                            cache_hits=cache.cache_hits, tavily_credits=cache.credits,
                            remaining_seconds=round(budget.remaining_seconds(), 2),
-                           part_attempts=dict(part_attempts),
+                           part_attempts={s.part_id: s.search_attempts for s in scheduler.get_states()},
+                           part_states=[replace(s).__dict__ for s in scheduler.get_states()],
                            requested_part_labels=[p.label for p in requested_parts(plan)] if final_parts else [],
                            part_coverage=[part.__dict__ for part in final_parts])
         diagnostics.update(cache.public_source_diagnostics)
+        # Per-URL fetch outcomes, so a caller can tell a real target failure from a
+        # provider-side error instead of reading one collapsed reason.
+        diagnostics["fetch_diagnostics"] = [
+            {"url": row.url, "method": row.method, "outcome": row.outcome,
+             "observed_status": row.observed_status, "truncated": row.truncated,
+             "provider_status": row.provider_status}
+            for row in cache.fetch_diagnostics
+        ]
         if source_store is not None:
             relevant_urls = {chunk.url for chunk in evidence}
             for url, page in cache.fetched_pages.items():
@@ -1486,7 +1721,18 @@ def run_research_policy(
         for entity in plan.entities:
             for alias in _institution_aliases(entity):
                 subject_query = re.sub(r"\b" + re.escape(alias) + r"\b", " ", subject_query, flags=re.I)
-    for round_index in range(min(3, COACH_RESEARCH_MAX_ROUNDS)):
+    # The three-round stop is a legacy overview budget, not a fairness budget. A
+    # request with more requested parts than rounds leaves the last parts with
+    # ``search_attempts == 0``. Rounds therefore scale with the requested parts,
+    # with the legacy count as the floor and the paid search envelope as the real
+    # ceiling (searched-query dedup plus the call caps still bound actual spend).
+    requested_part_count = len(researchable_parts(plan)) or 1
+    # A cached extraction is not a paid discovery slot. Allow bounded local
+    # operations as well as searches; actual call caps and deadline still gate
+    # dispatch. Tracked requests target a part from their first search.
+    round_budget = (scheduler.max_search_calls + scheduler.max_extract_calls + requested_part_count
+                    if plan.part_tracking else COACH_RESEARCH_MAX_ROUNDS)
+    for round_index in range(round_budget):
         if budget.remaining_seconds() <= answer_reserve + 1:
             return finish(merged, assessment, web_used=web_used, failure="search_deadline")
         # Invalid formatting is never a signal to buy another fact search. The
@@ -1496,11 +1742,23 @@ def run_research_policy(
         active_id = select_unresolved_part(unresolved_parts(assessment), part_attempts) if plan.part_tracking else None
         # Empty/schema-failed assessments still have the interpreted requested
         # parts; no raw missing label is allowed to introduce guessed facts.
-        if plan.part_tracking and round_index and active_id is None:
+        if plan.part_tracking and active_id is None:
             active_id = select_unresolved_part(tuple(PartCoverage(p.id, "missing") for p in researchable_parts(plan)), part_attempts)
+        if plan.part_tracking and discovered_query_parts:
+            # Never buy a repeat of a projected part query while another requested
+            # part has still had no discovery attempt of its own. Least-attempted
+            # ordering would otherwise pick the same first part every round,
+            # because searching a part never teaches ``part_attempts``.
+            unvisited = tuple(PartCoverage(p.id, "missing") for p in researchable_parts(plan)
+                              if p.id not in discovered_query_parts
+                              and not any(row.part_id == p.id and row.complete for row in assessment.parts))
+            if unvisited:
+                active_id = select_unresolved_part(unvisited, part_attempts)
         active = next((p for p in requested_parts(plan) if p.id == active_id), None)
-        query = part_research_query(plan, active) if active and round_index else research_query(plan, missing=assessment.missing if round_index else ())
-        if active and round_index:
+        # Target the interpreted public part, including the first discovery.
+        query = (part_research_query(plan, active) if active
+                 else research_query(plan, missing=assessment.missing if round_index else ()))
+        if active:
             query = _institution_query(plan, query, merged)
         # A failed identity lookup does not mean official duty/document pages
         # are exhausted. Each requested part gets its own institution attempt
@@ -1520,7 +1778,7 @@ def run_research_policy(
         new = []
         # An already-known official page may contain a section missed by the
         # original topic excerpt. One focused extraction spends no search credit.
-        if plan.part_tracking and round_index and active:
+        if plan.part_tracking and active:
             part_attempts[active.id] = part_attempts.get(active.id, 0) + 1
             # A preserved quotation prefix can make an identical cache window
             # look different from the merged excerpt every round. Try each
@@ -1532,8 +1790,16 @@ def run_research_policy(
                 passages = extract_passages(cached_urls, api_key=api_key, query=query, timeout=allowance,
                     cache=cache, complete_context=True, subject_query=_research_subject(plan))
                 new = passage_windows(merged, passages, cache)
+                if not new:
+                    # The cached basic window omitted the missing section. One
+                    # deliberate advanced re-extraction is allowed before moving on.
+                    refreshed = escalate_to_advanced(cached_urls, query, _research_subject(plan), allowance)
+                    if refreshed:
+                        new = passage_windows(merged, refreshed, cache)
+                        if new:
+                            action = "advanced_refresh"
             link_urls = []
-            if not new and not followed_links and cache.extract_calls < 4:
+            if not new and not followed_links and cache.extract_calls < scheduler.max_extract_calls:
                 visited = frozenset(c.url for c in merged if c.url)
                 for page in urls:
                     link_urls.extend(linked_guidance_urls(page, cache.full_pages.get(page, ""),
@@ -1550,13 +1816,20 @@ def run_research_policy(
                 action = "cached_window"
             else:
                 key = (query, mode)
-                if key in searched or cache.search_calls >= 3:
+                if key in searched:
                     continue
+                # The whole-request call ceilings live in one request-local place.
+                # A part that cannot be searched any more ends this round; the
+                # outer deadline/limit guards then close out every still-open part
+                # with an explicit terminal reason.
+                if cache.search_calls >= scheduler.max_search_calls:
+                    break
                 searched.add(key)
                 outcome = research_evidence(query, api_key=api_key, max_results=min(4, max_results),
                     timeout=allowance, single_search=True, unrestricted=False, public_policy=True,
                     official_domains=_discovery_domains(plan, merged), cache=cache,
                     subject_query=_research_subject(plan), discovery_mode=mode)
+                discovered_query_parts.add(active.id)
                 web_used = web_used or outcome.web_ran
                 new = outcome.chunks
                 failure = outcome.reason if not new else outcome.extraction_reason
@@ -1574,6 +1847,13 @@ def run_research_policy(
             new = passage_windows(merged, passages, cache)
             failure = cache.last_error
             action = "focused_extract"
+            if not new:
+                refreshed = escalate_to_advanced(list(urls), query, subject_query, allowance)
+                if refreshed:
+                    new = passage_windows(merged, refreshed, cache)
+                    failure = cache.last_error
+                    if new:
+                        action = "advanced_refresh"
         else:
             if not query or query in searched:
                 return finish(merged, assessment, web_used=web_used, failure=failure)
@@ -1624,7 +1904,7 @@ def run_research_policy(
             else:
                 merged = updated
                 assessment = check(merged)
-            if plan.part_tracking and active and round_index and not any(
+            if plan.part_tracking and active and not any(
                     part.part_id == active.id and part.complete for part in assessment.parts):
                 # New URLs are not progress when they still omit the selected
                 # requested detail. The next existing slot must be able to widen.
@@ -1644,7 +1924,8 @@ def run_research_policy(
         if (plan.part_tracking and active and action == "cached_window"
                 and not assessment.failure and failure not in permanent
                 and not any(p.part_id == active.id and p.complete for p in assessment.parts)
-                and cache.search_calls < 3 and diagnostics["assessment_calls"] < 6
+                and cache.search_calls < scheduler.max_search_calls
+                and diagnostics["assessment_calls"] < scheduler.max_assessment_calls
                 and budget.remaining_seconds() > answer_reserve + 3):
             mode = "broader" if institution_stalled else "institution"
             key = (query, mode)
@@ -1655,6 +1936,7 @@ def run_research_policy(
                     timeout=allowance, single_search=True, unrestricted=False, public_policy=True,
                     official_domains=_discovery_domains(plan, merged), cache=cache,
                     subject_query=_research_subject(plan), discovery_mode=mode)
+                discovered_query_parts.add(active.id)
                 web_used = web_used or outcome.web_ran
                 failure = outcome.reason if not outcome.chunks else outcome.extraction_reason
                 diagnostics.setdefault("source_operations", []).append(

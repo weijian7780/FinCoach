@@ -97,6 +97,7 @@ def _drive(content: str, *, corpus_chunks, web_chunks):
     analysis = SimpleNamespace(inherited=False, clarification=None)
 
     with (
+        mock.patch.object(service, "COACH_RESEARCH_POLICY_ENABLED", False),
         mock.patch.object(service, "resolve_read_request", return_value=edu_route),
         mock.patch.object(service, "analyze_knowledge_query", return_value=analysis),
         mock.patch.object(service, "retrieve", return_value=list(corpus_chunks)),

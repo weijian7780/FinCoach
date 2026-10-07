@@ -16,6 +16,10 @@ if TYPE_CHECKING:
 class RequestedPart:
     id: str
     label: str
+    kind: str = "general"
+    entity: str | None = None
+    programme: str | None = None
+    official_domains: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,7 @@ class PartCoverage:
 
 
 def requested_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
+    import re
     from app.rag.web_research import build_research_query
     labels = []
     seen = set()
@@ -40,7 +45,47 @@ def requested_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
             labels.append(label)
         if len(labels) == 6:
             break
-    return tuple(RequestedPart(f"p{i}", label) for i, label in enumerate(labels, 1))
+
+    default_entity = plan.entities[0] if plan.entities else None
+    if plan.entities and len(plan.entities) > 1 and plan.subject_kind == "agency":
+        from app.rag.research_policy import _search_entities
+        ents = _search_entities(plan)
+        if ents:
+            default_entity = ents[0]
+
+    programme = plan.application_subject or None
+
+    parts = []
+    for i, label in enumerate(labels, 1):
+        if re.search(r"\b(?:document|documents|documentation|dokumen|sokongan)\b", label, re.I):
+            kind = "documents"
+        elif re.search(r"\b(?:apply|applying|application|permohonan|memohon|process|steps|kaedah|cara)\b", label, re.I):
+            kind = "application"
+        elif re.search(r"\b(?:eligib\w*|criteria|qualif\w*|syarat|kelayakan)\b", label, re.I):
+            kind = "eligibility"
+        elif re.search(r"\b(?:duties|roles?|functions?|purpose|peranan|fungsi|tugas)\b", label, re.I):
+            kind = "duties"
+        elif re.search(r"\b(?:identity|full name|nama penuh|profil)\b", label, re.I):
+            kind = "identity"
+        else:
+            kind = "general"
+
+        part_entity = default_entity
+        if len(plan.entities) > 1:
+            for ent in plan.entities:
+                if ent.casefold() in label.casefold():
+                    part_entity = ent
+                    break
+
+        parts.append(RequestedPart(
+            id=f"p{i}",
+            label=label,
+            kind=kind,
+            entity=part_entity,
+            programme=programme,
+            official_domains=(),
+        ))
+    return tuple(parts)
 
 
 def select_unresolved_part(parts: tuple[PartCoverage, ...], attempts: dict[str, int]) -> str | None:

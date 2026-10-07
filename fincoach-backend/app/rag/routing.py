@@ -894,7 +894,7 @@ def route_coach_message(content: str) -> CoachingRoute:
     # A budget-allocation/method request is educational, even though it mentions
     # "budget". A hypothetical amount ("if I have RM6000") is planning framing,
     # not a recorded figure, so it must not pin the query to personal records.
-    if _BUDGET_ALLOCATION_QUERY.search(message):
+    if _BUDGET_ALLOCATION_QUERY.search(message) or is_hypothetical_allocation_request(message):
         needs_knowledge = True
     if _HYPOTHETICAL_AMOUNT.search(message):
         needs_personal_context = False
@@ -922,6 +922,24 @@ def route_coach_message(content: str) -> CoachingRoute:
     if needs_knowledge:
         return CoachingRoute.FINANCIAL_EDUCATION
     return CoachingRoute.CASUAL
+
+
+def is_hypothetical_allocation_request(content: str) -> bool:
+    """A proposed split of stated money, without a saved-record or policy ask.
+
+    Hypothetical framing supplies the planning intent even when the user says
+    'budget arrangement' or 'what would a budget look like'. Merely mentioning
+    money must not redirect a real spending/remaining-balance lookup.
+    """
+    from app.rag.allocation import is_allocation_query
+    message = normalize_for_intent(content)
+    return bool(
+        _HYPOTHETICAL_AMOUNT.search(message)
+        and is_allocation_query(message)
+        and not re.search(r'\b(?:recorded|already|remaining|remain|spent|transactions?|'
+                          r'over\s+budget|based\s+on\s+my|search|look\s+up|latest)\b', message)
+        and not detect_knowledge_topics(message)
+    )
 
 
 def is_budget_planning_request(content: str) -> bool:

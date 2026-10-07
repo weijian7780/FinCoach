@@ -36,7 +36,7 @@ def test_research_checker_cannot_spend_explanation_reserve():
           patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
           patch.object(llm, "LLM_PRIMARY_TIMEOUT_SECONDS", 50),
           patch.object(llm, "_providers", return_value=[SimpleNamespace(role="primary")]),
-          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}")) as call):
+          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}", finish_reason="stop")) as call):
         llm.generate_structured_result("public", budget=CoachRequestBudget(0),
                                        reserve_after_seconds=30)
         assert call.call_args.kwargs["timeout_seconds"] <= 5
@@ -380,7 +380,7 @@ def test_structured_failover_shares_one_call_timeout():
           patch.object(llm, "COACH_STRUCTURED_TIMEOUT_SECONDS", 8, create=True),
           patch.object(llm, "monotonic", side_effect=[0, 0, 3]),
           patch.object(llm, "_generate_with_provider", side_effect=[
-              TimeoutError(), SimpleNamespace(content="{}"),
+              TimeoutError(), SimpleNamespace(content="{}", finish_reason="stop"),
           ]) as generate):
         llm.generate_structured_result("public prompt", budget=budget)
     assert [call.kwargs["timeout_seconds"] for call in generate.call_args_list] == [5, 5]
@@ -407,7 +407,7 @@ def test_primary_timeout_leaves_fallback_three_seconds():
           patch.object(llm, "COACH_STRUCTURED_TIMEOUT_SECONDS", 8),
           patch.object(llm, "monotonic", side_effect=[0, 0, 5]),
           patch.object(llm, "_generate_with_provider", side_effect=[
-              TimeoutError(), SimpleNamespace(content="{}")]) as generate):
+              TimeoutError(), SimpleNamespace(content="{}", finish_reason="stop")]) as generate):
         llm.generate_structured_result("public prompt", budget=budget)
     assert [c.kwargs["timeout_seconds"] for c in generate.call_args_list] == [5, 3]
 
@@ -457,7 +457,7 @@ def test_expired_primary_phase_skips_primary_without_starving_fallback():
     with (patch.object(llm, "_providers", return_value=[
               SimpleNamespace(role="primary"), SimpleNamespace(role="fallback")]),
           patch.object(llm, "monotonic", side_effect=[0, 0, 0]),
-          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}")) as generate):
+          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}", finish_reason="stop")) as generate):
         llm.generate_structured_result("public prompt", budget=budget)
     assert generate.call_count == 1
     assert generate.call_args.args[1].role == "fallback"
