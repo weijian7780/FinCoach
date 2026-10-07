@@ -1,4 +1,4 @@
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
 import { authColors, authFont } from '@/constants/auth-theme';
@@ -23,7 +23,7 @@ export default function AppLayout() {
       />
       <Tabs.Screen
         name="coach"
-        options={{ title: 'Coach', tabBarIcon: ({ color, size }) => <MaterialIcons name="smart-toy" size={size} color={color} /> }}
+        options={{ title: 'Coach', tabBarIcon: ({ color, size }) => <MaterialCommunityIcons name="robot-happy-outline" size={size} color={color} /> }}
       />
       <Tabs.Screen
         name="budget"

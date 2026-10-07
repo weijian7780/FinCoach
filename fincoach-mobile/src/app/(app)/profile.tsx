@@ -2,9 +2,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import type { ComponentProps } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StatusBar, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StatusBar, View } from 'react-native';
 
 import { AppText as Text } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { useAuth } from '@/lib/auth-context';
 import { setTrackedCategories } from '@/lib/finance';
@@ -29,7 +31,7 @@ export default function ProfileScreen() {
   }
 
   function handleResetProfile() {
-    Alert.alert(
+    appDialog.open(
       'Reset Financial Profile?',
       'This clears your allowance, study and income details, financial status and preferences. Your account and name are kept. You will be taken back to setup.',
       [
@@ -60,7 +62,7 @@ export default function ProfileScreen() {
                 }
                 router.replace('/profile/setup');
               } else {
-                Alert.alert('Could not reset', result.message);
+                appDialog.open('Could not reset', result.message);
               }
             })();
           },
@@ -96,7 +98,7 @@ export default function ProfileScreen() {
           )}
           <Text style={{ fontSize: 24, fontFamily: authFont.bold, color: authColors.primary }}>FinCoach</Text>
         </View>
-        <MaterialIcons name="notifications" size={24} color={authColors.onSurfaceVariant} />
+        <NotificationBell filled />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 24 }}>

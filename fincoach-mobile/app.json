@@ -12,6 +12,8 @@
     },
     "android": {
       "package": "com.fincoach.app",
+      "googleServicesFile": "./google-services.json",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/fincoach-logo.png"
@@ -26,6 +28,14 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow FinCoach to use the camera to scan receipts.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#208AEF",
@@ -39,9 +49,20 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "FinCoach needs access to your photos to set your profile picture."
+          "photosPermission": "Allow FinCoach to choose profile pictures, category images, and receipt images from your photos."
         }
-      ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#4F46E5",
+          "defaultChannel": "general"
+        }
+      ],
+      "expo-sharing",
+      "expo-web-browser",
+      ["./plugins/with-fincoach-dns-fallback", { "enabled": true }]
     ],
     "experiments": {
       "typedRoutes": true,

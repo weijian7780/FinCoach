@@ -11,6 +11,7 @@
         "buildType": "apk"
       },
       "env": {
+        "EXPO_PUBLIC_FINCOACH_API_URL": "https://api.chisquaredv10.dpdns.org",
         "EXPO_PUBLIC_SUPABASE_URL": "https://yqsyrzdpvtasldkthhfg.supabase.co",
         "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_FpLA1XKjh4KI6s2BcX92Rg_gh_XQA4t",
         "EXPO_PUBLIC_GOOGLE_AUTH_WEB_CLIENT_ID": "1035912584920-5ueekksrfkeirp6chl1fejsv6v23865t.apps.googleusercontent.com"
@@ -18,10 +19,12 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
       "env": {
+        "EXPO_PUBLIC_FINCOACH_API_URL": "https://api.chisquaredv10.dpdns.org",
         "EXPO_PUBLIC_SUPABASE_URL": "https://yqsyrzdpvtasldkthhfg.supabase.co",
         "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_FpLA1XKjh4KI6s2BcX92Rg_gh_XQA4t",
         "EXPO_PUBLIC_GOOGLE_AUTH_WEB_CLIENT_ID": "1035912584920-5ueekksrfkeirp6chl1fejsv6v23865t.apps.googleusercontent.com"
@@ -30,6 +33,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
+        "EXPO_PUBLIC_FINCOACH_API_URL": "https://api.chisquaredv10.dpdns.org",
         "EXPO_PUBLIC_SUPABASE_URL": "https://yqsyrzdpvtasldkthhfg.supabase.co",
         "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_FpLA1XKjh4KI6s2BcX92Rg_gh_XQA4t",
         "EXPO_PUBLIC_GOOGLE_AUTH_WEB_CLIENT_ID": "1035912584920-5ueekksrfkeirp6chl1fejsv6v23865t.apps.googleusercontent.com"

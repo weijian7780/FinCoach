@@ -1,10 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StatusBar, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CategoryIcon } from '@/components/categories/category-icon';
 import { AppText as Text, AppTextInput as TextInput } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { ChipGroup } from '@/components/ui/chip-group';
 import { authColors, authFont } from '@/constants/auth-theme';
 import {
@@ -18,9 +21,9 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import { fetchCategories, fetchTrackedCategoryIds, setTrackedCategories } from '@/lib/finance';
 import { uploadAvatar } from '@/lib/profile';
+import { parseMoney } from '@/lib/savings-domain';
 import type { Category } from '@/lib/types';
 
-type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 type ImagePickerModule = typeof import('expo-image-picker');
 type ImagePickerRuntime = Pick<ImagePickerModule, 'launchImageLibraryAsync' | 'requestMediaLibraryPermissionsAsync'>;
 
@@ -45,7 +48,7 @@ async function loadImagePicker(): Promise<ImagePickerRuntime | null> {
     return imagePicker;
   } catch (caught) {
     console.error('expo-image-picker native module is unavailable.', caught);
-    Alert.alert(
+    appDialog.open(
       'Photo picker unavailable',
       'Rebuild and reinstall the development build so expo-image-picker is included in the native app.',
     );
@@ -61,6 +64,7 @@ function getInitials(name: string) {
 }
 
 export default function EditProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { profile, session, updateProfile } = useAuth();
   const userId = session?.user.id;
 
@@ -75,10 +79,14 @@ export default function EditProfileScreen() {
   const [trackedIds, setTrackedIds] = useState<number[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const initialTrackedIds = useRef<number[]>([]);
+  const saveInProgress = useRef(false);
+  const recordInProgress = useRef(false);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -95,6 +103,8 @@ export default function EditProfileScreen() {
       const [cats, tracked] = await Promise.all([fetchCategories(), fetchTrackedCategoryIds(userId)]);
       setCategories(cats);
       setTrackedIds(tracked);
+      initialTrackedIds.current = tracked;
+      setPreferencesReady(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load your profile data.');
     } finally {
@@ -123,7 +133,7 @@ export default function EditProfileScreen() {
       if (typeof imagePicker.requestMediaLibraryPermissionsAsync === 'function') {
         const permission = await imagePicker.requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
-          Alert.alert('Permission needed', 'Allow photo access to change your picture.');
+          appDialog.open('Permission needed', 'Allow photo access to change your picture.');
           return;
         }
       }
@@ -136,7 +146,7 @@ export default function EditProfileScreen() {
       });
     } catch (caught) {
       console.error('Could not open image picker.', caught);
-      Alert.alert('Photo picker unavailable', caught instanceof Error ? caught.message : 'Could not open the photo picker.');
+      appDialog.open('Photo picker unavailable', caught instanceof Error ? caught.message : 'Could not open the photo picker.');
       return;
     }
 
@@ -149,16 +159,17 @@ export default function EditProfileScreen() {
       const url = await uploadAvatar(userId, asset.base64, ext);
       const updated = await updateProfile({ avatar_url: url });
       if (updated.ok) setAvatarUrl(url);
-      else Alert.alert('Upload failed', updated.message);
+      else appDialog.open('Upload failed', updated.message);
     } catch (caught) {
-      Alert.alert('Upload failed', caught instanceof Error ? caught.message : 'Could not upload the image.');
+      appDialog.open('Upload failed', caught instanceof Error ? caught.message : 'Could not upload the image.');
     } finally {
       setUploadingAvatar(false);
     }
   }
 
-  async function save() {
-    if (!userId) return;
+  async function save(destination: 'back' | 'record_income' = 'back') {
+    if (!userId || saveInProgress.current) return;
+    saveInProgress.current = true;
     setError(null);
     setSaving(true);
     try {
@@ -174,14 +185,46 @@ export default function EditProfileScreen() {
       if (!profileResult.ok) throw new Error(profileResult.message);
 
       await setTrackedCategories(userId, trackedIds);
-      router.back();
+      if (destination === 'record_income') openIncomeForm();
+      else router.back();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save your changes.');
+      setSaving(false);
+    } finally {
+      saveInProgress.current = false;
       setSaving(false);
     }
   }
 
-  const topPad = (Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 47) + 8;
+  function openIncomeForm() {
+    router.push({ pathname: '/transactions/manage', params: { prefill: 'profile_income' } } as never);
+  }
+
+  async function recordMonthlyIncome() {
+    if (!userId || saving || !preferencesReady || recordInProgress.current) return;
+    const amount = parseMoney(income);
+    if (amount == null || amount <= 0) return;
+    recordInProgress.current = true;
+    try {
+      const changed = fullName.trim() !== (profile?.full_name ?? '').trim()
+        || amount !== profile?.monthly_allowance || incomeSource !== (profile?.income_source ?? null)
+        || university.trim() !== (profile?.university ?? DEFAULT_UNIVERSITY).trim()
+        || yearOfStudy !== (profile?.year_of_study ?? null)
+        || financialStatus !== (profile?.financial_status ?? null)
+        || coachingStyle !== (profile?.coaching_style ?? null)
+        || [...trackedIds].sort((a, b) => a - b).join(',') !== [...initialTrackedIds.current].sort((a, b) => a - b).join(',');
+      if (changed) {
+        const confirmed = await appDialog.open('Save Preferences first?', 'Save your changes, then review the income amount and date. Money is recorded only when you save the income transaction.', [
+          { text: 'Cancel', style: 'cancel' }, { text: 'Save & continue' },
+        ]);
+        if (confirmed) await save('record_income');
+      } else openIncomeForm();
+    } finally { recordInProgress.current = false; }
+  }
+
+  const topPad = insets.top + 8;
+  const monthlyAmount = parseMoney(income);
+  const canRecordIncome = preferencesReady && !saving && !uploadingAvatar && monthlyAmount != null && monthlyAmount > 0;
   const displayName = fullName.trim() || 'Student';
 
   return (
@@ -247,7 +290,7 @@ export default function EditProfileScreen() {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           style={{ flex: 1, marginTop: -18 }}
-          contentContainerStyle={{ backgroundColor: authColors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: 32, gap: 22 }}>
+          contentContainerStyle={{ backgroundColor: authColors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: insets.bottom + 32, gap: 22 }}>
           {/* Basic info */}
           <View>
             <SectionTitle>BASIC INFO</SectionTitle>
@@ -270,16 +313,21 @@ export default function EditProfileScreen() {
           <View>
             <SectionTitle>MONTHLY MONEY SOURCE</SectionTitle>
             <View style={cardStyle}>
-              <Field label="Monthly Allowance / Income">
+              <Field label="Expected Monthly Allowance / Income">
                 <View style={{ position: 'relative', justifyContent: 'center' }}>
                   <Text style={prefixStyle}>RM</Text>
                   <TextInput style={[fieldStyle, { paddingLeft: 42 }]} value={income} onChangeText={setIncome} placeholder="1500" placeholderTextColor={authColors.outline} keyboardType="decimal-pad" />
                 </View>
               </Field>
+              <Text style={[labelStyle, { marginBottom: 12 }]}>Used for planning. Record money received to include it in Reports.</Text>
               <View style={{ gap: 6 }}>
                 <Text style={labelStyle}>Source Type</Text>
                 <ChipGroup options={INCOME_SOURCE_OPTIONS} value={incomeSource} onSelect={setIncomeSource} />
               </View>
+              <Pressable accessibilityRole="button" disabled={!canRecordIncome} onPress={() => void recordMonthlyIncome()} style={{ marginTop: 14, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, backgroundColor: authColors.primaryFixed, opacity: canRecordIncome ? 1 : 0.5 }}>
+                <Text style={{ color: authColors.primary, fontFamily: authFont.semibold, textAlign: 'center' }}>Record monthly income</Text>
+              </Pressable>
+              {monthlyAmount == null || monthlyAmount <= 0 ? <Text style={[labelStyle, { marginTop: 8 }]}>Enter a monthly amount greater than RM 0 to record income.</Text> : null}
             </View>
           </View>
 
@@ -311,7 +359,7 @@ export default function EditProfileScreen() {
                       borderColor: selected ? authColors.primary : 'transparent',
                       backgroundColor: selected ? authColors.primaryFixed : authColors.surfaceContainer,
                     }}>
-                    <MaterialIcons name={(category.icon as IconName) ?? 'category'} size={18} color={selected ? authColors.primary : authColors.onSurfaceVariant} />
+                    <CategoryIcon category={category} size={22} glyphSize={18} tintColor={selected ? authColors.primary : authColors.onSurfaceVariant} backgroundColor="transparent" />
                     <Text style={{ fontSize: 13, fontFamily: authFont.semibold, color: selected ? authColors.primary : authColors.onSurfaceVariant }}>{category.name}</Text>
                   </Pressable>
                 );

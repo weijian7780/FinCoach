@@ -19,6 +19,11 @@ def _model():
     return SentenceTransformer(EMBEDDING_MODEL, device=device)
 
 
+def warm_embeddings() -> None:
+    """Load the embedding model during API startup, before accepting requests."""
+    _model()
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     vectors = _model().encode(texts, normalize_embeddings=True)
     return [v.tolist() for v in vectors]

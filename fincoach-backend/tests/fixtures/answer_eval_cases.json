@@ -1,0 +1,126 @@
+{
+  "_readme": "Answer-correctness held-out set for the evidence-validation harness (app/rag/answer_eval.py). NOT retrieval cases. Every case is candidate_unreviewed: the gold label (must_include_facts / acceptable_sources) is a TEMPLATE for human review (Task 1b) - two reviewers per docs/rag-evaluation-protocol.md, then set label_status=human_reviewed. Do NOT report numbers off this file until then. 12 cases is a scaffold, not FYP coverage - expand across all corpus topics before drawing conclusions.",
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "corpus-ptptn-repay",
+      "bucket": "corpus_answerable",
+      "query": "When and how should I repay PTPTN?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": ["official_ptptn_loan_guidance.md"],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "corpus-akpk-debt",
+      "bucket": "corpus_answerable",
+      "query": "How can AKPK help me manage debt?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": ["official_akpk_debt_help_and_financial_education.md"],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "corpus-pidm-protect",
+      "bucket": "corpus_answerable",
+      "query": "What deposits does PIDM protect?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": ["official_pidm_deposit_protection.md"],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "corpus-emergency-ms",
+      "bucket": "corpus_answerable",
+      "query": "Bagaimana pelajar membina dana kecemasan?",
+      "language": "ms",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": ["official_budgeting_and_emergency_fund.md"],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "web-epf-dividend-2024",
+      "bucket": "web_answerable",
+      "query": "What was the EPF (KWSP) conventional dividend rate for 2024?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "web-opr-current",
+      "bucket": "web_answerable",
+      "query": "What is Bank Negara Malaysia's current Overnight Policy Rate?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "web-ptptn-discount-2025",
+      "bucket": "web_answerable",
+      "query": "Is there a current PTPTN repayment discount promotion this year?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "web-sst-rate",
+      "bucket": "web_answerable",
+      "query": "What is the current Sales and Service Tax rate in Malaysia?",
+      "language": "en",
+      "answerable": true,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "unans-personal-balance",
+      "bucket": "unanswerable",
+      "query": "How much money do I have in my Maybank account right now?",
+      "language": "en",
+      "answerable": false,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "unans-stock-tip",
+      "bucket": "unanswerable",
+      "query": "Which specific stock should I buy this week to get rich fast?",
+      "language": "en",
+      "answerable": false,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "unans-future-crypto",
+      "bucket": "unanswerable",
+      "query": "What will the price of Bitcoin be at the end of next month?",
+      "language": "en",
+      "answerable": false,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    },
+    {
+      "case_id": "unans-offtopic",
+      "bucket": "unanswerable",
+      "query": "What is the best recipe for nasi lemak?",
+      "language": "en",
+      "answerable": false,
+      "must_include_facts": [],
+      "acceptable_sources": [],
+      "label_status": "candidate_unreviewed"
+    }
+  ]
+}

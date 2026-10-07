@@ -8,6 +8,9 @@
 **/.env
 **/.env.local
 **/.env.*.local
+**/.env.*
+!**/.env.example
+!**/.env (1).example
 **/*.jks
 **/*.p8
 **/*.p12
@@ -15,6 +18,14 @@
 **/*.pem
 **/*.mobileprovision
 **/.git-backup*
+
+# Local Oracle deployment archives; keep reproducible Docker files and docs, not built images.
+fincoach-backend-oracle-*.tar.gz
+
+# Capacity-waiter run artifacts: logs and result files carry tenancy OCIDs and
+# public IPs. The waiter scripts themselves are safe to commit (no credentials).
+.deploy-tools/*.log
+.deploy-tools/*_instance.json
 
 # JavaScript / Expo / React Native
 **/node_modules/
@@ -42,3 +53,26 @@ fincoach-mobile/ios/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Compiled admin website is populated before Docker builds.
+fincoach-backend/admin-static/*
+!fincoach-backend/admin-static/.gitkeep
+fincoach-admin/.playwright-cli/
+fincoach-backend/docs/admin/*.log
+
+# Private local evidence, deployment snapshots, and generated artifacts.
+.codex-remote-attachments/
+.oci-keys/
+.deploy-stage/
+deploy-staging-fincoach/
+artifacts/
+fincoach-backend/docs/rollback/
+fincoach-backend/evaluation-results/
+fincoach-backend/tests/receipt_samples/
+fincoach-backend/.pytest*/
+fincoach-admin/output/
+fincoach-mobile/output/
+fincoach-mobile/eas_build.*
+**/*.log
+**/*.tar.gz
+**/*.zip

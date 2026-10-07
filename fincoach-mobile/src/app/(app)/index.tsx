@@ -1,15 +1,22 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import type { ComponentProps } from 'react';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StatusBar, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText as Text } from '@/components/ui/app-text';
+import { NotificationBell } from '@/components/notifications/notification-bell';
+import { TransactionRow } from '@/components/transactions/transaction-row';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { useAuth } from '@/lib/auth-context';
-import { fetchSavingsGoals } from '@/lib/finance';
-import type { SavingsGoal } from '@/lib/types';
+import { fetchMonthlyBudget } from '@/lib/budget';
+import { monthKey } from '@/lib/budget-domain';
+import { fetchSavingsGoals } from '@/lib/savings';
+import { getSavingsMetrics } from '@/lib/savings-domain';
+import { fetchTransactions } from '@/lib/transactions';
+import type { MonthlyBudget, SavingsGoal, TransactionWithCategory } from '@/lib/types';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -22,31 +29,36 @@ function rm(value: number) {
 }
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const { profile, session } = useAuth();
   const userId = session?.user.id;
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
+  const [monthlyBudget, setMonthlyBudget] = useState<MonthlyBudget | null>(null);
+  const [transactions, setTransactions] = useState<TransactionWithCategory[]>([]);
 
   const load = useCallback(async () => {
     if (!userId) return;
-    try {
-      setGoals(await fetchSavingsGoals(userId));
-    } catch {
-      // Best-effort; the rest of the dashboard still renders.
-    }
+    const [goalsResult, budgetResult, transactionsResult] = await Promise.allSettled([
+      fetchSavingsGoals(userId),
+      fetchMonthlyBudget(userId, monthKey()),
+      fetchTransactions(userId),
+    ]);
+    if (goalsResult.status === 'fulfilled') setGoals(goalsResult.value);
+    if (budgetResult.status === 'fulfilled') setMonthlyBudget(budgetResult.value);
+    if (transactionsResult.status === 'fulfilled') setTransactions(transactionsResult.value);
   }, [userId]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const topPad = (Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 47) + 8;
-  const allowance = profile?.monthly_allowance ?? null;
-  const spent = 0; // Transactions module not built yet → no spending recorded.
-  const remaining = allowance != null ? allowance - spent : 0;
-  const pctSpent = allowance && allowance > 0 ? Math.min(100, (spent / allowance) * 100) : 0;
+  const topPad = insets.top + 8;
+  const budgetLimit = monthlyBudget?.limit_amount ?? null;
+  const currentMonth = monthKey().slice(0, 7);
+  const monthExpenses = transactions.filter((item) => item.category.type === 'expense' && item.transaction_date.startsWith(currentMonth));
+  const spent = monthExpenses.reduce((sum, item) => sum + item.amount, 0);
+  const remaining = budgetLimit != null ? budgetLimit - spent : 0;
+  const pctSpent = budgetLimit && budgetLimit > 0 ? Math.min(100, (spent / budgetLimit) * 100) : 0;
   const topGoal = goals[0];
-  const topGoalRatio = topGoal && topGoal.target_amount > 0 ? Math.min(1, topGoal.current_amount / topGoal.target_amount) : 0;
+  const topGoalMetrics = topGoal ? getSavingsMetrics(topGoal.current_amount, topGoal.target_amount) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: authColors.surface }}>
@@ -62,7 +74,7 @@ export default function HomeScreen() {
           </View>
         </Pressable>
         <Text style={{ fontSize: 20, fontFamily: authFont.bold, color: authColors.primary }}>FinCoach</Text>
-        <MaterialIcons name="notifications-none" size={24} color={authColors.onSurfaceVariant} />
+        <NotificationBell />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 32 }}>
@@ -74,14 +86,14 @@ export default function HomeScreen() {
 
         {/* Budget card */}
         <View style={cardStyle}>
-          {allowance == null ? (
+          {budgetLimit == null ? (
             <View style={{ alignItems: 'center', gap: 8, paddingVertical: 8 }}>
-              <Text style={{ fontSize: 16, fontFamily: authFont.semibold, color: authColors.onSurface }}>Set your monthly allowance</Text>
+              <Text style={{ fontSize: 16, fontFamily: authFont.semibold, color: authColors.onSurface }}>Set your monthly budget</Text>
               <Text style={{ fontSize: 13, fontFamily: authFont.regular, color: authColors.onSurfaceVariant, textAlign: 'center' }}>
-                Add it in Preferences to start tracking your budget.
+                Create an overall budget and optional category limits.
               </Text>
-              <Pressable onPress={() => router.push('/profile/edit')} style={primaryBtn}>
-                <Text style={primaryBtnText}>Set allowance</Text>
+              <Pressable onPress={() => router.push('/budget' as never)} style={primaryBtn}>
+                <Text style={primaryBtnText}>Set budget</Text>
               </Pressable>
             </View>
           ) : (
@@ -93,7 +105,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={labelCaps}>Total Monthly</Text>
-                  <Text style={{ fontSize: 18, fontFamily: authFont.semibold, color: authColors.onSurface, marginTop: 4 }}>{rm(allowance)}</Text>
+                  <Text style={{ fontSize: 18, fontFamily: authFont.semibold, color: authColors.onSurface, marginTop: 4 }}>{rm(budgetLimit)}</Text>
                 </View>
               </View>
               <View style={{ height: 8, borderRadius: 999, backgroundColor: authColors.surfaceContainerHigh, overflow: 'hidden', marginTop: 12 }}>
@@ -103,16 +115,17 @@ export default function HomeScreen() {
                 <Text style={{ fontSize: 13, fontFamily: authFont.regular, color: authColors.onSurfaceVariant }}>Spent: {rm(spent)}</Text>
                 <Text style={{ fontSize: 13, fontFamily: authFont.semibold, color: authColors.onSurfaceVariant }}>{Math.round(100 - pctSpent)}% left</Text>
               </View>
+              <Text style={{ fontSize: 12, fontFamily: authFont.regular, color: authColors.onSurfaceVariant, marginTop: 6 }}>{monthExpenses.length} expense{monthExpenses.length === 1 ? '' : 's'} this month.</Text>
               <View style={{ height: 1, backgroundColor: authColors.outlineVariant, opacity: 0.5, marginVertical: 14 }} />
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <Pressable
-                  onPress={() => Alert.alert('Coming soon', 'Adding expenses arrives with the Transactions module.')}
+                  onPress={() => router.push('/transactions/manage' as never)}
                   style={[primaryBtn, { flex: 1, flexDirection: 'row', gap: 6 }]}>
                   <MaterialIcons name="add" size={18} color={authColors.onPrimary} />
                   <Text style={primaryBtnText}>Add Expense</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => Alert.alert('Coming soon', 'Budget details arrive with the Budget module.')}
+                  onPress={() => router.push('/budget' as never)}
                   style={[secondaryBtn, { flex: 1 }]}>
                   <Text style={secondaryBtnText}>View Details</Text>
                 </Pressable>
@@ -123,7 +136,7 @@ export default function HomeScreen() {
 
         {/* Quick actions */}
         <View style={{ flexDirection: 'row', gap: 12 }}>
-          <QuickAction icon="document-scanner" label="Scan" onPress={() => Alert.alert('Coming soon', 'Receipt scanning arrives later.')} />
+          <QuickAction icon="document-scanner" label="Scan" onPress={() => router.push('/transactions/scan' as never)} />
           <QuickAction icon="savings" label="Goals" onPress={() => router.push('/savings')} />
           <QuickAction icon="bar-chart" label="Reports" onPress={() => router.push('/reports')} />
         </View>
@@ -142,7 +155,7 @@ export default function HomeScreen() {
               <Text style={{ fontSize: 22, fontFamily: authFont.bold, color: authColors.onSurface }}>{rm(spent)}</Text>
             </View>
             <Text style={{ fontSize: 13, fontFamily: authFont.regular, color: authColors.onSurfaceVariant, marginTop: 12, textAlign: 'center' }}>
-              No expenses yet this month. Your spending breakdown will appear here.
+              {monthExpenses.length ? `${monthExpenses.length} expenses recorded this month.` : 'No expenses yet this month. Your spending breakdown will appear here.'}
             </Text>
           </View>
         </View>
@@ -164,7 +177,7 @@ export default function HomeScreen() {
                 </Text>
               </View>
               <View style={{ height: 8, borderRadius: 999, backgroundColor: authColors.surfaceContainerHigh, overflow: 'hidden' }}>
-                <View style={{ height: '100%', width: `${topGoalRatio * 100}%`, backgroundColor: authColors.primary, borderRadius: 999 }} />
+                <View style={{ height: '100%', width: `${(topGoalMetrics?.ratio ?? 0) * 100}%`, backgroundColor: authColors.primary, borderRadius: 999 }} />
               </View>
             </View>
           ) : (
@@ -172,6 +185,12 @@ export default function HomeScreen() {
               No savings goals yet. Tap “Add” to start one.
             </Text>
           )}
+        </View>
+
+        <View style={cardStyle}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}><Text style={{ fontSize: 18, fontFamily: authFont.bold, color: authColors.onSurface }}>Recent Activity</Text><Pressable onPress={() => router.push('/transactions' as never)}><Text style={{ fontSize: 14, fontFamily: authFont.semibold, color: authColors.primary }}>See all</Text></Pressable></View>
+          {transactions.slice(0, 4).map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} onPress={() => router.push({ pathname: '/transactions/[transactionId]', params: { transactionId: transaction.id } } as never)} />)}
+          {!transactions.length ? <Text style={{ paddingVertical: 10, fontSize: 13, fontFamily: authFont.regular, color: authColors.onSurfaceVariant }}>No transactions yet.</Text> : null}
         </View>
       </ScrollView>
     </View>

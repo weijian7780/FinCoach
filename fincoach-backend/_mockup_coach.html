@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#4648d4; --onPrimary:#fff; --primaryFixed:#e1e0ff; --primaryFixedDim:#c0c1ff;
+    --surface:#fcf8ff; --lowest:#fff; --low:#f5f2fe; --high:#e9e6f3;
+    --onSurface:#1b1b23; --onSurfaceVariant:#464554; --outline:#767586; --outlineVariant:#c7c4d7;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:'Hanken Grotesk',sans-serif; background:var(--surface); padding:20px; color:var(--onSurface);}
+  .screen{max-width:420px; margin:0 auto;}
+  .lbl{font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--outline); margin:26px 0 8px 4px;}
+  .row{display:flex; align-items:flex-end; gap:8px; margin-bottom:4px;}
+  .avatar{width:28px; height:28px; border-radius:14px; background:var(--primary); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .avatar svg{width:16px; height:16px; fill:#fff;}
+  .bubble{flex-shrink:1; max-width:90%; border-radius:20px; border-bottom-left-radius:6px; padding:12px 16px; background:var(--high);}
+  /* BEFORE blob */
+  .blob{font-size:15px; line-height:22px; color:var(--onSurface);}
+  /* AFTER cards */
+  .sections{display:flex; flex-direction:column; gap:10px;}
+  .section{display:flex; flex-direction:column; gap:5px;}
+  .divider{padding-bottom:10px; border-bottom:1px solid var(--outlineVariant);}
+  .head{display:flex; align-items:center; gap:6px;}
+  .head svg{width:16px; height:16px; fill:var(--primary);}
+  .title{color:var(--primary); font-weight:700; font-size:13px; line-height:17px;}
+  .body{font-size:15px; line-height:22px; color:var(--onSurface);}
+  .body b{font-weight:700;}
+  .bullets{margin:2px 0 0 2px; display:flex; flex-direction:column; gap:3px;}
+  .bullet{display:flex; gap:7px; font-size:15px; line-height:22px;}
+  .bullet .dot{color:var(--primary); font-weight:700;}
+  .guidance{border-radius:12px; padding:8px 10px; background:var(--low); gap:4px;}
+  .guidance .head svg{fill:var(--onSurfaceVariant);}
+  .guidance .title{color:var(--onSurfaceVariant); font-size:11px; line-height:15px;}
+  .guidance .body{font-size:12px; line-height:17px; color:var(--onSurfaceVariant);}
+  .caption{font-size:12px; color:var(--onSurfaceVariant); margin:6px 0 0 4px;}
+</style>
+</head>
+<body>
+<div class="screen">
+
+  <div class="lbl">Before — one grey blob</div>
+  <div class="row">
+    <div class="avatar"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/></svg></div>
+    <div class="bubble">
+      <div class="blob">For 2026-09, estimated savings: RM513.57. Recorded spending: RM60.50 over 21 days (2026-09-01 to 2026-09-21). Projected monthly spending: RM86.43. Income basis: profile monthly allowance. Calculation: RM600.00 - RM86.43 = RM513.57. saga car: 0.0 saved of 46000.0; 46000.0 remaining. To reach the target by 2026-09-30, make 2 contributions of RM23000.00 at weekly intervals (the last interval may be shorter). This deadline requires more than the estimated saving pace supports.</div>
+    </div>
+  </div>
+  <div class="caption">↑ no structure, run-on text, raw <b>46000.0</b>, no separators</div>
+
+  <div class="lbl">After — cards + money + bullets</div>
+  <div class="row">
+    <div class="avatar"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/></svg></div>
+    <div class="bubble">
+      <div class="sections">
+
+        <div class="section divider">
+          <div class="head">
+            <svg viewBox="0 0 24 24"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+            <span class="title">Insight</span>
+          </div>
+          <div class="body">Estimated savings for Sep 2026: <b>RM513.57</b> (RM600.00 allowance − RM86.43 projected spending).<br><br><b>saga car:</b> RM0.00 saved of <b>RM46,000.00</b> — RM46,000.00 to go by 30 Sep 2026. This deadline needs far more than your saving pace supports.</div>
+        </div>
+
+        <div class="section divider">
+          <div class="head">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            <span class="title">Recommended action</span>
+          </div>
+          <div class="body">Estimated weekly capacity: <b>RM119.83</b>. To hit the goal on time you'd need:</div>
+          <div class="bullets">
+            <div class="bullet"><span class="dot">•</span><span>2026-09-24: <b>RM23,000.00</b></span></div>
+            <div class="bullet"><span class="dot">•</span><span>2026-09-30: <b>RM23,000.00</b></span></div>
+          </div>
+          <div class="body">Extend the deadline, lower the target, or add funds.</div>
+        </div>
+
+        <div class="section guidance">
+          <div class="head">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            <span class="title">Educational guidance</span>
+          </div>
+          <div class="body">This is educational guidance, not licensed financial advice.</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  <div class="caption">↑ titled cards, <b>RM46,000.00</b> everywhere, real bullet list</div>
+
+</div>
+</body>
+</html>

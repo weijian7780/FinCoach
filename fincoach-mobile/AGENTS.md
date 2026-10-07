@@ -12,7 +12,11 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 - **Data/auth backend:** Supabase (PostgreSQL + Auth + Storage), called directly from the
   app for normal CRUD. FastAPI is added only for AI coaching (holds LLM keys, runs RAG).
 - **Vector store:** Supabase `pgvector`.
-- **RAG:** LangChain (Python). More RAG frameworks/tools may be added later.
+- **RAG:** custom FastAPI Python pipeline. Do not describe the core RAG as LangChain-based;
+  if LangChain packages remain, they are only ingestion/chunking helpers unless code proves
+  otherwise.
+- **Receipt OCR:** planned PaddleOCR for Transaction and Receipt Capture. Do not describe it
+  as implemented until PaddleOCR code/dependencies are present.
 
 > Note: `node_modules` / Node.js in this repo are **build tooling only** (npm, Metro,
 > Expo CLI) — they are **not** a backend. The server side is FastAPI + Supabase, never Node.

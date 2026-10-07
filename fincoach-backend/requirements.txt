@@ -5,16 +5,31 @@ pydantic
 python-dotenv
 
 # Supabase (data + pgvector store)
-supabase
+supabase==2.31.0
 
 # Embeddings (local, bge-m3)
 sentence-transformers
 torch
 
-# Document loading + chunking (the only place LangChain is used)
-langchain-community
-langchain-text-splitters
+# Native document loading; chunking is custom Python code.
 pypdf
 
 # LLM (OpenAI-compatible client — works with NVIDIA NIM / Gemini / Groq / OpenAI)
 openai
+
+# Web-research fallback (used only when the corpus cannot answer). Optional at
+# runtime: imported lazily, and the coach degrades gracefully if it is absent.
+tavily-python
+
+# Receipt visual OCR verification (server-side Gemini SDK; image + OCR text)
+google-genai==2.11.0
+
+# Receipt category classification (TypeSafe Jev; receipt text only, never the image)
+typesafe-sdk
+
+# Receipt OCR (Transaction and Receipt Capture module)
+python-multipart
+# Validate declared image formats before handing upload bytes to native OCR.
+pillow
+paddlepaddle==3.3.1
+paddleocr==3.7.0
