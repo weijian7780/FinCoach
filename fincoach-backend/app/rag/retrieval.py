@@ -1,5 +1,6 @@
 """Typed hybrid retrieval for shared Malaysian finance knowledge."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -18,6 +19,11 @@ from app.rag.query_analysis import (
 
 
 RRF_K = 50
+
+# Upper bound on concurrent per-subquery Supabase RPCs. Each RPC is a
+# network-bound read, so a small pool is enough; the bound keeps a future
+# increase in subquery count from fanning out without limit.
+MAX_PARALLEL_HYBRID_RPCS = 4
 
 
 def get_supabase() -> Any:
@@ -156,6 +162,43 @@ def _hybrid_candidates(
     ])
 
 
+def _fetch_hybrid_candidates(
+    subqueries: list[SearchSubquery],
+    embeddings: list[list[float]],
+    match_count: int,
+) -> list[tuple[SearchSubquery, list[RetrievedChunk]]]:
+    """Fetch hybrid candidates for each subquery, preserving subquery order.
+
+    The per-subquery Supabase RPCs are independent, side-effect-free reads,
+    so they run concurrently in a bounded thread pool instead of one after
+    another. ``executor.map`` yields results in input order, and the first
+    exception in subquery order propagates -- exactly matching the previous
+    sequential behavior. Ranking, deduplication, authorization, user filters,
+    timeouts, and the dense-fallback error contract are unchanged: the same
+    client issues the same RPCs with the same arguments.
+    """
+    pairs = list(zip(subqueries, embeddings))
+    if len(pairs) <= 1:
+        # Single subquery: keep the exact sequential path (no thread overhead).
+        return [
+            (subquery, _hybrid_candidates(subquery, embedding, match_count))
+            for subquery, embedding in pairs
+        ]
+    workers = min(len(pairs), MAX_PARALLEL_HYBRID_RPCS)
+    with ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix="fincoach-hybrid-rpc"
+    ) as pool:
+        return list(
+            pool.map(
+                lambda pair: (
+                    pair[0],
+                    _hybrid_candidates(pair[0], pair[1], match_count),
+                ),
+                pairs,
+            )
+        )
+
+
 def _select_hybrid_chunks(
     per_subquery: list[tuple[SearchSubquery, list[RetrievedChunk]]],
     *,
@@ -261,10 +304,9 @@ def retrieve(
     match_count = max(result_limit, min(10, int(candidate_k)))
     embeddings = embed_texts([subquery.text for subquery in resolved_analysis.subqueries])
     try:
-        per_subquery = [
-            (subquery, _hybrid_candidates(subquery, embedding, match_count))
-            for subquery, embedding in zip(resolved_analysis.subqueries, embeddings)
-        ]
+        per_subquery = _fetch_hybrid_candidates(
+            list(resolved_analysis.subqueries), embeddings, match_count
+        )
     except Exception as error:
         if "match_knowledge_documents_hybrid" not in str(error):
             raise
