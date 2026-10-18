@@ -101,9 +101,23 @@ document from Supabase into that same editor. `Back to documents` returns to the
 list and asks before discarding unsaved changes.
 
 Upload UTF-8 Markdown/text or an unencrypted text PDF (10 MiB, 100 pages max),
-or write text in the editor. Supply HTTP(S) source URLs and the date you checked
-them. Save draft → preview → prepare embeddings → publish after review.
-Preview shows the first five chunks and warns when verification exceeds 90 days.
+or paste a public webpage link and click Import webpage. Both imports automatically
+save a draft and queue embedding preparation. Keep the page open during extraction
+and saving; embedding preparation continues in the background afterward.
+The editor follows Add content → Review → Publish. Titles are suggested automatically.
+Review shows a short preview, with full text editing and reference details collapsed.
+Uploaded files use their private original as provenance and need no website link.
+Webpage imports retain their URL and fetch full Markdown through Tavily Extract;
+they do not crawl linked pages. Empty, oversized and failed extraction is rejected.
+An accuracy-check date is optional and never invented from the import date.
+Next → Publish saves any edits and starts preparation; Publish requires confirmation once
+processing finishes. Save draft allows finishing later. Retry processing reuses
+the saved revision. If a save response is lost, check the document list before
+saving again: the database may already have committed the change.
+Advanced details contains chunk previews; Version history contains restore and
+original-download controls. Back/Next buttons move between the editor steps
+without clearing entered content. Preview shows the first five chunks and warns when
+verification exceeds 90 days. Files above 10 MiB are rejected before upload.
 Edits preserve the original private upload; PDF editing uses extracted text and
 does not invent page citations. Original downloads use 60-second signed URLs.
 

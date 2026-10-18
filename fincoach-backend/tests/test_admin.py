@@ -45,11 +45,18 @@ class DocumentValidationTests(unittest.TestCase):
 
     def test_requires_sources_and_non_future_check_date(self):
         from app.admin.documents import RevisionInput
-        for patch_data in ({"source_urls": []}, {"checked_at": "2999-01-01"}, {"source_urls": ["javascript:alert(1)"]}):
+        for patch_data in ({"checked_at": "2999-01-01"}, {"source_urls": ["javascript:alert(1)"]}):
             data = dict(title="Guide", content="Verified guidance", source_urls=["https://example.org/guide"], checked_at=str(date.today()))
             data.update(patch_data)
             with self.subTest(patch=patch_data), self.assertRaises(ValueError):
                 RevisionInput(**data)
+
+    def test_import_without_accuracy_claim(self):
+        from app.admin.documents import RevisionInput, build_revision_chunks
+        value = RevisionInput(title="Uploaded guide", content="Build an emergency fund.")
+        chunks = build_revision_chunks(value.model_dump(mode="json"), "guide.md")
+        self.assertNotIn("Official source checked:", chunks[0].content)
+        self.assertIn("not independently verified", chunks[0].content)
 
     def test_identical_content_from_two_sources_remains_distinct(self):
         from app.admin.documents import build_revision_chunks

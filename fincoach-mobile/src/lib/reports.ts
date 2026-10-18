@@ -1,5 +1,5 @@
-import { formatReportPeriod, monthKeysForRange } from '@/lib/report-domain';
-import type { ReportPdfArtifact } from '@/lib/report-pdf';
+import { fetchAllRows } from '@/lib/pagination';
+import { monthKeysForRange } from '@/lib/report-domain';
 import { supabase } from '@/lib/supabase';
 import type {
   CategoryLimit,
@@ -11,9 +11,10 @@ import type {
   TransactionWithCategory,
 } from '@/lib/types';
 
-type QueryResult = { data: unknown; error: unknown };
+type QueryResult = { data: unknown; error: unknown; count?: number | null };
 
 type ReportQuery = PromiseLike<QueryResult> & {
+  range: (from: number, to: number) => ReportQuery;
   eq: (column: string, value: unknown) => ReportQuery;
   gte: (column: string, value: unknown) => ReportQuery;
   insert: (value: Record<string, unknown>) => ReportQuery;
@@ -22,10 +23,6 @@ type ReportQuery = PromiseLike<QueryResult> & {
   order: (column: string, options: Record<string, unknown>) => ReportQuery;
   select: (...args: unknown[]) => ReportQuery;
   single: () => Promise<QueryResult>;
-  upsert: (
-    value: Record<string, unknown>,
-    options: { onConflict: string },
-  ) => ReportQuery;
 };
 
 type ReportStorageBucket = {
@@ -58,12 +55,6 @@ function requireRow<T>(data: unknown, message: string) {
   return data as T;
 }
 
-async function requireRows<T>(query: ReportQuery) {
-  const { data, error } = await query;
-  throwIfError(error);
-  return (data ?? []) as T[];
-}
-
 export async function fetchReportSourceData(
   userId: string,
   selection: ReportSelection,
@@ -75,75 +66,43 @@ export async function fetchReportSourceData(
   const lastMonth = months[months.length - 1];
 
   const [transactions, monthlyBudgets, categoryLimits, savingsGoals] = await Promise.all([
-    requireRows<TransactionWithCategory>(
+    fetchAllRows<TransactionWithCategory>(() =>
       client
         .from('transactions')
-        .select(transactionSelection)
+        .select(transactionSelection, { count: 'exact' })
         .eq('user_id', userId)
         .gte('transaction_date', selection.startDate)
         .lte('transaction_date', selection.endDate)
-        .order('transaction_date', { ascending: true }),
+        .order('transaction_date', { ascending: true }).order('id', { ascending: true }),
     ),
-    requireRows<MonthlyBudget>(
+    fetchAllRows<MonthlyBudget>(() =>
       client
         .from('monthly_budgets')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('user_id', userId)
         .gte('month', firstMonth)
         .lte('month', lastMonth)
-        .order('month', { ascending: true }),
+        .order('month', { ascending: true }).order('id', { ascending: true }),
     ),
-    requireRows<CategoryLimit>(
+    fetchAllRows<CategoryLimit>(() =>
       client
         .from('budgets')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('user_id', userId)
         .gte('month', firstMonth)
         .lte('month', lastMonth)
-        .order('month', { ascending: true }),
+        .order('month', { ascending: true }).order('id', { ascending: true }),
     ),
-    requireRows<SavingsGoal>(
+    fetchAllRows<SavingsGoal>(() =>
       client
         .from('savings_goals')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('user_id', userId)
-        .order('created_at', { ascending: true }),
+        .order('created_at', { ascending: true }).order('id', { ascending: true }),
     ),
   ]);
 
   return { transactions, monthlyBudgets, categoryLimits, savingsGoals };
-}
-
-export async function saveReportRecord(
-  userId: string,
-  selection: ReportSelection,
-  artifact: ReportPdfArtifact,
-  client: ReportDataClient = defaultClient,
-) {
-  const { data, error } = await client
-    .from('reports')
-    .upsert({
-      user_id: userId,
-      period: formatReportPeriod(selection),
-      type: selection.reportType,
-      title: artifact.title,
-      file_name: artifact.fileName,
-      storage_path: artifact.storagePath,
-      report_key: artifact.reportKey,
-      start_date: selection.startDate,
-      end_date: selection.endDate,
-      category_id: selection.categoryId,
-      generated_at: artifact.generatedAt,
-    }, {
-      onConflict: 'user_id,report_key',
-    })
-    .select('*')
-    .single();
-  throwIfError(error);
-  return requireRow<Report>(
-    data,
-    'The PDF was generated but its history record was not returned.',
-  );
 }
 
 export async function uploadReportPdf(
@@ -151,17 +110,28 @@ export async function uploadReportPdf(
   bytes: ArrayBuffer,
   client: ReportDataClient = defaultClient,
 ) {
+  // The path is reserved by one server-issued attempt, so an existing object is
+  // that attempt's own earlier upload (or an old file). Never overwrite it.
   const { data, error } = await client.storage
     .from(reportBucket)
     .upload(path, bytes, {
       contentType: 'application/pdf',
-      upsert: true,
+      upsert: false,
     });
   throwIfError(error);
   return requireRow<{ path: string }>(
     data,
     'The uploaded report PDF was not returned.',
   );
+}
+
+/** Supabase reports a non-overwriting upload onto an existing object as a conflict. */
+export function isDuplicateReportUploadError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  if (statusCode === 409 || statusCode === '409') return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && /already exists|duplicate/i.test(message);
 }
 
 export async function createReportSignedUrl(

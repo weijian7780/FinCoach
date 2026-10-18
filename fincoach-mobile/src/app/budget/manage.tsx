@@ -11,7 +11,7 @@ import { MoneyField } from '@/components/budget/money-field';
 import { AppText as Text } from '@/components/ui/app-text';
 import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
-import { deleteCategoryLimit, deleteMonthlyBudget, fetchBudgetCategories, fetchBudgetMonth, upsertCategoryLimit, upsertMonthlyBudget } from '@/lib/budget';
+import { deleteMonthlyBudget, fetchBudgetCategories, fetchBudgetMonth, saveBudgetMonth } from '@/lib/budget';
 import { formatBudgetMonth, monthKey, parseBudgetMoney, validateCategoryAllocation, validateMonthlyBudget } from '@/lib/budget-domain';
 import { useAuth } from '@/lib/auth-context';
 import type { BudgetMonthData, Category } from '@/lib/types';
@@ -130,14 +130,8 @@ export default function ManageBudgetScreen() {
     setSaving(true);
     setMessage(null);
     try {
-      const oldOverall = data.monthlyBudget?.limit_amount ?? 0;
-      if (!data.monthlyBudget || overallAmount >= oldOverall) await upsertMonthlyBudget(userId, selectedMonth, overallAmount);
-
-      const removed = data.categoryLimits.filter((limit) => !selectedIds.includes(limit.category_id));
-      for (const limit of removed) await deleteCategoryLimit(limit.id, userId);
-      for (const category of selectedCategories) await upsertCategoryLimit(userId, selectedMonth, category.id, parseBudgetMoney(amounts[category.id] ?? '')!);
-
-      if (data.monthlyBudget && overallAmount < oldOverall) await upsertMonthlyBudget(userId, selectedMonth, overallAmount);
+      await saveBudgetMonth(userId, selectedMonth, overallAmount,
+        selectedCategories.map(category => ({ category_id: category.id, amount: parseBudgetMoney(amounts[category.id] ?? '')! })));
       router.back();
     } catch (error) {
       setMessage(writeError(error));

@@ -61,7 +61,7 @@ class ResponseGroundingTests(unittest.TestCase):
         self.assertEqual(len(result.uncertain_claims), 1)
         self.assertEqual(result.uncertain_claims[0].cited_indices, (1,))
 
-    def test_accepts_supported_epf_paraphrase_across_cited_passages(self):
+    def test_epf_paraphrase_across_passages_requires_semantic_review(self):
         from app.rag.grounding import validate_coach_answer
 
         content = (
@@ -83,7 +83,11 @@ class ResponseGroundingTests(unittest.TestCase):
 
         result = validate_coach_answer(content, [source], "")
 
-        self.assertTrue(result.is_valid, result.errors)
+        # Overlap across headings and prose does not establish the whole rule;
+        # the source also qualifies contributors as registered EPF members.
+        self.assertEqual(result.hard_errors, ())
+        self.assertEqual(len(result.uncertain_claims), 1)
+        self.assertEqual(result.uncertain_claims[0].cited_indices, (1,))
 
     def test_accepts_line_level_citation_for_each_supported_sentence(self):
         from app.rag.grounding import validate_coach_answer

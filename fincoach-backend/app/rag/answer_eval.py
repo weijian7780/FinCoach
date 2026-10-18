@@ -12,7 +12,7 @@ one verdict per case and rolls them into raw counts and `None`-safe rates. The
 verdicts themselves come from human review (the answer key — Task 1b) or a
 reviewed offline judge; producing them is not this module's job.
 
-Four verdicts partition every answered case:
+Five verdicts partition every answered case:
   * ``supported``   — the answer's claims are entailed by cited sources.
   * ``unsupported`` — the answer made a claim not grounded in a source, but did
                       not invent a specific fact (vague / off-target / weakly
@@ -21,6 +21,14 @@ Four verdicts partition every answered case:
                       or citation. This is the invariant-#2 breach and is
                       counted on its own because Task 7 adopts `evidence` only
                       if fabricated counts do NOT rise vs `legacy`.
+  * ``misapplied``  — every fact in the answer is genuinely in a cited source, but
+                      it is applied to the wrong category, audience, period or
+                      request. Source entailment alone would score this as
+                      ``supported``, so it is counted separately and is an
+                      INCORRECT answer: it stays in the precision denominator
+                      (``grounding_precision`` = supported / answered) and gets
+                      its own ``misapplied_rate``. Citation support is not
+                      relevance (schema 2).
   * ``refused``     — the answer declined / said "insufficient evidence" and made
                       no substantive claim.
 
@@ -88,6 +96,11 @@ class BucketCounts:
         return self.supported + self.unsupported + self.fabricated + self.misapplied
 
     @property
+    def misapplied_rate(self) -> float | None:
+        """misapplied / total — an incorrect answer, not a refusal."""
+        return self.misapplied / self.total if self.total else None
+
+    @property
     def grounding_precision(self) -> float | None:
         """supported / answered — ``None`` when the bucket answered nothing."""
         return self.supported / self.answered if self.answered else None
@@ -109,7 +122,7 @@ class BucketCounts:
             "fabricated": self.fabricated,
             "refused": self.refused,
             "misapplied": self.misapplied,
-            "misapplied_rate": self.misapplied / self.total if self.total else None,
+            "misapplied_rate": self.misapplied_rate,
             "answered": self.answered,
             "grounding_precision": self.grounding_precision,
             "refusal_rate": self.refusal_rate,
@@ -204,6 +217,7 @@ def compare_answer_arms(metrics_by_arm: dict[str, dict]) -> dict:
             row[key] = {
                 "supported_delta": m["supported"] - b["supported"],
                 "fabricated_delta": m["fabricated"] - b["fabricated"],
+                "misapplied_delta": m["misapplied"] - b["misapplied"],
                 "refused_delta": m["refused"] - b["refused"],
                 "grounding_precision_delta": _delta(
                     m["grounding_precision"], b["grounding_precision"]

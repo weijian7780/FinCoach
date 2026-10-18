@@ -35,11 +35,3 @@ def test_verifier_controls_run_once_not_five_times(tmp_path):
 def test_dummy_origin_accepts_only_the_two_fixed_paths():
     from scripts.tunnel_deadline_probe import DELAYS
     assert set(DELAYS.values()) == {120, 122} and len(DELAYS) == 2
-
-
-def test_pilot_uses_complete_fixed_public_units():
-    from scripts.assessment_binding_pilot import fixed_evidence
-    plan, chunks = fixed_evidence()
-    assert not plan.needs_personal and len(chunks) == 2
-    assert all(c.source_type == 'web' and c.source_spans[0].complete for c in chunks)
-    assert sum(len(c.content) for c in chunks) <= 10800

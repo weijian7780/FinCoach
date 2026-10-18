@@ -1,0 +1,48 @@
+# EAS archives from the Git repository root, one level above fincoach-mobile.
+# Keep the mobile application and exclude sibling services, deployment files,
+# generated media and Git history. This changes uploads, not files on disk.
+/*
+!/fincoach-mobile
+
+# A root .easignore replaces all .gitignore files for EAS. Keep the mobile
+# exclusions here too; the nested .easignore is used for standalone copies only.
+node_modules
+_node_modules_partial_delete_me
+.git-backup-before-monorepo
+.expo
+.kotlin
+.test-tmp
+.claude
+.vscode
+dist
+web-build
+output
+docs
+coverage
+expo-env.d.ts
+*.tsbuildinfo
+/fincoach-mobile/android
+/fincoach-mobile/ios
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+*-firebase-adminsdk-*.json
+*service-account*.json
+.env
+.env*.local
+.metro-health-check*
+eas_build.*
+*.log
+*.apk
+*.aab
+*.tar.gz
+*.zip
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+Thumbs.db

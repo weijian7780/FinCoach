@@ -16,8 +16,8 @@ MAX_CONTENT_CHARS = 200_000
 class RevisionInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1, max_length=MAX_CONTENT_CHARS)
-    source_urls: list[str] = Field(min_length=1, max_length=20)
-    checked_at: date
+    source_urls: list[str] = Field(default_factory=list, max_length=20)
+    checked_at: date | None = None
     expected_revision_id: UUID | None = None
     upload_id: UUID | None = None
 
@@ -40,8 +40,8 @@ class RevisionInput(BaseModel):
 
     @field_validator("checked_at")
     @classmethod
-    def past_date(cls, value: date) -> date:
-        if value > datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date():
+    def past_date(cls, value: date | None) -> date | None:
+        if value and value > datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date():
             raise ValueError("Source check date cannot be in the future.")
         return value
 
@@ -83,10 +83,10 @@ def extract_document(filename: str, data: bytes) -> str:
 def build_revision_chunks(revision: dict, source_key: str):
     from dataclasses import replace
     from app.rag.chunking import content_hash
-    checked = date.fromisoformat(str(revision["checked_at"])[:10])
+    checked = date.fromisoformat(str(revision["checked_at"])[:10]) if revision.get("checked_at") else None
     # Each chunk carries the existing corpus provenance format so freshness
     # checks still work when the source is maintained through this panel.
-    prefix = f"Official source checked: {checked.strftime('%d %B %Y')}\n\n"
+    prefix = f"Official source checked: {checked.strftime('%d %B %Y')}\n\n" if checked else "Imported document; source accuracy not independently verified.\n\n"
     prefix += "\n".join(revision["source_urls"]) + "\n\n"
     chunks = chunk_document(LoadedDocument(revision["content"], source_key, revision["title"]))
     return [replace(chunk, content=prefix + chunk.content, content_hash=content_hash(prefix + chunk.content)) for chunk in chunks]

@@ -394,9 +394,15 @@ _BUDGET_ALLOCATION_QUERY = re.compile(
 # framing, NOT a reference to the user's recorded figures — so it must not force
 # the personal-records path.
 _HYPOTHETICAL_AMOUNT = re.compile(
-    r"\b(?:if|say|suppose|assuming|imagine|let'?s\s+say|katakan|andai(?:kan)?|"
+    r"\b(?:if|say|suppose|assuming|imagine|let'?s\s+say|for\s+example|contoh(?:nya)?|katakan|andai(?:kan)?|"
     r"jika|kalau)\b.{0,20}"
     r"(?:\bi\s+(?:have|had|get|got|make|earn|receive)\b|\brm?\s*\d|\b\d{3,})",
+    re.IGNORECASE,
+)
+_EXPLICIT_RECORDED_CONTEXT = re.compile(
+    r"\b(?:my|our)\s+(?:saved|recorded|actual|current)\b|"
+    r"\b(?:saved|recorded)\s+(?:expenses?|spending|transactions?|budget|income|records?)\b|"
+    r"\b(?:based\s+on|using)\s+my\b",
     re.IGNORECASE,
 )
 
@@ -616,12 +622,12 @@ _MONTH_RANGE_SEPARATOR = re.compile(
     re.IGNORECASE,
 )
 _LAST_N_MONTHS_QUERY = re.compile(
-    r"\b(?:last|past|previous|recent)\s+(?P<n>\d{1,2}|two|three|four|five|six|"
+    r"\b(?:last|past|previous|recent)\s+(?P<n>\d+|two|three|four|five|six|"
     r"seven|eight|nine|ten|eleven|twelve)\s+months?\b",
     re.IGNORECASE,
 )
 _PREVIOUS_N_QUERY = re.compile(
-    r"\bprevious\s+(?P<n>\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|"
+    r"\bprevious\s+(?P<n>\d+|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve)\b",
     re.IGNORECASE,
 )
@@ -662,16 +668,28 @@ def _named_comparison_months(message: str, current_day: date) -> list[date]:
     """Resolve every explicitly named calendar month, expanding a 'X to Y' range."""
     cleaned = re.sub(r"\bmay\s+(?:i|we|you)\b", "", message, flags=re.I)
     matches = list(_MONTH_NAME_QUERY.finditer(cleaned))
+    explicit_years = {match.group("year") for match in matches if match.group("year")}
+    # A year stated once belongs to the month list ("July and September 2025").
+    # Do not mix it with the current year merely because earlier names omit it.
+    shared_year = next(iter(explicit_years)) if len(explicit_years) == 1 else None
     resolved: list[tuple[int, int, date]] = []  # (start, end, month-start)
     for match in matches:
         month = _MONTH_NUMBERS[match.group("month").casefold()]
-        year = _infer_comparison_year(month, match.group("year"), current_day)
+        year = _infer_comparison_year(month, match.group("year") or shared_year, current_day)
         resolved.append((match.start("month"), match.end(), date(year, month, 1)))
 
     if len(resolved) == 2:
         between = cleaned[resolved[0][1]:resolved[1][0]]
         if _MONTH_RANGE_SEPARATOR.match(between):
-            start, end = sorted((resolved[0][2], resolved[1][2]))
+            # An unqualified endpoint inherits the adjacent year across December:
+            # "November to February 2025" starts in November 2024.
+            first, last = resolved[0][2], resolved[1][2]
+            if first.month > last.month:
+                if matches[1].group("year") and not matches[0].group("year"):
+                    first = first.replace(year=last.year - 1)
+                elif matches[0].group("year") and not matches[1].group("year"):
+                    last = last.replace(year=first.year + 1)
+            start, end = sorted((first, last))
             months, cursor = [], start
             while cursor <= end and len(months) <= _MAX_COMPARISON_MONTHS:
                 months.append(cursor)
@@ -710,6 +728,8 @@ def parse_comparison_request(
         last_n = _LAST_N_MONTHS_QUERY.search(message)
         if last_n:
             count = _word_or_int(last_n.group("n")) or 0
+            if count > _MAX_COMPARISON_MONTHS:
+                raise ValueError("Please compare at most 12 calendar months at a time.")
             if count >= 2:
                 includes_current = bool(_THIS_MONTH_QUERY.search(message))
                 # "last six months" means six completed months; "including this
@@ -723,6 +743,8 @@ def parse_comparison_request(
         previous_n = _PREVIOUS_N_QUERY.search(message)
         if previous_n and _THIS_MONTH_QUERY.search(message):
             count = _word_or_int(previous_n.group("n")) or 0
+            if count + 1 > _MAX_COMPARISON_MONTHS:
+                raise ValueError("Please compare at most 12 calendar months at a time.")
             if count >= 1:
                 months = sorted(
                     [current_start, *(_shift_month(current_start, -(i + 1)) for i in range(count))]
@@ -731,7 +753,9 @@ def parse_comparison_request(
     if not months:
         return None
 
-    months = sorted(set(months))[:_MAX_COMPARISON_MONTHS]
+    months = sorted(set(months))
+    if len(months) > _MAX_COMPARISON_MONTHS:
+        raise ValueError("Please compare at most 12 calendar months at a time.")
 
     # A single resolvable month is an ordinary month lookup, not a comparison —
     # unless the user clearly asked to compare, in which case ask for the months.
@@ -843,6 +867,18 @@ def route_coach_message(content: str) -> CoachingRoute:
             and not re.search(r"\b(?:my|me|i|saya|aku)\b", message, re.I)):
         return CoachingRoute.FINANCIAL_EDUCATION
 
+    # User-supplied scenario numbers must not be replaced by saved income or
+    # spending. Resolve this before the affordability/triage shortcut. An
+    # explicit request to apply the scenario to actual records remains combined;
+    # confirmation-gated actions retain their existing tool path.
+    if _HYPOTHETICAL_AMOUNT.search(message) and not required_agent_tool_name(message) and (
+        _BUDGET_QUERY.search(message) or _PREDICTION_QUERY.search(message)
+        or _SAVINGS_GOAL_QUERY.search(message) or _FINANCIAL_EDUCATION.search(message)
+        or re.search(r"\brm\s*\d", message, re.I)
+    ):
+        return (CoachingRoute.COMBINED if _EXPLICIT_RECORDED_CONTEXT.search(message)
+                else CoachingRoute.FINANCIAL_EDUCATION)
+
     # The mobile Coach exposes these without finance keywords. They are still
     # personal-finance questions because a useful answer requires live records.
     if is_financial_triage_query(message):
@@ -894,7 +930,7 @@ def route_coach_message(content: str) -> CoachingRoute:
     # A budget-allocation/method request is educational, even though it mentions
     # "budget". A hypothetical amount ("if I have RM6000") is planning framing,
     # not a recorded figure, so it must not pin the query to personal records.
-    if _BUDGET_ALLOCATION_QUERY.search(message) or is_hypothetical_allocation_request(message):
+    if _BUDGET_ALLOCATION_QUERY.search(message):
         needs_knowledge = True
     if _HYPOTHETICAL_AMOUNT.search(message):
         needs_personal_context = False
@@ -922,24 +958,6 @@ def route_coach_message(content: str) -> CoachingRoute:
     if needs_knowledge:
         return CoachingRoute.FINANCIAL_EDUCATION
     return CoachingRoute.CASUAL
-
-
-def is_hypothetical_allocation_request(content: str) -> bool:
-    """A proposed split of stated money, without a saved-record or policy ask.
-
-    Hypothetical framing supplies the planning intent even when the user says
-    'budget arrangement' or 'what would a budget look like'. Merely mentioning
-    money must not redirect a real spending/remaining-balance lookup.
-    """
-    from app.rag.allocation import is_allocation_query
-    message = normalize_for_intent(content)
-    return bool(
-        _HYPOTHETICAL_AMOUNT.search(message)
-        and is_allocation_query(message)
-        and not re.search(r'\b(?:recorded|already|remaining|remain|spent|transactions?|'
-                          r'over\s+budget|based\s+on\s+my|search|look\s+up|latest)\b', message)
-        and not detect_knowledge_topics(message)
-    )
 
 
 def is_budget_planning_request(content: str) -> bool:
@@ -1536,6 +1554,10 @@ def _period_invalid_fields(tool_name: str) -> tuple[str, ...]:
 
 def _category_filter(message: str) -> str | None:
     # Separate trailing period modifiers from category text before parsing.
+    # "spending for the last three months" specifies a period, not a category.
+    relative_period = _LAST_N_MONTHS_QUERY.search(message)
+    if relative_period:
+        message = re.sub(r"\s+(?:for\s+)?(?:the\s+)?$", "", message[:relative_period.start()], flags=re.I)
     text = re.split(
         r"\b(?:this\s+month|last\s+month|next\s+month|today|yesterday|tomorrow|"
         r"bulan\s+(?:ini|lepas|depan)|hari\s+ini|semalam|esok|from\s+\d|"

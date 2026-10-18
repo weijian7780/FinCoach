@@ -80,7 +80,8 @@ from app.rag.prompts import (
     build_casual_prompt, build_coach_prompt, build_research_recovery_prompt,
     RESEARCH_EXPLANATION_SYSTEM_PROMPT,
 )
-from app.rag.research_answer import recover_research_answer, research_answer_word_limit
+from app.rag.research_answer import recover_research_answer
+from app.rag.research_answer_budget import initial_writer_budget, research_work_budget
 from app.rag.research_coverage import requires_full_clarification, clarification_question
 from app.rag.query_analysis import KnowledgeQueryAnalysis, analyze_knowledge_query
 from app.rag.research_policy import (
@@ -93,11 +94,6 @@ from app.rag.research_policy import (
 )
 from app.rag.retrieval import RetrievedChunk, retrieve
 from app.rag.verifier import verify_grounding_claims
-from app.rag.research_answer_budget import (
-    initial_writer_budget,
-    research_phase_budget,
-    research_work_budget,
-)
 
 _RESEARCH_EXPLANATION_MODES = frozenset({
     "research_explanation", "research_explanation_recovery", "research_explanation_unavailable",
@@ -106,6 +102,7 @@ _RESEARCH_EXPLANATION_MODES = frozenset({
 
 def _research_explanation_result(*, plan, decision, budget, question, personal_facts=""):
     """Own research generation and checking once; private facts never enter it."""
+    budget = research_work_budget(budget)
     public_question = question if not plan.needs_personal else build_research_query(
         "; ".join((plan.topic, *plan.required_facts))
     )
@@ -124,15 +121,14 @@ def _research_explanation_result(*, plan, decision, budget, question, personal_f
                         f"\nRequested parts: {json.dumps(plan.required_facts)}")
     draft = None
     failure = None
+    # One absolute stage bound: the writer may only start when its own window and
+    # the 8-second semantic check still fit inside the ORIGINAL request deadline.
     writer_budget = initial_writer_budget(budget)
-    if decision.assessment.supported_quotes and writer_budget is not None and writer_budget.remaining_seconds() > 0:
+    if decision.assessment.supported_quotes and writer_budget is not None:
         try:
             draft = generate_result(
-                build_research_recovery_prompt(public_question, decision,
-                    max_words=max(80, research_answer_word_limit(plan) - len((
-                        clarification_question(plan) or '').split()))),
-                budget=writer_budget,
-                reasoning_effort='low',
+                build_research_recovery_prompt(public_question, decision),
+                budget=replace(writer_budget, stage_name="answer_generation"),
                 system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
             )
         except Exception as error:
@@ -143,8 +139,6 @@ def _research_explanation_result(*, plan, decision, budget, question, personal_f
                 failure = "provider_configuration_error"
             else:
                 failure = "answer_generation_unavailable"
-    elif decision.assessment.supported_quotes and (writer_budget is None or writer_budget.remaining_seconds() <= 0):
-        failure = "writer_budget_insufficient"
     return recover_research_answer(plan=plan, decision=decision, draft=draft,
         budget=budget, public_question=public_question, personal_facts=personal_facts,
         initial_failure=failure)
@@ -159,7 +153,6 @@ from app.rag.routing import (
     ReadReadiness,
     ambiguous_reminder_title,
     is_budget_planning_request,
-    is_hypothetical_allocation_request,
     is_budget_save_command,
     is_financial_triage_query,
     is_product_selection_request,
@@ -1916,11 +1909,6 @@ class CoachingService:
         if user_message:
             reply = self.repository.find_reply(message_id)
             if reply:
-                if user_message.get("status") == "failed":
-                    user_message = (
-                        self.repository.claim_failed_user_message(message_id)
-                        or user_message
-                    )
                 return {
                     "user_message": user_message,
                     "assistant_message": reply,
@@ -1929,14 +1917,14 @@ class CoachingService:
                         or self.repository.list_retrievals(reply["id"])
                     ),
                 }
-            if user_message.get("status") != "failed":
-                raise CoachingConflict("Message is already being processed.")
             user_message = self.repository.claim_failed_user_message(message_id)
             if not user_message:
                 raise CoachingConflict("Message is already being processed.")
         else:
             self.repository.enforce_usage_limits(COACH_RATE_LIMIT_MINUTE, COACH_RATE_LIMIT_DAY)
             user_message = self.repository.insert_user_message(session_id, message_id, content)
+            if not user_message:
+                raise CoachingConflict("Message is already being processed.")
 
         try:
             request_budget = CoachRequestBudget.start()
@@ -2092,10 +2080,7 @@ class CoachingService:
                     COACH_RESEARCH_POLICY_ENABLED
                     and resumed_read is None
                     and not clear_personal_read
-                    and not is_hypothetical_allocation_request(content)
                 ):
-                    from app.llm_provider_session import ProviderSession
-                    request_budget = replace(request_budget, provider_session=ProviderSession())
                     research_plan = interpret_question(
                         content,
                         history,
@@ -2228,8 +2213,7 @@ class CoachingService:
                     CoachingRoute.COMBINED,
                 )
                 chunks = []
-                if (is_knowledge_route and not is_hypothetical_allocation_request(content)
-                    and not (research_plan and requires_full_clarification(research_plan))):
+                if is_knowledge_route and not (research_plan and requires_full_clarification(research_plan)):
                     try:
                         chunks = retrieve(
                             research_plan.topic if research_plan else content,
@@ -2286,21 +2270,14 @@ class CoachingService:
                     and not knowledge_analysis.clarification
                     and not requires_full_clarification(research_plan)
                 ):
-                    work_budget = research_work_budget(request_budget)
-                    research_child = research_phase_budget(work_budget)
                     decision = run_research_policy(
                         research_plan, chunks,
                         generate=generate_structured_result,
-                        budget=research_child,
+                        budget=research_work_budget(request_budget),
                         api_key=TAVILY_API_KEY,
                         web_enabled=WEB_FALLBACK_ENABLED,
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
-                        # This child already ends at the reserved research second.
-                        # Passing 0.0 makes the answer-time reservation single-owned:
-                        # a second stage-derived reserve here would stop research
-                        # far earlier than the reserved research end.
-                        answer_reserve_seconds=0.0,
                     )
                     chunks = decision.chunks
                     evidence_assessment = decision.assessment
@@ -2336,18 +2313,30 @@ class CoachingService:
                 retrieval_ms = round((perf_counter() - retrieval_started) * 1000, 1)
                 # Corpus and web research have one explanation/check/recovery
                 # owner. Retrieval alone cannot approve a definition or bypass
-                # the public claim/source contract.
+                # the public claim/source contract. A corpus-only, sufficient
+                # decision with no bindable approved quotations has nothing for
+                # the web citation contract to verify: nothing left FinCoach, so
+                # it ships through the regular corpus-grounded generation path
+                # (the same shape the legacy corpus-only branch below ships).
+                corpus_only_sufficient_evidence = (
+                    evidence_assessment is not None
+                    and evidence_assessment.status == "sufficient"
+                    and not web_fallback_used
+                    and bool(chunks)
+                    and all(chunk.source_type == "corpus" for chunk in chunks)
+                )
                 research_explanation_owned = (
                     evidence_assessment is not None and research_plan is not None
+                    and not (corpus_only_sufficient_evidence
+                             and not evidence_assessment.supported_quotes)
                 )
 
                 def explain_public(personal_facts=""):
-                    work_budget = research_work_budget(request_budget)
                     outcome = _research_explanation_result(
                         plan=research_plan,
                         decision=ResearchDecision(chunks, evidence_assessment, web_fallback_used,
                                                   research_failure, research_quotes, research_diagnostics),
-                        budget=work_budget, question=content, personal_facts=personal_facts,
+                        budget=request_budget, question=content, personal_facts=personal_facts,
                     )
                     research_diagnostics["explanation"] = outcome.diagnostics
                     return replace(outcome.result, content=_strip_source_markers(outcome.result.content)), outcome.mode
@@ -2716,13 +2705,7 @@ class CoachingService:
                 # Compatibility checks for legacy/tool synthesis. Public policy
                 # definitions already passed the shared research coordinator and
                 # cannot enter these legacy response modes.
-                corpus_only_sufficient = (
-                    not web_fallback_used
-                    and evidence_assessment is not None
-                    and evidence_assessment.status == "sufficient"
-                    and bool(chunks)
-                    and all(chunk.source_type == "corpus" for chunk in chunks)
-                )
+                corpus_only_sufficient = corpus_only_sufficient_evidence
                 if (evidence_assessment is not None and not corpus_only_sufficient
                         and response_mode in {"llm", "llm_synthesis", "agent_loop"}):
                     # The web-research contract checks source markers and numeric
@@ -2772,11 +2755,9 @@ class CoachingService:
                 # guidance already tells the model to state gaps in prose, and the
                 # raw assessment labels (which leaked "eligibility"/"how to apply")
                 # stay in ui_payload.research_outcome for diagnostics only.
-                # Guard #2: numeric claim validation. Controlled by the same
-                # COACH_ANSWER_VALIDATION kill switch as guard #1 in grounding.py.
-                # When validation is disabled, provider output ships without a
-                # post-hoc numeric check.
-                if grounding._VALIDATION_ENABLED and response_mode not in _RESEARCH_EXPLANATION_MODES:
+                # Recorded financial values always require deterministic validation.
+                # The optional educational verifier flag must not disable this guard.
+                if (grounding._VALIDATION_ENABLED or route in {CoachingRoute.PERSONAL_FINANCE, CoachingRoute.COMBINED}) and response_mode not in _RESEARCH_EXPLANATION_MODES:
                     trusted_numeric_evidence = [
                         *(chunk.content for chunk in chunks),
                         _verified_tool_context(result),
@@ -2936,8 +2917,16 @@ class CoachingService:
             explanation = research_diagnostics.get("explanation", {})
             if response_mode in _RESEARCH_EXPLANATION_MODES:
                 # Preserve original source ranks, but show cards only for claims
-                # that actually survived public explanation verification.
+                # that actually survived public explanation verification. An
+                # unavailable answer has no verified claims. Procedural
+                # candidate sources still belong in the snapshot as actionable
+                # links (URLs, never quote body); an unavailable definition
+                # hides them instead, because an unverified identity card
+                # would present the subject's defining facts as confirmed.
                 used_indices = set(explanation.get("used_source_indices", ()))
+                if (response_mode == "research_explanation_unavailable"
+                        and not (research_plan is not None and research_plan.definitional)):
+                    used_indices = {source["rank"] for source in sources}
                 sources = [source for source in sources if source["rank"] in used_indices]
                 sources = unique_source_rows(sources)
             # Sources are not inlined into `content`: the raw "[S#] … URL …" block

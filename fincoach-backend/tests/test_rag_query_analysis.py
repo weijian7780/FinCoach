@@ -3,6 +3,43 @@ from pathlib import Path
 
 
 class KnowledgeQueryAnalysisTests(unittest.TestCase):
+    def test_topic_switch_does_not_resurrect_an_older_knowledge_topic(self):
+        from app.rag.query_analysis import analyze_knowledge_query
+
+        analysis = analyze_knowledge_query("what about last month?", history=[
+            {"role": "user", "content": "Explain PTPTN repayment"},
+            {"role": "user", "content": "How much did I spend this month?"},
+        ])
+        self.assertFalse(analysis.inherited)
+        self.assertEqual(analysis.topic_matches, ())
+
+    def test_personal_topic_switch_with_followup_prefix_resets_knowledge_topic(self):
+        from app.rag.query_analysis import analyze_knowledge_query
+
+        analysis = analyze_knowledge_query("and the eligibility?", history=[
+            {"role": "user", "content": "Explain PTPTN repayment"},
+            {"role": "user", "content": "what about my budget?"},
+        ])
+        self.assertFalse(analysis.inherited)
+
+    def test_failed_user_turn_does_not_establish_a_knowledge_topic(self):
+        from app.rag.query_analysis import analyze_knowledge_query
+
+        analysis = analyze_knowledge_query("what about repayment?", history=[
+            {"role": "user", "content": "Explain PTPTN", "status": "failed"},
+        ])
+        self.assertFalse(analysis.inherited)
+
+    def test_contiguous_followups_keep_their_knowledge_topic(self):
+        from app.rag.query_analysis import analyze_knowledge_query
+
+        analysis = analyze_knowledge_query("and the eligibility?", history=[
+            {"role": "user", "content": "Explain PTPTN"},
+            {"role": "user", "content": "what about repayment?"},
+        ])
+        self.assertTrue(analysis.inherited)
+        self.assertEqual([match.topic.topic_id for match in analysis.topic_matches], ["ptptn"])
+
     def test_detects_fuzzy_socso_alias_and_splits_two_topics(self):
         from app.rag.query_analysis import analyze_knowledge_query
 
@@ -187,12 +224,6 @@ class HybridSqlContractTests(unittest.TestCase):
 
 
 class KnowledgeFollowUpServiceTests(unittest.TestCase):
-    def setUp(self):
-        from unittest.mock import patch
-        legacy = patch('app.rag.service.COACH_RESEARCH_POLICY_ENABLED', False)
-        legacy.start()
-        self.addCleanup(legacy.stop)
-
     def test_knowledge_follow_up_uses_retrieval_instead_of_personal_record_clarification(self):
         from unittest.mock import MagicMock, patch
 

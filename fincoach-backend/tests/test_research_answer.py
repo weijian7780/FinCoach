@@ -92,22 +92,6 @@ def test_same_fact_with_different_words_is_accepted():
     assert check(answer(), decision("Apply online using the official application website.")).is_valid
 
 
-def test_explicit_compound_word_budget_is_not_clamped_to_two_hundred():
-    from app.rag import research_answer as module
-    text = answer('Apply ' + 'online ' * 205 + 'using the portal [S1].')
-    with patch.object(module, 'verify_grounding_claims', side_effect=supported):
-        result = module.check_research_draft(text, public_question=QUESTION,
-            decision=decision(), budget=CoachRequestBudget.start(), max_words=240)
-    assert result.is_valid
-
-
-def test_recovery_prompt_and_system_use_the_explicit_word_budget():
-    from app.rag.prompts import build_research_recovery_prompt, RESEARCH_EXPLANATION_SYSTEM_PROMPT
-    prompt = build_research_recovery_prompt(QUESTION, decision(), max_words=240)
-    assert 'Answer within 240 words' in prompt
-    assert 'at most 200 words' not in RESEARCH_EXPLANATION_SYSTEM_PROMPT
-
-
 def test_changed_number_or_negation_is_rejected():
     result = check(answer("Applications close in 24 months [S1]."),
                    decision("Applications close in 12 months."))
@@ -116,6 +100,14 @@ def test_changed_number_or_negation_is_rejected():
         {c.id: "contradicted" for c in claims})
     assert not check(answer("Applications are not accepted [S1]."),
                      verifier=contradicted).is_valid
+
+
+def test_dangling_document_list_introduction_is_never_displayable():
+    # Replacement for the archived window-completeness tests: an unfinished
+    # list introduction must not pass as a verified claim, even when the model
+    # verifier would support it. The structural backstop rejects the fragment.
+    result = check(answer("Required documents: [S1]"))
+    assert not result.is_valid and "incomplete_statement" in result.error_codes
 
 
 def test_adopted_child_documents_are_not_universal():
@@ -285,14 +277,6 @@ def test_comma_grouped_source_markers_are_verified_and_do_not_leak_into_reply():
     assert "[S" not in _strip_source_markers(result.approved_text)
 
 
-def test_numeric_provider_citations_are_normalized_before_checking_and_display():
-    from app.rag.service import _strip_source_markers
-    result = check(answer('Apply through the portal [1].'))
-    assert result.is_valid
-    assert '[1]' not in result.approved_text
-    assert '[1]' not in _strip_source_markers(result.approved_text)
-
-
 def recover(draft, evidence=None, *, generated=None, verifier=supported, personal_facts=""):
     from app.rag import research_answer as module
     with (patch.object(module, "verify_grounding_claims", side_effect=verifier),
@@ -459,12 +443,12 @@ def test_unavailable_recovery_keeps_source_snapshot_without_quote_body():
 def test_recovery_semantic_calls_share_request_start_and_caps():
     from app import llm
     from app.rag import research_answer as module
-    clock = [30.0]
+    clock = [28.0]
     starts = []
     def checking(text, **kw):
         stage = kw["budget"]
         starts.append(stage.started_at)
-        assert stage.remaining_seconds() <= 8
+        assert stage.remaining_seconds() == 8
         clock[0] += 1
         return module.ResearchDraftCheck(len(starts) == 2, () if len(starts) == 2 else ("invalid_structure",),
                                         text if len(starts) == 2 else None)
@@ -482,7 +466,7 @@ def test_recovery_semantic_calls_share_request_start_and_caps():
     assert outcome.recovery_used and starts == [0, 0]
 
 
-@pytest.mark.parametrize("elapsed, expected_generation", [(30.0, 15.0), (52.0, None)])
+@pytest.mark.parametrize("elapsed, expected_generation", [(28.0, 18.0), (30.0, None), (52.0, None)])
 def test_rewrite_can_use_remaining_time_without_spending_final_check_reserve(elapsed, expected_generation):
     from app import llm
     from app.rag import research_answer as module

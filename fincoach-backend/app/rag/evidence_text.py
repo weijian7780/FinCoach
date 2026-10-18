@@ -14,7 +14,11 @@ _OPEN_CONDITION = re.compile(
     r"\b(?:if|unless|provided|providing|subject|only|except|conditions?|"
     r"qualifications?|restrictions?|exceptions?|eligib\w*)\b", re.I,
 )
-_OPEN_END = re.compile(r"\b(?:if|unless|that|and|or|to|for|with|have|has|provided)\s*$", re.I)
+_OPEN_END = re.compile(
+    r"\b(?:if|unless|that|and|or|to|for|with|have|has|provided|not|cannot|"
+    r"(?:must|should|shall|may|can|could|will|would)(?:\s+not)?|"
+    r"tidak|bukan|perlu|mesti|wajib|boleh|hendaklah)\s*$", re.I,
+)
 
 
 def _visible_text_with_offsets(text: str) -> tuple[str, list[int]]:
@@ -98,7 +102,7 @@ def complete_evidence_passages(text: str) -> tuple[str, ...]:
             if not _LIST_ITEM.search(value[intro.end():]):
                 value = "" if _OPEN_CONDITION.search(intro.group()) else value[:intro.start()].rstrip()
                 break
-        if not value or _OPEN_END.search(value.rstrip("* ")):
+        if not value or _OPEN_END.search(value.rstrip("* .!?\"')")):
             continue
         if len(pieces) > 1 and not re.search(r"[.!?][\"')*]*$", value):
             # A gap cut a prose sentence. Salvage only preceding independent

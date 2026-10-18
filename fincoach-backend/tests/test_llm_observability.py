@@ -22,7 +22,7 @@ def test_empty_paid_generation_retains_usage_and_logs_attempt(caplog):
     resp = response('length')
     resp.choices[0].message = NS(content='')
     client = NS(chat=NS(completions=NS(create=lambda **_: resp)))
-    with caplog.at_level('INFO', logger='uvicorn.error'), pytest.raises(RuntimeError) as raised:
+    with caplog.at_level('INFO'), pytest.raises(RuntimeError) as raised:
         _generate_with_provider(lambda **_: client,
             _Provider('primary', 'https://example.test', 'not-a-key', 'test-model'),
             'Public question', reasoning_effort='high', timeout_seconds=20)
@@ -51,29 +51,6 @@ def test_agent_seven_positional_fields_stay_compatible():
     result = AgentLLMResult('text', 'model', 1, 2, {'a': 3}, ('tool',), ({'ok': True},), finish_reason='stop')
     assert result.ui_payload == {'a': 3} and result.tool_results == ({'ok': True},)
     assert result.finish_reason == 'stop'
-
-
-def test_successful_completion_preserves_requested_cap_and_reasoning_usage():
-    from app.llm import _Provider, _generate_with_provider
-    resp = response('length')
-    resp.choices[0].message = NS(content='A partial explanation.')
-    client = NS(chat=NS(completions=NS(create=lambda **_: resp)))
-    result = _generate_with_provider(lambda **_: client,
-        _Provider('primary', 'https://example.test', 'not-a-key', 'test-model'),
-        'Public question', reasoning_effort='high', timeout_seconds=20, max_tokens=100)
-    assert result.requested_max_tokens == 100 and result.reasoning_tokens == 30
-    assert result.total_tokens == 200
-
-
-def test_approved_research_writer_can_use_low_reasoning_without_changing_general_policy():
-    from app import llm
-    provider = llm._Provider('primary', 'https://example.test', 'not-a-key', 'test-model')
-    budget = llm.CoachRequestBudget.start().for_stage(max_seconds=20, stage_name='research_writer')
-    with patch.object(llm, '_configured', return_value=True), \
-         patch.object(llm, '_provider_order', return_value=[provider]), \
-         patch.object(llm, '_generate_with_provider', return_value=NS(content='Explanation.')) as generate:
-        llm.generate_result('Approved public facts', budget=budget, reasoning_effort='low')
-    assert generate.call_args.kwargs['reasoning_effort'] == 'low'
 
 
 def test_valid_json_with_length_is_rejected_and_usage_retained():

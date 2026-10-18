@@ -118,7 +118,44 @@ def dashboard(request: Request, user=Depends(administrator)):
 @router.get("/audit")
 def audit(user=Depends(administrator), offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
     response = admin_read(get_supabase().table("admin_audit_logs").select("id,actor_id,action,target_type,target_id,details,created_at", count="exact").order("id", desc=True).range(offset, offset + limit - 1))
-    return dict(items=response.data, total=response.count)
+    items = response.data or []
+    client = get_supabase()
+
+    def lookup(table, key, columns, values):
+        # Batch only this audit page's identifiers; never fetch financial data.
+        ids = set()
+        for value in values:
+            try:
+                ids.add(str(UUID(str(value))))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        if not ids:
+            return {}
+        rows = admin_read(client.table(table).select(columns).in_(key, sorted(ids))).data or []
+        return {str(row[key]): row for row in rows}
+
+    accounts = lookup("account_access", "user_id", "user_id,email,display_name",
+                      [row.get("actor_id") for row in items] +
+                      [row.get("target_id") for row in items if row.get("target_type") == "account"])
+    sources = lookup("knowledge_sources", "id", "id,title",
+                     [row.get("target_id") for row in items if row.get("target_type") == "knowledge_source"])
+    revisions = lookup("knowledge_revisions", "id", "id,source_id,title",
+                       [(row.get("details") or {}).get("revision_id") for row in items])
+    for row in items:
+        actor = accounts.get(str(row.get("actor_id")), {})
+        row["actor_name"] = actor.get("email") or actor.get("display_name") or "Administrator unavailable"
+        target = str(row.get("target_id"))
+        if row.get("target_type") == "knowledge_source":
+            revision = revisions.get(str((row.get("details") or {}).get("revision_id")), {})
+            # Prefer the title of the recorded version, not a later renamed source.
+            title = revision.get("title") if str(revision.get("source_id")) == target else None
+            row["target_name"] = title or sources.get(target, {}).get("title") or "Document unavailable"
+        elif row.get("target_type") == "account":
+            account = accounts.get(target, {})
+            row["target_name"] = account.get("email") or account.get("display_name") or "Account unavailable"
+        else:
+            row["target_name"] = "Record unavailable"
+    return dict(items=items, total=response.count)
 
 
 @router.get("/knowledge")
@@ -177,7 +214,7 @@ def save_revision(body: RevisionInput, user, source_id: UUID | None):
             raise HTTPException(422, "Uploaded original was not found.")
         path = prefix + "/" + names[0]
     return admin_rpc("admin_save_knowledge_revision", dict(p_actor=user.user_id, p_source=str(source_id) if source_id else None,
-        p_title=body.title, p_content=body.content, p_urls=body.source_urls, p_checked=str(body.checked_at), p_file_path=path,
+        p_title=body.title, p_content=body.content, p_urls=body.source_urls, p_checked=str(body.checked_at) if body.checked_at else None, p_file_path=path,
         p_expected=str(body.expected_revision_id) if body.expected_revision_id else None))
 
 
@@ -194,7 +231,22 @@ def revise_knowledge(source_id: UUID, body: RevisionInput, user=Depends(administ
 @router.post("/preview")
 def preview(body: RevisionInput, user=Depends(administrator)):
     chunks = build_revision_chunks(body.model_dump(mode="json"), "preview.md")
-    return dict(chunk_count=len(chunks), excerpts=[chunk.content for chunk in chunks[:5]], stale=(datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date() - body.checked_at).days > 90)
+    return dict(chunk_count=len(chunks), excerpts=[chunk.content for chunk in chunks[:5]], stale=bool(body.checked_at and (datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date() - body.checked_at).days > 90))
+
+
+class LinkInput(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/imports/link")
+def import_link(body: LinkInput, user=Depends(administrator)):
+    from app.admin.link_import import extract_link
+    try:
+        return extract_link(body.url.strip(), config.TAVILY_API_KEY)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
 
 
 class KnowledgeAction(BaseModel):

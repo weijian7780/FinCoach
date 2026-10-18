@@ -19,7 +19,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.receipt_category import classify_category
-from app.receipt_vision import merge_corrections, verify_receipt_image
 
 LOGGER = logging.getLogger("uvicorn.error")
 _OCR_INFERENCE_LOCK = threading.Lock()
@@ -773,41 +772,44 @@ def _add_review_status(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def extract_receipt(image_bytes: bytes, engine: Any | None = None) -> dict[str, Any]:
-    lines = run_paddle_ocr(image_bytes, engine)
-    cleanup_started = perf_counter()
+    """Interpret the image with Gemini; use the parser only on provider failure."""
+    from app.receipt_extraction import extract_with_gemini
+
+    started = perf_counter()
+    ocr_failed = False
     try:
-        payload = verify_receipt_image(getattr(lines, "verification_image", None) or image_bytes, lines)
-        merged = merge_corrections(lines, payload)
-        status = merged["status"] if payload is not None else "not_configured"
-    except Exception as error:
-        # Provider error text may contain private request data; never log it.
-        merged, status = merge_corrections(lines, None), "failed"
-        merged["failureType"] = type(error).__name__
-        code = getattr(error, "code", None)
-        if isinstance(code, int):
-            merged["failureCode"] = code
-    final_lines = [OCRLine(r["finalText"], r["ocrConfidence"]) for r in merged["lines"]]
-    result = parse_receipt(final_lines)
-    baseline = parse_receipt(lines)  # Diagnostic comparison only, never a veto.
-    result["changedFields"] = [key for key in ("merchant", "transactionDate", "totalAmount") if baseline[key] != result[key]]
+        lines = run_paddle_ocr(image_bytes, engine)
+    except Exception:
+        # A broken OCR engine must not prevent image-only interpretation.
+        lines, ocr_failed = [], True
+    image = getattr(lines, "verification_image", None) or image_bytes
+    failure = "not_configured"
+    try:
+        result = extract_with_gemini(image, lines)
+    except Exception as exc:
+        result, failure = None, "failed"
+        LOGGER.warning("receipt extraction provider failure: %s", type(exc).__name__)
+    if result is None:
+        result = parse_receipt(lines)
+        category, confidence, _ = (classify_category(result["merchant"], result["items"])
+            if result["merchant"] or result["items"] else ("", 0.0, "unavailable"))
+        if category:
+            result["suggestedCategory"] = category
+            result["confidence"]["category"] = round(confidence, 4)
+        warnings = list(result.get("parserWarnings", []))
+        warnings.insert(0, "Gemini could not read this receipt. These are OCR fallback results; review all fields before saving.")
+        for field, label in (("merchant", "Merchant"), ("transactionDate", "Receipt date"), ("totalAmount", "Total amount")):
+            if not result.get(field):
+                warnings.append(f"{label} was not detected.")
+        result.update(extractionSource="ocr_fallback", verificationStatus=failure,
+                      enhancementStatus=failure, reviewRequired=True, reviewWarnings=warnings)
+    if ocr_failed:
+        result["reviewWarnings"].append("Supporting OCR was unavailable; check the image against the extracted fields.")
+        result["reviewRequired"] = True
     result["rawLines"] = [line.text for line in lines]
     result["imagePreparation"] = {"documentOrientation": getattr(lines, "orientation", None)}
-    result["verificationStatus"] = status
-    result["enhancementStatus"] = "applied" if status in ("verified", "partial") else status
-    result["ocrVerification"] = merged
-    LOGGER.info(
-        json.dumps(
-            {"event": "receipt_vision", "status": status,
-             "elapsed_ms": round((perf_counter() - cleanup_started) * 1000, 2)},
-            separators=(",", ":"),
-        )
-    )
-
-    # Classify final parsed merchant/items; no second text-only LLM request.
-    category, category_confidence, _src = (classify_category(result["merchant"], result["items"])
-        if result["merchant"] or result["items"] else ("", 0.0, "unavailable"))
-    if category:
-        result["suggestedCategory"] = category
-        result["confidence"]["category"] = round(category_confidence, 4)
-
-    return _add_review_status(result)
+    LOGGER.info(json.dumps({"event": "receipt_extraction", "source": result["extractionSource"],
+        "elapsed_ms": round((perf_counter() - started) * 1000, 2),
+        "review_required": result["reviewRequired"], "ocr_failed": ocr_failed,
+        "provider": result.get("extractionMetadata", {})}, separators=(",", ":")))
+    return result

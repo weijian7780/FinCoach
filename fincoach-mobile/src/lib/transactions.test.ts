@@ -30,14 +30,14 @@ const transaction = {
 };
 
 function createClient(result: { data?: unknown; error?: unknown } = {}) {
-  const response = { data: result.data ?? null, error: result.error ?? null };
+  const response = { data: result.data ?? null, error: result.error ?? null, count: Array.isArray(result.data) ? result.data.length : 0 };
   const builder: Record<string, ReturnType<typeof vi.fn>> & {
     then?: (resolve: (value: typeof response) => unknown, reject?: (reason: unknown) => unknown) => Promise<unknown>;
   } = {
-    select: vi.fn(), eq: vi.fn(), order: vi.fn(), or: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(),
+    range: vi.fn(), select: vi.fn(), eq: vi.fn(), order: vi.fn(), or: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(),
     single: vi.fn(), maybeSingle: vi.fn(), gte: vi.fn(), lte: vi.fn(), limit: vi.fn(),
   };
-  for (const method of ['select', 'eq', 'order', 'or', 'insert', 'update', 'delete', 'gte', 'lte', 'limit'] as const) {
+  for (const method of ['range', 'select', 'eq', 'order', 'or', 'insert', 'update', 'delete', 'gte', 'lte', 'limit'] as const) {
     builder[method].mockReturnValue(builder);
   }
   builder.single.mockResolvedValue(response);
@@ -127,7 +127,7 @@ describe('transaction persistence', () => {
     const { builder, client } = createClient({ data: [transaction] });
     await expect(fetchTransactions('user-1', client)).resolves.toEqual([transaction]);
     expect(client.from).toHaveBeenCalledWith('transactions');
-    expect(builder.select).toHaveBeenCalledWith('*, category:categories(*)');
+    expect(builder.select).toHaveBeenCalledWith('*, category:categories(*)', { count: 'exact' });
     expect(builder.eq).toHaveBeenCalledWith('user_id', 'user-1');
     expect(builder.order).toHaveBeenNthCalledWith(1, 'transaction_date', { ascending: false });
     expect(builder.order).toHaveBeenNthCalledWith(2, 'created_at', { ascending: false });

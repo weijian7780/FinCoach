@@ -85,7 +85,8 @@ def _decision_errors(payload: dict[str, Any], lines: list[Any]) -> list[str]:
     return errors
 
 
-def verify_receipt_image(image_bytes: bytes, lines: list[Any]) -> dict[str, Any] | None:
+def verify_receipt_image(image_bytes: bytes, lines: list[Any], *, schema=None,
+                         instruction=None, validator=None) -> dict[str, Any] | None:
     """Verify once, repairing an invalid contract at most once within one deadline."""
     if not config.GEMINI_API_KEY:
         return None
@@ -123,22 +124,27 @@ def verify_receipt_image(image_bytes: bytes, lines: list[Any]) -> dict[str, Any]
                 model=config.GEMINI_RECEIPT_MODEL,
                 contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime),
                           json.dumps(request, ensure_ascii=False)],
-                config=types.GenerateContentConfig(system_instruction=INSTRUCTION,
+                config=types.GenerateContentConfig(system_instruction=instruction or INSTRUCTION,
                     temperature=0, max_output_tokens=8192, response_mime_type="application/json",
-                    response_json_schema=SCHEMA,
+                    response_json_schema=schema or SCHEMA,
                     http_options=types.HttpOptions(timeout=remaining_ms)),
             )
             if not response.candidates or str(response.candidates[0].finish_reason).split(".")[-1] != "STOP":
                 raise ValueError("Incomplete verification response")
-            payload = json.loads(response.text)
-            if not isinstance(payload, dict):
-                raise ValueError("Invalid verification response")
+            try:
+                payload = json.loads(response.text)
+                if not isinstance(payload, dict):
+                    raise ValueError("Invalid verification response")
+            except (ValueError, TypeError):
+                if validator is None:
+                    raise ValueError("Invalid verification response")
+                payload = {}
             usage = getattr(response, "usage_metadata", None)
             for key in ("prompt_token_count", "candidates_token_count", "total_token_count"):
                 count = getattr(usage, key, None)
                 if isinstance(count, int):
                     usage_totals[key] = usage_totals.get(key, 0) + count
-            errors = _decision_errors(payload, lines)
+            errors = (validator or _decision_errors)(payload, lines)
             if not errors:
                 break
     payload["_attempts"] = attempt

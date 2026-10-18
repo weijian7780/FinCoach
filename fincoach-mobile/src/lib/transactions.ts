@@ -1,10 +1,12 @@
+import { fetchAllRows } from '@/lib/pagination';
 import { supabase } from '@/lib/supabase';
 import { transactionMatchesInput } from '@/lib/transaction-domain';
 import type { Category, TransactionWithCategory, TransactionWriteInput } from '@/lib/types';
 
-type QueryResult = { data: unknown; error: unknown };
+type QueryResult = { data: unknown; error: unknown; count?: number | null };
 
 type TransactionQuery = PromiseLike<QueryResult> & {
+  range: (from: number, to: number) => TransactionQuery;
   delete: () => TransactionQuery;
   eq: (column: string, value: unknown) => TransactionQuery;
   gte: (column: string, value: unknown) => TransactionQuery;
@@ -85,14 +87,13 @@ export async function fetchTransactions(
   userId: string,
   client: TransactionDataClient = defaultClient,
 ) {
-  const { data, error } = await client
+  return fetchAllRows<TransactionWithCategory>(() => client
     .from('transactions')
-    .select(transactionSelection)
+    .select(transactionSelection, { count: 'exact' })
     .eq('user_id', userId)
     .order('transaction_date', { ascending: false })
-    .order('created_at', { ascending: false });
-  throwIfError(error);
-  return (data ?? []) as TransactionWithCategory[];
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false }));
 }
 
 export async function fetchTransactionCategories(
@@ -197,4 +198,39 @@ export async function createReceiptSignedUrl(
   const { data, error } = await client.storage.from('receipts').createSignedUrl(path, expiresIn);
   throwIfError(error);
   return requireRow<{ signedUrl: string }>(data, 'Receipt URL could not be created.').signedUrl;
+}
+
+/** A receipt draft retains its ID and upload state until its commit is confirmed. */
+export async function saveReceiptTransaction(
+  userId: string,
+  input: TransactionWriteInput,
+  state: { id: string; uploading: boolean; uploaded: boolean },
+  readBytes: () => Promise<ArrayBuffer>,
+  contentType: string,
+  client: TransactionDataClient = defaultClient,
+) {
+  if (state.uploading) throw new Error('This receipt is already being saved.');
+  if (input.id !== state.id || !input.receipt_image_path) throw new Error('Invalid receipt draft.');
+  state.uploading = true;
+  try {
+    const existing = await fetchTransaction(state.id, userId, client);
+    if (existing) {
+      if (!transactionMatchesInput(existing, input)) throw new TransactionDraftConflictError(existing);
+      return existing;
+    }
+    if (!state.uploaded) {
+      const bytes = await readBytes();
+      try { await uploadReceiptImage(input.receipt_image_path, bytes, contentType, client); }
+      catch (uploadError) {
+        // The upload may have committed despite a lost response. Verify before continuing.
+        try { await createReceiptSignedUrl(input.receipt_image_path, 300, client); }
+        catch { throw uploadError; }
+      }
+      state.uploaded = true;
+    }
+    return await createTransactionWithRecovery(userId, input, client);
+  } finally {
+    // The image must survive unknown database outcomes; a retry resolves by ID.
+    state.uploading = false;
+  }
 }

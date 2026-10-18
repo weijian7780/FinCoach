@@ -14,6 +14,18 @@ import {
 } from './coach-ui';
 
 describe('coach UI state', () => {
+  it('preserves a clarification machine value across failure and retry', () => {
+    const interactionReply = { assistant_message_id: 'clarification-1', value: '2026-10-16' };
+    const sending = nextCoachSendState({ status: 'idle' }, {
+      type: 'send', content: 'Tomorrow', messageId: 'reply-1', interactionReply,
+    });
+    const failed = nextCoachSendState(sending, { type: 'failure' });
+    const retry = nextCoachSendState(failed, { type: 'retry' });
+    expect(retry).toEqual({
+      status: 'sending', content: 'Tomorrow', messageId: 'reply-1', interactionReply,
+    });
+  });
+
   it('shows the long wait notice after 15 seconds and cancels late updates', () => {
     vi.useFakeTimers();
     const visible: boolean[] = [];

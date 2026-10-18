@@ -57,12 +57,6 @@ class RetrievedChunk:
     checked_at: str | None = None
     # Internal excerpt identity; canonical URL still owns origin and citation.
     evidence_window_id: str | None = None
-    # Literal structural units this excerpt came from. A qualification belongs to
-    # the unit it was read from, so bindings resolve against these rather than
-    # against the whole page. Populated only for public page windows.
-    source_spans: tuple = ()
-    # The heading/condition text that governs this excerpt, kept literal.
-    qualification_context: str | None = None
 
 
 def select_retrieved_chunks(

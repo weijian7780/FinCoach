@@ -89,6 +89,34 @@ def test_nonautomatic_approval_does_not_prove_no_application_required():
 
 
 @pytest.mark.parametrize('text', [
+    'Permohonan tidak diluluskan secara automatik.',
+    'Your application is not approved automatically.',
+    'Application status is checked automatically; submit an application first.',
+])
+def test_automatic_status_or_approval_is_never_an_application_exemption(text):
+    rows = [dict(part_id='p1', status='confirmed', support_indices=[1],
+                 resolution='not_required', complete=True)]
+    assert not assess(plan(), text, rows).parts[0].complete
+
+
+def test_no_application_requirement_does_not_prove_no_document_requirement():
+    rows = [dict(part_id='p2', status='confirmed', support_indices=[1],
+                 resolution='not_required', complete=True)]
+    result = assess(plan(), 'No separate application is required.', rows)
+    assert not result.parts[1].complete
+
+
+@pytest.mark.parametrize('text', [
+    'Permohonan berasingan tidak diperlukan.',
+    'Adakah saya perlu memohon? J: Tidak. Kelayakan ditentukan secara automatik.',
+])
+def test_explicit_malay_application_exemption_is_kept_with_its_scope(text):
+    rows = [dict(part_id='p1', status='confirmed', support_indices=[1],
+                 resolution='not_required', complete=True)]
+    assert assess(plan(), text, rows).parts[0].complete
+
+
+@pytest.mark.parametrize('text', [
     'Applications must be made online through the official portal. Check eligibility there.',
     'Permohonan boleh dibuat secara dalam talian. Semak status di portal rasmi.',
 ])
@@ -271,13 +299,7 @@ def test_policy_broadens_targeted_gaps_without_researching_answered_parts():
     later = searches.call_args_list[1:]
     assert later and all(not ("documents" in c.args[0] and "eligibility" in c.args[0]) for c in later)
     assert any(c.kwargs.get("discovery_mode") == "broader" for c in searches.call_args_list)
-    # The bound is the request-local envelope, not the legacy three-round stop.
-    # This plan has three requested parts, so the fair budget allows each missing
-    # part one query plus one second variant, while still never re-searching the
-    # part already confirmed. The old `<= 3` bound is exactly what left a third
-    # requested part with no discovery attempt at all.
-    assert result.assessment.supported_quotes
-    assert result.diagnostics["search_calls"] <= 4
+    assert result.assessment.supported_quotes and result.diagnostics["search_calls"] <= 3
 
 
 def test_verifier_shares_part_scope_and_rejects_unknown_answered_ids():
@@ -296,7 +318,7 @@ def test_verifier_shares_part_scope_and_rejects_unknown_answered_ids():
         factory.return_value.chat.completions.create.return_value = response
         result = verify_grounding_claims([GroundingClaim(1, "Apply online", (1,))], ["Apply online"],
                                         timeout_seconds=5, research_context=context)
-    assert result.error_code == "verifier_invalid_json"
+    assert result.error_code == "invalid_verifier_response"
     assert "no separate application" in factory.return_value.chat.completions.create.call_args.kwargs["messages"][1]["content"].lower()
 
 

@@ -257,8 +257,178 @@ class CoachRouteTests(unittest.TestCase):
         self.assertEqual(confirmed.status_code, 200)
         self.assertEqual(confirmed.json()["message"]["ui_payload"]["status"], "executed")
         self.assertEqual(cancelled.status_code, 200)
-        self.action_service.confirm.assert_called_once_with(REPLY_ID, action_id)
+        self.action_service.confirm.assert_called_once_with(
+            REPLY_ID, action_id, attempt_id=None,
+        )
         self.action_service.cancel.assert_called_once_with(REPLY_ID, action_id)
+
+    def test_action_routes_forward_the_reserved_report_attempt(self):
+        action_id = "55555555-5555-4555-8555-555555555555"
+        attempt_id = "66666666-6666-4666-8666-666666666666"
+        action_message = {
+            **message_row(REPLY_ID, "assistant", "Generate report?"),
+            "ui_payload": {
+                "type": "action",
+                "action_id": action_id,
+                "action_type": "generate_report",
+                "status": "approved",
+            },
+        }
+        self.action_service.confirm.return_value = {"message": action_message, "effect": None}
+        self.action_service.complete.return_value = {"message": action_message, "effect": None}
+
+        confirmed = self.client.post(
+            f"/coach/messages/{REPLY_ID}/actions/confirm",
+            json={"action_id": action_id, "attempt_id": attempt_id},
+        )
+        completed = self.client.post(
+            f"/coach/messages/{REPLY_ID}/actions/complete",
+            json={
+                "action_id": action_id,
+                "attempt_id": attempt_id,
+                "success": True,
+                "result": {"title": "July report"},
+            },
+        )
+        invalid = self.client.post(
+            f"/coach/messages/{REPLY_ID}/actions/confirm",
+            json={"action_id": action_id, "attempt_id": "not-a-uuid"},
+        )
+
+        self.assertEqual(confirmed.status_code, 200)
+        self.assertEqual(completed.status_code, 200)
+        self.assertEqual(invalid.status_code, 422)
+        self.action_service.confirm.assert_called_once_with(
+            REPLY_ID, action_id, attempt_id=attempt_id,
+        )
+        self.action_service.complete.assert_called_once_with(
+            REPLY_ID, action_id, success=True, result={"title": "July report"},
+            attempt_id=attempt_id,
+        )
+
+    def test_report_attempt_status_and_renewal_routes(self):
+        from app.coaching_history import MessageNotFound
+
+        action_id = "55555555-5555-4555-8555-555555555555"
+        attempt_id = "66666666-6666-4666-8666-666666666666"
+        attempt = {
+            "attempt_id": attempt_id,
+            "message_id": REPLY_ID,
+            "action_id": action_id,
+            "status": "active",
+            "storage_path": f"{USER_ID}/coach/{attempt_id}.pdf",
+            "period": "current_month",
+            "report_type": "monthly",
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-31",
+            "category_id": None,
+            "category_name": None,
+            "report_id": None,
+        }
+        self.repository.find_report_attempt.return_value = attempt
+        self.repository.renew_report_attempt.return_value = attempt
+
+        fetched = self.client.get(
+            f"/coach/messages/{REPLY_ID}/actions/report-attempt/{attempt_id}",
+        )
+        renewed = self.client.post(
+            f"/coach/messages/{REPLY_ID}/actions/report-attempt/{attempt_id}/renew",
+        )
+
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.json()["storage_path"], f"{USER_ID}/coach/{attempt_id}.pdf")
+        self.assertEqual(fetched.json()["status"], "active")
+        self.assertEqual(renewed.status_code, 200)
+        self.repository.find_report_attempt.assert_called_once_with(REPLY_ID, attempt_id)
+        self.repository.renew_report_attempt.assert_called_once_with(REPLY_ID, attempt_id)
+
+        self.repository.find_report_attempt.return_value = None
+        self.repository.renew_report_attempt.side_effect = MessageNotFound(
+            "The report attempt lease expired or was replaced."
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/coach/messages/{REPLY_ID}/actions/report-attempt/{attempt_id}",
+            ).status_code,
+            404,
+        )
+        expired = self.client.post(
+            f"/coach/messages/{REPLY_ID}/actions/report-attempt/{attempt_id}/renew",
+        )
+        self.assertEqual(expired.status_code, 404)
+        self.assertEqual(expired.json()["detail"], "The report attempt lease expired or was replaced.")
+        invalid = self.client.get(
+            f"/coach/messages/{REPLY_ID}/actions/report-attempt/not-a-uuid",
+        )
+        self.assertEqual(invalid.status_code, 404)
+        self.assertEqual(self.repository.find_report_attempt.call_count, 2)
+
+    def test_action_protocol_refusals_return_structured_codes(self):
+        from app.coaching_history import ActionProtocolError
+
+        action_id = "55555555-5555-4555-8555-555555555555"
+        attempt_id = "66666666-6666-4666-8666-666666666666"
+        lease = "2026-07-17T02:05:00+00:00"
+        cases = [
+            (
+                ActionProtocolError(
+                    "update_required",
+                    "Update FinCoach to generate this report.",
+                    status_code=426,
+                ),
+                {"code": "update_required", "message": "Update FinCoach to generate this report."},
+                426,
+            ),
+            (
+                ActionProtocolError(
+                    "action_in_progress",
+                    "Report generation is already in progress.",
+                    lease_expires_at=lease,
+                ),
+                {
+                    "code": "action_in_progress",
+                    "message": "Report generation is already in progress.",
+                    "lease_expires_at": lease,
+                },
+                409,
+            ),
+            (
+                ActionProtocolError(
+                    "attempt_id_reused",
+                    "This report attempt can no longer be used. Start a new attempt.",
+                ),
+                {
+                    "code": "attempt_id_reused",
+                    "message": "This report attempt can no longer be used. Start a new attempt.",
+                },
+                409,
+            ),
+        ]
+        for error, expected_detail, expected_status in cases:
+            with self.subTest(code=error.code):
+                self.action_service.confirm.reset_mock()
+                self.action_service.confirm.side_effect = error
+                response = self.client.post(
+                    f"/coach/messages/{REPLY_ID}/actions/confirm",
+                    json={"action_id": action_id, "attempt_id": attempt_id},
+                )
+                self.assertEqual(response.status_code, expected_status)
+                self.assertEqual(response.json()["detail"], expected_detail)
+
+        self.action_service.complete.side_effect = ActionProtocolError(
+            "report_artifact_invalid", "The uploaded report could not be verified.",
+        )
+        failed = self.client.post(
+            f"/coach/messages/{REPLY_ID}/actions/complete",
+            json={
+                "action_id": action_id,
+                "attempt_id": attempt_id,
+                "success": True,
+                "result": {"title": "July report"},
+            },
+        )
+        self.assertEqual(failed.status_code, 409)
+        self.assertEqual(failed.json()["detail"]["code"], "report_artifact_invalid")
 
     def test_safe_error_status_mapping(self):
         from app.coaching_history import CoachingRateLimitExceeded, ConversationNotFound

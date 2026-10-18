@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image as NativeImage, Modal, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,43 +15,32 @@ type Props = { image: ReceiptImageDraft; onApply: (image: ReceiptImageDraft) => 
 export function ReceiptImageEditor({ image, onApply, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
-  const [uri, setUri] = useState(image.uri);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  // URI and dimensions must change together. A crop drawn over rotated pixels
+  // must never be converted with the previous orientation's dimensions.
+  const [workingImage, setWorkingImage] = useState({ uri: image.uri, width: 0, height: 0 });
+  const { uri, ...size } = workingImage;
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [contentHeight, setContentHeight] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [selection, setSelection] = useState<CropSelection>(FULL_RECEIPT_CROP);
   const [transforms, setTransforms] = useState(image.transforms ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const anchor = useRef<ImagePoint | null>(null);
-  const bounds = containImageBounds(size, viewport);
-  const interaction = useRef({ bounds, busy });
-  interaction.current = { bounds, busy };
+  // Keep bounds stable while selection changes so a drag does not recreate
+  // its native responder partway through the gesture.
+  const bounds = useMemo(() => containImageBounds({ width: workingImage.width, height: workingImage.height }, viewport),
+    [workingImage.width, workingImage.height, viewport]);
 
   useEffect(() => {
     let active = true;
-    setSize({ width: 0, height: 0 });
+    if (workingImage.width > 0 && workingImage.height > 0) return;
     NativeImage.getSize(uri, (width, height) => {
-      if (active) setSize({ width, height });
+      if (active) setWorkingImage((current) => current.uri === uri ? { uri, width, height } : current);
     }, () => { if (active) setError('Could not open this receipt image.'); });
     return () => { active = false; };
-  }, [uri]);
+  }, [uri, workingImage.width, workingImage.height]);
 
-  const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => !interaction.current.busy && interaction.current.bounds.width > 0,
-    onMoveShouldSetPanResponder: () => !interaction.current.busy,
-    onPanResponderGrant: (event) => {
-      const { locationX, locationY } = event.nativeEvent;
-      anchor.current = pointOnImage({ x: locationX, y: locationY }, interaction.current.bounds);
-    },
-    onPanResponderMove: (event) => {
-      if (!anchor.current) return;
-      const { locationX, locationY } = event.nativeEvent;
-      const crop = cropFromDrag(anchor.current, pointOnImage({ x: locationX, y: locationY }, interaction.current.bounds));
-      if (crop) setSelection(crop);
-    },
-    onPanResponderRelease: () => { anchor.current = null; },
-    onPanResponderTerminate: () => { anchor.current = null; },
-  }), []);
+  const responder = useMemo(() => createCropResponder(bounds, busy, setSelection, setDragging), [bounds, busy]);
 
   async function rotate(degrees: number) {
     if (busy || !size.width) return;
@@ -62,7 +51,7 @@ export function ReceiptImageEditor({ image, onApply, onClose }: Props) {
       const context = ImageManipulator.manipulate(uri).rotate(degrees);
       const rendered = await context.renderAsync();
       const result = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: .95 });
-      setUri(result.uri);
+      setWorkingImage({ uri: result.uri, width: result.width, height: result.height });
       setSelection(FULL_RECEIPT_CROP);
       setTransforms((current) => [...current, { kind: 'rotate', degrees }]);
     } catch { setError('Could not rotate the receipt. Try another photo.'); }
@@ -73,8 +62,11 @@ export function ReceiptImageEditor({ image, onApply, onClose }: Props) {
     if (busy || !size.width) return;
     setBusy(true); setError(null);
     try {
-      const crop = cropPixels(selection, size);
-      const context = ImageManipulator.manipulate(uri).crop(crop);
+      // Use the native decoded dimensions as the final authority (including
+      // camera EXIF orientation), rather than cropping with cached metadata.
+      const source = await ImageManipulator.manipulate(uri).renderAsync();
+      const crop = cropPixels(selection, source);
+      const context = ImageManipulator.manipulate(source).crop(crop);
       const rendered = await context.renderAsync();
       const result = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: .95 });
       onApply({ ...image, uri: result.uri, mimeType: 'image/jpeg', fileName: 'prepared-receipt.jpg',
@@ -92,11 +84,14 @@ export function ReceiptImageEditor({ image, onApply, onClose }: Props) {
         <Pressable disabled={busy} accessibilityLabel="Close receipt editor" onPress={onClose} style={styles.icon}><MaterialIcons name="close" size={26} color="white" /></Pressable>
         <Text style={styles.title}>Prepare receipt</Text><View style={styles.icon} />
       </View>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroller} contentContainerStyle={styles.content}
+        scrollEnabled={!dragging && !busy} onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}>
         <Text style={styles.hint}>Rotate first, then drag a rectangle around one receipt.</Text>
         <View {...responder.panHandlers} onLayout={(event) => setViewport(event.nativeEvent.layout)}
-          style={[styles.preview, { height: Math.max(200, Math.min(460, window.height * .5)) }]}>
-          <Image pointerEvents="none" source={{ uri }} contentFit="contain" style={StyleSheet.absoluteFill} />
+          testID="receipt-crop-viewport"
+          style={[styles.preview, { height: Math.max(120, Math.min(460, (contentHeight || window.height - insets.top - insets.bottom - 146) - 222)) }]}>
+          {bounds.width > 0 ? <Image key={uri} pointerEvents="none" source={{ uri }} contentFit="contain"
+            style={{ position: 'absolute', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }} /> : null}
           {bounds.width > 0 ? <View pointerEvents="none" style={[styles.selection, {
             left: bounds.left + selection.left * bounds.width, top: bounds.top + selection.top * bounds.height,
             width: selection.width * bounds.width, height: selection.height * bounds.height,
@@ -107,15 +102,44 @@ export function ReceiptImageEditor({ image, onApply, onClose }: Props) {
           <Tool label="Rotate right" icon="rotate-right" disabled={busy || !size.width} onPress={() => void rotate(90)} />
           <Tool label="Full image" icon="crop-free" disabled={busy} onPress={() => setSelection(FULL_RECEIPT_CROP)} />
         </View>
-        <Pressable disabled={busy} onPress={() => { setUri(image.originalUri ?? image.uri); setTransforms([]); setSelection(FULL_RECEIPT_CROP); setError(null); }}><Text style={styles.reset}>Reset edits</Text></Pressable>
-        <Text style={styles.hint}>Include the merchant, date, items and final payment. Leave camera watermarks and other receipts outside the selection.</Text>
+        <Pressable accessibilityLabel="Reset edits" disabled={busy} onPress={() => { setWorkingImage({ uri: image.originalUri ?? image.uri, width: 0, height: 0 }); setTransforms([]); setSelection(FULL_RECEIPT_CROP); setError(null); }}><Text style={styles.reset}>Reset edits</Text></Pressable>
+      </ScrollView>
+      <View style={styles.footer}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable disabled={busy || !size.width} style={[styles.apply, (busy || !size.width) && { opacity: .55 }]} onPress={() => void apply()}>
           {busy ? <ActivityIndicator color="white" /> : <MaterialIcons name="check" color="white" size={22} />}<Text style={styles.applyText}>Use selected receipt</Text>
         </Pressable>
-      </ScrollView>
+      </View>
     </View>
   </Modal>;
+}
+
+function createCropResponder(bounds: CropSelection, busy: boolean,
+  onSelection: (selection: CropSelection) => void, onDragging: (dragging: boolean) => void) {
+  // This is native gesture state, kept for the responder's lifetime rather
+  // than reset by each React render while the finger moves.
+  let anchor: ImagePoint | null = null;
+  return PanResponder.create({
+    onStartShouldSetPanResponder: () => !busy && bounds.width > 0,
+    onMoveShouldSetPanResponder: () => !busy && bounds.width > 0,
+    onPanResponderGrant: (event) => {
+      const { locationX, locationY } = event.nativeEvent;
+      anchor = { x: locationX, y: locationY };
+      onDragging(true);
+    },
+    onPanResponderMove: (_event, gesture) => {
+      if (!anchor) return;
+      // Native event location can change with the touch target. Displacement
+      // and this snapshot of the image bounds remain stable throughout a drag.
+      const crop = cropFromDrag(pointOnImage(anchor, bounds), pointOnImage({
+        x: anchor.x + gesture.dx, y: anchor.y + gesture.dy,
+      }, bounds));
+      if (crop) onSelection(crop);
+    },
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderRelease: () => { anchor = null; onDragging(false); },
+    onPanResponderTerminate: () => { anchor = null; onDragging(false); },
+  });
 }
 
 function Tool({ label, icon, disabled, onPress }: { label: string; icon: keyof typeof MaterialIcons.glyphMap; disabled: boolean; onPress: () => void }) {
@@ -129,7 +153,9 @@ const styles = StyleSheet.create({
   header: { minHeight: 60, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   icon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   title: { color: 'white', fontFamily: authFont.bold, fontSize: 20 },
-  content: { padding: 16, gap: 16, paddingBottom: 28 },
+  scroller: { flex: 1 },
+  content: { padding: 16, gap: 12 },
+  footer: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, gap: 8 },
   hint: { color: 'rgba(255,255,255,.85)', fontFamily: authFont.regular, fontSize: 14, textAlign: 'center', lineHeight: 21 },
   preview: { width: '100%', backgroundColor: '#25252E', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderRadius: 14 },
   selection: { position: 'absolute', borderColor: '#C7C2FF', borderWidth: 3, backgroundColor: 'rgba(92,80,225,.08)' },

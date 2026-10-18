@@ -3,16 +3,6 @@ from datetime import datetime, timezone
 from hashlib import sha256
 
 
-def test_ranked_long_list_preserves_known_incomplete_structural_read():
-    from app.rag.research_source_spans import read_source_spans
-    text = '## Married applicants\nRequired documents:\n' + '\n'.join(
-        '- Document ' + str(i) + ': ' + ('supporting details ' * 10) + '.' for i in range(30))
-    p = QuestionPlan('STR', False, True, 'stable', required_facts=('required documents',), part_tracking=True)
-    window, = select_part_windows((page(text),), p)
-    span, = read_source_spans(text, anchors=(window.content,))
-    assert not span.complete
-    assert window.source_spans and any(not s.complete for s in window.source_spans)
-
 from app.rag.public_source_store import PublicSourcePage
 from app.rag.research_policy import QuestionPlan, _balanced_evidence, _source_key
 from app.rag.research_windows import select_part_windows
@@ -75,8 +65,11 @@ def test_captured_str_faq_application_window_includes_channels():
     windows = select_part_windows((page(raw),), p)
     assert "Permohonan Secara Dalam Talian" in windows[0].content
     assert "Borang Kertas" in windows[0].content
-    assert windows[0].source_spans and windows[0].source_spans[0].complete
-    assert 'Di manakah saya boleh menghantar' not in windows[0].content
+    # The rolled-back span model used to trim the window to complete spans; the
+    # bounded live window instead keeps neighbouring context and relies on the
+    # per-claim completeness backstop in check_research_draft. Only the channels
+    # this question needs are asserted here.
+    assert len(windows[0].content) <= 1800
 
 
 def test_focused_recovery_preserves_original_same_url_sections():

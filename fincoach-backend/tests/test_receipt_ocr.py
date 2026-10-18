@@ -217,40 +217,19 @@ class PaddleAdapterTests(unittest.TestCase):
         self.assertIsInstance(engine.image, np.ndarray)
 
 
-class ReceiptEnhancementPipelineTests(unittest.TestCase):
-    def run_pipeline(self, payload=None, error=None, confidence=0.96):
-        lines = [OCRLine("MYD1N MART", confidence), OCRLine("12 Mar 2018", .94), OCRLine("TOTAL 6O.OO", .98)]
-        image = _jpeg_bytes()
-        with patch("app.receipt_ocr.run_paddle_ocr", return_value=lines), patch("app.receipt_ocr.verify_receipt_image", return_value=payload, side_effect=error) as verifier, patch("app.receipt_ocr.classify_category", return_value=("Food", .7, "test")):
-            result = extract_receipt(image)
-        verifier.assert_called_once_with(image, lines)
-        return result
-
-    def test_high_confidence_correction_runs_before_parser(self):
-        result = self.run_pipeline({"confirmedLineIds": [1], "corrections": [{"lineId": 0, "correctedText": "MYDIN MART"}, {"lineId": 2, "correctedText": "TOTAL 60.00"}]})
-        self.assertEqual(result["merchant"], "MYDIN MART")
-        self.assertEqual(result["totalAmount"], "60.00")
-        self.assertEqual(result["transactionDate"], "2018-03-12")
-        self.assertEqual(result["rawLines"][2], "TOTAL 6O.OO")
-        self.assertEqual(result["confidence"]["totalAmount"], .98)
-        self.assertEqual(result["verificationStatus"], "verified")
-        self.assertTrue(result["reviewRequired"])
-
-    def test_failure_and_missing_key_preserve_originals(self):
-        for payload, error, status in ((None, None, "not_configured"), (None, TimeoutError(), "failed"), ({"nonsense": True}, None, "failed")):
-            result = self.run_pipeline(payload, error)
+class ReceiptFallbackPipelineTests(unittest.TestCase):
+    def test_failure_and_missing_key_preserve_originals_with_warning(self):
+        lines = [OCRLine("MYD1N MART", .96), OCRLine("12 Mar 2018", .94), OCRLine("TOTAL 6O.OO", .98)]
+        for error, status in ((None, "not_configured"), (TimeoutError(), "failed")):
+            with patch("app.receipt_ocr.run_paddle_ocr", return_value=lines), patch(
+                "app.receipt_extraction.extract_with_gemini", return_value=None, side_effect=error), patch(
+                "app.receipt_ocr.classify_category", return_value=("Food", .7, "test")):
+                result = extract_receipt(_jpeg_bytes())
             self.assertEqual(result["merchant"], "MYD1N MART")
             self.assertEqual(result["verificationStatus"], status)
+            self.assertEqual(result["extractionSource"], "ocr_fallback")
             self.assertTrue(result["reviewRequired"])
-
-    def test_low_confidence_confirmed_text_is_not_flagged_inaccurate(self):
-        result = self.run_pipeline({"confirmedLineIds": [0, 1, 2]}, confidence=.1)
-        self.assertNotIn("Merchant has not been visually verified.", result["reviewWarnings"])
-        self.assertEqual(result["confidence"]["merchant"], .1)
-
-    def test_missing_critical_fields_still_warn(self):
-        result = self.run_pipeline({"confirmedLineIds": [0, 1, 2]})
-        self.assertIn("Total amount was not detected.", result["reviewWarnings"])
+            self.assertIn("Total amount was not detected.", result["reviewWarnings"])
 
 
 class ReceiptCleanupTests(unittest.TestCase):

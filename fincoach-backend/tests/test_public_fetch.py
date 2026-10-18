@@ -146,53 +146,6 @@ class _FakeTavily:
         return self.response
 
 
-def test_slow_streamed_body_stops_at_the_shared_deadline(mock_http):
-    """A slow host must not outlive the caller's deadline.
-
-    ``shutdown(wait=False)`` does not stop a task that is already running, so the
-    fetch itself checks an absolute deadline while streaming. Without this, a
-    deliberate slow-drip response would keep the worker (and request time) alive.
-    """
-    import time as _time
-    url = "https://www.icu.gov.my/slow"
-    chunky = ("<p>" + "word " * 200 + "</p>").encode()
-
-    class _SlowStream(httpx.SyncByteStream):
-        def __iter__(self):
-            for _ in range(50):
-                yield chunky
-                _time.sleep(0.05)
-
-    mock_http[url] = httpx.Response(200, headers={"content-type": "text/html"}, stream=_SlowStream())
-
-    started = _time.monotonic()
-    # Give the fetch a generous socket timeout but a deadline that has already
-    # passed, proving the deadline (not the socket timeout) is what bounds it.
-    text = public_fetch.fetch_official_page(url, timeout=10, deadline=_time.monotonic() - 1)
-    assert text is None
-    assert _time.monotonic() - started < 2.0, "the fetch ignored its deadline"
-
-
-def test_pdf_parsing_stops_at_the_deadline():
-    """PDF parsing is bounded: an expired deadline yields no partial text."""
-    import io as _io
-    import time as _time
-    from pypdf import PdfWriter
-
-    writer = PdfWriter()
-    for _ in range(6):
-        writer.add_blank_page(width=200, height=200)
-    buffer = _io.BytesIO()
-    writer.write(buffer)
-    body = buffer.getvalue()
-    assert body[:5] == b"%PDF-"
-
-    # An expired deadline must short-circuit before any page is parsed.
-    assert public_fetch._pdf_to_text(body, deadline=_time.monotonic() - 1) == ""
-    # A live deadline still parses (blank pages yield no text, but no crash).
-    assert isinstance(public_fetch._pdf_to_text(body, deadline=_time.monotonic() + 30), str)
-
-
 @pytest.fixture
 def tavily_fails(monkeypatch):
     import sys, types
@@ -206,7 +159,7 @@ def test_extract_falls_back_only_for_failed_official_urls(monkeypatch, tavily_fa
     monkeypatch.setattr(config, "COACH_DIRECT_FETCH_ENABLED", True)
     fetched = []
 
-    def fake_fetch(url, *, timeout, deadline=None):
+    def fake_fetch(url, *, timeout):
         fetched.append(url)
         return "# Profil Jabatan\n\n" + "Unit Penyelarasan Pelaksanaan menyelaras pembangunan negara. " * 10
 
@@ -242,11 +195,8 @@ def test_direct_fetch_cap_and_kill_switch(monkeypatch, tavily_fails):
     monkeypatch.setattr(public_fetch, "fetch_official_page", lambda url, **k: calls.append(url) or None)
     urls = [f"https://www.icu.gov.my/pg/main.php?pg=info&type=corp&list=p{i}" for i in range(6)]
     cache = WebResearchCache()
-    # The kill switch is exercised explicitly rather than depending on the
-    # configured default, so this stays a real control test either way.
-    monkeypatch.setattr(config, "COACH_DIRECT_FETCH_ENABLED", False)
     extract_passages(urls, api_key="k", query="q", timeout=8, cache=cache, complete_context=True)
-    assert calls == []  # disabled: no direct network fetch at all
+    assert calls == []  # disabled by the hermetic default
     monkeypatch.setattr(config, "COACH_DIRECT_FETCH_ENABLED", True)
     extract_passages(urls, api_key="k", query="q", timeout=8, cache=cache, complete_context=True)
     extract_passages(urls, api_key="k", query="q2", timeout=8, cache=cache, complete_context=True)

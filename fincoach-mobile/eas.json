@@ -30,6 +30,12 @@
         "EXPO_PUBLIC_GOOGLE_AUTH_WEB_CLIENT_ID": "1035912584920-5ueekksrfkeirp6chl1fejsv6v23865t.apps.googleusercontent.com"
       }
     },
+    "muse-test": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_FINCOACH_API_URL": "https://fincoach-test.chisquaredv10.dpdns.org"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {

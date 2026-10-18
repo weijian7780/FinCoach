@@ -17,12 +17,6 @@ from unittest.mock import patch
 
 if str(Path(__file__).parent) != '/tmp':
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    for _parent in Path(__file__).resolve().parents:
-        _backend_env = _parent / 'fincoach-backend' / '.env'
-        if _backend_env.exists():
-            from dotenv import load_dotenv
-            load_dotenv(_backend_env)
-            break
 
 
 class PublicHistory:
@@ -159,7 +153,8 @@ def run_public_conversation(questions: list[str], *, warmup: bool = True, source
                     decision = decisions[-1] if len(decisions) > before else None
                     outcome = assistant.get('ui_payload', {}).get('research_outcome', {})
                     explanation = outcome.get('recovery', {}).get('explanation', {})
-                    category = ('answer_with_clarification' if explanation.get('clarification_part_ids') and
+                    category = ('legacy_response' if not service.COACH_RESEARCH_POLICY_ENABLED else
+                        'answer_with_clarification' if explanation.get('clarification_part_ids') and
                         explanation.get('used_source_indices') else 'complete_answer' if explanation.get('complete')
                         else 'verified_partial' if explanation.get('used_source_indices')
                         else 'clarification' if assistant.get('model') == 'fincoach-research-clarification'
@@ -171,13 +166,8 @@ def run_public_conversation(questions: list[str], *, warmup: bool = True, source
     finally:
         logger.removeHandler(recorder)
         logger.setLevel(old_level)
-    from app.build_info import capture_build_info, get_public_config
-    root = Path(__file__).resolve().parents[1]
-    build_info = capture_build_info(root, get_public_config())
-    return dict(build_id=build_info.get("build_id"),
-                source_fingerprint=build_info.get("source_fingerprint"),
-                config_fingerprint=build_info.get("config_fingerprint"),
-                primary_model=config.LLM_PRIMARY_MODEL, deadline_seconds=config.COACH_REQUEST_DEADLINE_SECONDS,
+    return dict(primary_model=config.LLM_PRIMARY_MODEL, deadline_seconds=config.COACH_REQUEST_DEADLINE_SECONDS,
+                research_policy_enabled=service.COACH_RESEARCH_POLICY_ENABLED,
                 turns=results, events=recorder.events, research_inputs=research_inputs,
                 search_results=search_results, generated_drafts=generated_drafts, private_reads=0, persisted_messages=0)
 

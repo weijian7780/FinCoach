@@ -126,6 +126,15 @@ function codeOf(error: unknown): string | undefined {
 }
 
 export function coachErrorMessage(error: unknown): string {
+  const reportErrors: Record<string, string> = {
+    update_required: 'Update FinCoach to generate this report.',
+    action_in_progress: 'Report generation is already in progress. Please wait before retrying.',
+    attempt_expired: 'The report session expired. Retry to resume it safely.',
+    attempt_id_reused: 'This report attempt has ended. Retry to start a new attempt.',
+    report_artifact_invalid: 'The uploaded PDF could not be verified. Retry to check the report again.',
+  };
+  const reportError = reportErrors[codeOf(error) ?? ''];
+  if (reportError) return reportError;
   if (codeOf(error) === 'network') {
     return 'FinCoach could not reach its server. Try again shortly or switch networks.';
   }

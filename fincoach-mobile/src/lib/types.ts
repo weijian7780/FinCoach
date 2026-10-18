@@ -93,6 +93,7 @@ export type Transaction = {
   description: string | null;
   source: string;
   receipt_image_path: string | null;
+  receipt_items?: ReceiptItemDraft[];
   created_at: string;
   updated_at: string;
 };
@@ -103,7 +104,7 @@ export type TransactionWithCategory = Transaction & {
 
 export type TransactionWriteInput = Pick<
   Transaction,
-  'id' | 'category_id' | 'amount' | 'transaction_date' | 'description' | 'source' | 'receipt_image_path'
+  'id' | 'category_id' | 'amount' | 'transaction_date' | 'description' | 'source' | 'receipt_image_path' | 'receipt_items'
 >;
 
 export type ReceiptItemDraft = {
@@ -114,6 +115,11 @@ export type ReceiptItemDraft = {
 };
 
 export type ReceiptExtractionDraft = {
+  extractionSource?: 'gemini' | 'ocr_fallback';
+  currency?: string | null;
+  fieldEvidence?: Partial<Record<'merchant' | 'transactionDate' | 'totalAmount', string[]>>;
+  fieldStatus?: Partial<Record<'merchant' | 'transactionDate' | 'totalAmount', 'readable' | 'uncertain' | 'missing'>>;
+  summaryBreakdown?: { subtotal: string | null; discount: string | null; tax: string | null; serviceCharge: string | null; rounding: string | null };
   merchant: string;
   transactionDate: string;
   totalAmount: string;
@@ -133,15 +139,15 @@ export type ReceiptExtractionDraft = {
     status: 'verified' | 'partial';
     verifiedSourceLines: number;
     sourceLineCount: number;
-    lines: Array<{
+    lines: {
       sourceId: number | null;
       originalText: string | null;
       finalText: string;
       ocrConfidence: number | null;
       status: 'confirmed' | 'corrected' | 'uncertain' | 'unverified' | 'added';
       reason: string;
-    }>;
-    unapplied: Array<Record<string, unknown>>;
+    }[];
+    unapplied: Record<string, unknown>[];
   };
   reviewRequired?: boolean;
   reviewWarnings?: string[];
@@ -406,7 +412,7 @@ export type ExportSelection = {
 export type ExportSourceData = {
   transactions: TransactionWithCategory[];
   monthlyBudgets: MonthlyBudget[];
-  categoryLimits: CategoryLimit[];
+  categoryLimits: (CategoryLimit & { category?: Pick<Category, 'name'> })[];
   savingsGoals: SavingsGoal[];
   reports: Report[];
 };
@@ -443,11 +449,16 @@ export type BackupRecord = {
   last_restored_at: string | null;
   completed_at: string | null;
   created_at: string;
+  data_counts?: BackupCounts | null;
+  attachment_count?: number;
+  cleanup_warning?: string | null;
 };
 
 export type BackupSourceData = {
   profile: Profile | null;
   customCategories: Category[];
+  // Optional only for older v1 files, which never captured tracked categories.
+  userCategories?: { user_id: string; category_id: number; created_at: string }[];
   transactions: Transaction[];
   monthlyBudgets: MonthlyBudget[];
   categoryLimits: CategoryLimit[];
@@ -466,6 +477,22 @@ export type FinancialBackupDocumentV1 = {
   appVersion: string;
   data: BackupSourceData;
 };
+
+export type BackupCounts = Record<keyof BackupSourceData, number>;
+export type BackupAttachment = {
+  bucket: 'receipts' | 'financial-reports' | 'category-icons';
+  path: string;
+  backupPath: string;
+  contentType: string;
+  size: number;
+  checksumSha256: string;
+};
+export type FinancialBackupDocumentV2 = Omit<FinancialBackupDocumentV1, 'schemaVersion'> & {
+  schemaVersion: 2;
+  counts: BackupCounts;
+  attachments: BackupAttachment[];
+};
+export type FinancialBackupDocument = FinancialBackupDocumentV1 | FinancialBackupDocumentV2;
 
 export type RestoreFinancialBackupResult = {
   profile: number;
@@ -616,10 +643,34 @@ export type CoachTurnResponse = {
   sources: CoachSource[];
 };
 
+// The private server record that owns one report generation. Its storage path
+// is derived from the attempt id, so the client can never choose or overwrite
+// the file, and a status lookup reconciles a response that was lost.
+export type CoachReportAttempt = {
+  attempt_id: string;
+  message_id: string;
+  action_id: string;
+  status: 'active' | 'completed' | 'cancelled' | 'superseded';
+  storage_path: string;
+  period: string;
+  report_type:
+    | 'monthly' | 'monthly_category' | 'multi_month'
+    | 'multi_month_category' | 'custom' | 'custom_category';
+  start_date: string;
+  end_date: string;
+  category_id: number | null;
+  category_name: string | null;
+  report_id: number | null;
+  lease_expires_at?: string;
+  server_time?: string;
+  lease_valid?: boolean;
+};
+
 export type CoachActionResponse = {
   message: CoachMessage;
   effect: {
     type: 'generate_report';
     arguments: Record<string, unknown>;
+    attempt?: CoachReportAttempt | null;
   } | null;
 };

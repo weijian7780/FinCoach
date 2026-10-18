@@ -14,6 +14,29 @@ class AdminRouteTests(unittest.TestCase):
         self.app.include_router(router)
         self.client = TestClient(self.app)
 
+    def test_audit_resolves_revision_titles_and_missing_records(self):
+        from types import SimpleNamespace
+        self.app.dependency_overrides[administrator] = lambda: AuthenticatedUser('admin', 'token')
+        actor = '11111111-1111-4111-8111-111111111111'
+        source = '22222222-2222-4222-8222-222222222222'
+        revision = '33333333-3333-4333-8333-333333333333'
+        rows = [dict(id=1, actor_id=actor, action='knowledge.draft', target_type='knowledge_source', target_id=source, details={'revision_id': revision}),
+                dict(id=2, actor_id=actor, action='knowledge.archive', target_type='knowledge_source', target_id=source, details={'revision_id': None}),
+                dict(id=3, actor_id=actor, action='account.suspended', target_type='account', target_id=source, details={'reason': 'Review'})]
+        results = [SimpleNamespace(data=rows, count=3),
+                   SimpleNamespace(data=[{'user_id': actor, 'email': 'admin@example.test'}]),
+                   SimpleNamespace(data=[{'id': source, 'title': 'Current title'}]),
+                   SimpleNamespace(data=[{'id': revision, 'source_id': source, 'title': 'Historical title'}])]
+        with patch('app.admin.routes.get_supabase'), patch('app.admin.routes.admin_read', side_effect=results):
+            response = self.client.get('/api/admin/audit')
+        self.assertEqual(response.status_code, 200)
+        items = response.json()['items']
+        self.assertEqual(items[0]['target_name'], 'Historical title')
+        self.assertEqual(items[1]['target_name'], 'Current title')
+        self.assertEqual(items[2]['target_name'], 'Account unavailable')
+        self.assertEqual(items[0]['actor_name'], 'admin@example.test')
+        self.assertEqual(items[2]['details'], {'reason': 'Review'})
+
     def test_disabled_panel_fails_closed(self):
         with patch('app.admin.routes.config.ADMIN_PANEL_ENABLED', False):
             self.assertEqual(self.client.get('/api/admin/accounts').status_code, 503)
@@ -36,6 +59,10 @@ class AdminRouteTests(unittest.TestCase):
             response = self.client.post('/api/admin/knowledge', json={'title': 'Invalid', 'content': 'Body', 'source_urls': [], 'checked_at': '2999-01-01'})
         self.assertEqual(response.status_code, 422)
         rpc.assert_not_called()
+
+    def test_link_import_requires_authentication(self):
+        with patch('app.admin.routes.config.ADMIN_PANEL_ENABLED', True), patch('app.admin.routes.config.ACCOUNT_ACCESS_ENFORCED', True):
+            self.assertEqual(self.client.post('/api/admin/imports/link', json={'url': 'https://example.org'}).status_code, 401)
 
     def test_unsafe_upload_never_reaches_storage(self):
         self.app.dependency_overrides[administrator] = lambda: AuthenticatedUser('admin', 'token')

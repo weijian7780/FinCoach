@@ -12,7 +12,9 @@ def send(question, answer, tool_result, history=None):
     repo.insert_user_message.return_value = {"id": "m", "content": question}
     repo.list_messages.return_value = history or []
     repo.complete_turn.side_effect = lambda **kw: kw["assistant_payload"]
-    with patch("app.rag.service.AgentToolExecutor.execute", return_value=tool_result), patch(
+    # This suite tests personal-answer integrity, independently of an installed
+    # live research configuration. Never let the planning step contact a model.
+    with patch("app.rag.service.COACH_RESEARCH_POLICY_ENABLED", False), patch("app.rag.service.AgentToolExecutor.execute", return_value=tool_result), patch(
         "app.rag.service.generate_result", return_value=AgentLLMResult(content=answer, model="test")
     ), patch("app.rag.service.retrieve", return_value=[]):
         return CoachingService(repo, MagicMock()).send_message("s", "m", question)["assistant_message"]
@@ -20,6 +22,29 @@ def send(question, answer, tool_result, history=None):
 
 BUDGET = {"status": "ok", "month": "2026-08-01", "monthly_limit": "RM1000.00",
           "recorded_spending": "RM900.00", "remaining": "RM100.00"}
+
+
+class AlwaysOnRecordedAmountGroundingTests(unittest.TestCase):
+    """Optional semantic verification cannot disable recorded-money integrity."""
+
+    def test_false_user_premise_is_rejected_with_optional_validation_off(self):
+        with patch.object(_grounding_mod, "_VALIDATION_ENABLED", False):
+            result = send("Why is my budget remaining RM9999?",
+                          "Your verified remaining budget is RM9999.", BUDGET)
+        self.assertNotIn("9999", result["content"])
+        self.assertEqual(result["model"], "fincoach-grounding-policy")
+
+    def test_amount_from_wrong_tool_field_is_rejected_with_optional_validation_off(self):
+        with patch.object(_grounding_mod, "_VALIDATION_ENABLED", False):
+            result = send("Why is my budget low?",
+                          "Your remaining budget is RM1000.00.", BUDGET)
+        self.assertEqual(result["model"], "fincoach-grounding-policy")
+
+    def test_verified_recorded_amount_still_passes_with_optional_validation_off(self):
+        with patch.object(_grounding_mod, "_VALIDATION_ENABLED", False):
+            result = send("Why is my budget low?",
+                          "Your remaining budget is RM100.00.", BUDGET)
+        self.assertIn("Your remaining budget is RM100.00.", result["content"])
 
 
 class AccuracyGroundingTests(unittest.TestCase):

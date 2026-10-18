@@ -5,22 +5,22 @@ import {
   fetchRecentReports,
   fetchReportSourceData,
   fetchReportStoragePath,
-  saveReportRecord,
+  isDuplicateReportUploadError,
   uploadReportPdf,
   type ReportDataClient,
 } from './reports';
-import type { ReportPdfArtifact } from './report-pdf';
 import type { ReportSelection } from './types';
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 
-type Result = { data: unknown; error: unknown };
+type Result = { data: unknown; error: unknown; count?: number };
 
 function createBuilder(result: Partial<Result> = {}) {
-  const response: Result = { data: result.data ?? null, error: result.error ?? null };
+  const response: Result = { data: result.data ?? null, error: result.error ?? null, count: Array.isArray(result.data) ? result.data.length : 0 };
   const builder: Record<string, ReturnType<typeof vi.fn>> & {
     then?: (resolve: (value: Result) => unknown, reject?: (reason: unknown) => unknown) => Promise<unknown>;
   } = {
+    range: vi.fn(),
     select: vi.fn(),
     eq: vi.fn(),
     gte: vi.fn(),
@@ -28,10 +28,9 @@ function createBuilder(result: Partial<Result> = {}) {
     order: vi.fn(),
     limit: vi.fn(),
     insert: vi.fn(),
-    upsert: vi.fn(),
     single: vi.fn(),
   };
-  for (const method of ['select', 'eq', 'gte', 'lte', 'order', 'limit', 'insert', 'upsert'] as const) {
+  for (const method of ['range', 'select', 'eq', 'gte', 'lte', 'order', 'limit', 'insert'] as const) {
     builder[method].mockReturnValue(builder);
   }
   builder.single.mockResolvedValue(response);
@@ -97,7 +96,7 @@ describe('report source persistence', () => {
     });
 
     const transactionsQuery = builders.get('transactions');
-    expect(transactionsQuery?.select).toHaveBeenCalledWith('*, category:categories(*)');
+    expect(transactionsQuery?.select).toHaveBeenCalledWith('*, category:categories(*)', { count: 'exact' });
     expect(transactionsQuery?.eq).toHaveBeenCalledWith('user_id', 'user-1');
     expect(transactionsQuery?.gte).toHaveBeenCalledWith('transaction_date', '2026-05-01');
     expect(transactionsQuery?.lte).toHaveBeenCalledWith('transaction_date', '2026-07-31');
@@ -117,62 +116,28 @@ describe('report source persistence', () => {
     await expect(fetchReportSourceData('user-1', selection, client)).rejects.toBe(error);
   });
 
-  test('upserts one owner-scoped PDF record for the same report selection', async () => {
-    const row = {
-      id: 5,
-      user_id: 'user-1',
-      period: '2026-05..2026-07',
-      type: 'multi_month',
-      title: 'May - July 2026 Financial Summary',
-      file_name: 'FinCoach_May_July_2026_Financial_Summary.pdf',
-      storage_path: 'user-1/multi-month-2026-05-01-2026-07-31-all.pdf',
-      report_key: 'multi_month:2026-05-01:2026-07-31:all',
-      start_date: '2026-05-01',
-      end_date: '2026-07-31',
-      category_id: null,
-      generated_at: '2026-07-16T08:00:00Z',
-    };
-    const artifact: ReportPdfArtifact = {
-      title: row.title,
-      fileName: row.file_name,
-      storagePath: row.storage_path,
-      reportKey: row.report_key,
-      generatedAt: row.generated_at,
-    };
-    const { client, builders } = createClient({ reports: { data: row } });
-    await expect(saveReportRecord('user-1', selection, artifact, client)).resolves.toEqual(row);
-    expect(builders.get('reports')?.upsert).toHaveBeenCalledWith({
-      user_id: 'user-1',
-      period: '2026-05..2026-07',
-      type: 'multi_month',
-      title: artifact.title,
-      file_name: artifact.fileName,
-      storage_path: artifact.storagePath,
-      report_key: artifact.reportKey,
-      start_date: '2026-05-01',
-      end_date: '2026-07-31',
-      category_id: null,
-      generated_at: artifact.generatedAt,
-    }, {
-      onConflict: 'user_id,report_key',
-    });
-    expect(builders.get('reports')?.select).toHaveBeenCalledWith('*');
-  });
-
-  test('uploads the PDF to the private financial-reports bucket with overwrite enabled', async () => {
+  test('uploads the PDF to the private financial-reports bucket without overwriting', async () => {
     const { client, storageFrom, upload } = createClient();
     const bytes = new ArrayBuffer(8);
 
     await expect(
-      uploadReportPdf('user-1/monthly-2026-07.pdf', bytes, client),
+      uploadReportPdf('user-1/coach/attempt-1.pdf', bytes, client),
     ).resolves.toEqual({ path: 'user-1/monthly-2026-07.pdf' });
 
     expect(storageFrom).toHaveBeenCalledWith('financial-reports');
     expect(upload).toHaveBeenCalledWith(
-      'user-1/monthly-2026-07.pdf',
+      'user-1/coach/attempt-1.pdf',
       bytes,
-      { contentType: 'application/pdf', upsert: true },
+      { contentType: 'application/pdf', upsert: false },
     );
+  });
+
+  test('classifies a conflict on a reserved path as a duplicate upload', () => {
+    expect(isDuplicateReportUploadError({ statusCode: 409 })).toBe(true);
+    expect(isDuplicateReportUploadError({ statusCode: '409' })).toBe(true);
+    expect(isDuplicateReportUploadError({ message: 'The resource already exists' })).toBe(true);
+    expect(isDuplicateReportUploadError(new Error('network request failed'))).toBe(false);
+    expect(isDuplicateReportUploadError(null)).toBe(false);
   });
 
   test('creates a short-lived URL for opening a private report PDF', async () => {

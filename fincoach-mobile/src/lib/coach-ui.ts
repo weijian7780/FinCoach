@@ -1,4 +1,4 @@
-import type { CoachFollowUpSuggestion, CoachSource, CoachUiPayload } from './types';
+import type { CoachFollowUpSuggestion, CoachInteractionReply, CoachSource, CoachUiPayload } from './types';
 
 export type CoachFeedback = 'helpful' | 'not_helpful';
 
@@ -11,11 +11,11 @@ export function scheduleCoachPendingNotice(onVisible: (visible: boolean) => void
 
 export type CoachSendState =
   | { status: 'idle' }
-  | { status: 'sending'; content: string; messageId: string }
-  | { status: 'failed'; content: string; messageId: string };
+  | { status: 'sending'; content: string; messageId: string; interactionReply?: CoachInteractionReply }
+  | { status: 'failed'; content: string; messageId: string; interactionReply?: CoachInteractionReply };
 
 export type CoachSendEvent =
-  | { type: 'send'; content: string; messageId: string }
+  | { type: 'send'; content: string; messageId: string; interactionReply?: CoachInteractionReply }
   | { type: 'failure' }
   | { type: 'retry' }
   | { type: 'success' };
@@ -26,6 +26,7 @@ export function nextCoachSendState(state: CoachSendState, event: CoachSendEvent)
       status: 'sending',
       content: event.content.trim(),
       messageId: event.messageId,
+      ...(event.interactionReply ? { interactionReply: event.interactionReply } : {}),
     };
   }
   if (event.type === 'failure' && state.status === 'sending') {
@@ -33,6 +34,7 @@ export function nextCoachSendState(state: CoachSendState, event: CoachSendEvent)
       status: 'failed',
       content: state.content,
       messageId: state.messageId,
+      ...(state.interactionReply ? { interactionReply: state.interactionReply } : {}),
     };
   }
   if (event.type === 'retry' && state.status === 'failed') {
@@ -40,6 +42,7 @@ export function nextCoachSendState(state: CoachSendState, event: CoachSendEvent)
       status: 'sending',
       content: state.content,
       messageId: state.messageId,
+      ...(state.interactionReply ? { interactionReply: state.interactionReply } : {}),
     };
   }
   if (event.type === 'success') return { status: 'idle' };

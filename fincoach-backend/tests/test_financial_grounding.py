@@ -131,6 +131,31 @@ class FactualNamingPromptTests(unittest.TestCase):
 
 
 class FinancialNumericClaimTests(unittest.TestCase):
+    def test_example_abbreviations_cannot_match_inside_ordinary_words(self):
+        from app.rag.grounding import (
+            normalise_and_validate_numeric_claims,
+            recorded_money_claims_match_tools,
+        )
+
+        for content in (
+            "Begin to save RM9999 monthly.",
+            "It is convenient to save RM9999 each month.",
+        ):
+            with self.subTest(content=content):
+                self.assertIsNone(normalise_and_validate_numeric_claims(
+                    content, "Verified monthly allowance RM900 and expenses RM650."
+                ))
+                self.assertFalse(recorded_money_claims_match_tools(content, [{
+                    "result": {"status": "ok", "monthly_allowance": "RM900", "recorded_expenses": "RM650"},
+                }]))
+
+    def test_standalone_example_abbreviation_still_allows_an_illustration(self):
+        from app.rag.grounding import normalise_and_validate_numeric_claims
+
+        for content in ("For example, save RM50.", "E.g. save RM50.", "Contohnya simpan RM50."):
+            with self.subTest(content=content):
+                self.assertEqual(normalise_and_validate_numeric_claims(content, ""), content)
+
     def test_normalises_only_a_verified_dollar_label_to_ringgit(self):
         from app.rag.grounding import normalise_and_validate_numeric_claims
 

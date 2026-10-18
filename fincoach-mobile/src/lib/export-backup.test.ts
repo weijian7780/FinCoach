@@ -2,6 +2,8 @@ import { describe, expect, test, vi } from 'vitest';
 
 import {
   createDataExport,
+  deleteBackup,
+  RestoreOutcomeUnknownError,
   fetchBackupSourceData,
   restoreFinancialBackup,
   saveExportContents,
@@ -11,6 +13,7 @@ import {
 } from './export-backup';
 import type { ExportSelection, FinancialBackupDocumentV1 } from './types';
 
+vi.mock('expo-crypto', () => ({}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 
 type Result = { data: unknown; error: unknown };
@@ -65,6 +68,7 @@ function createClient(results: Record<string, Partial<Result>> = {}) {
   const storageBucket = {
     upload: vi.fn().mockResolvedValue({ data: { path: 'user-1/manual/file.json' }, error: null }),
     download: vi.fn().mockResolvedValue({ data: new Blob(['{}']), error: null }),
+    list: vi.fn().mockResolvedValue({ data: [], error: null }),
     remove: vi.fn().mockResolvedValue({ data: {}, error: null }),
   };
   const rpc = vi.fn().mockResolvedValue({ data: { transactions: 1 }, error: null });
@@ -125,45 +129,14 @@ describe('normalized export metadata', () => {
 });
 
 describe('full backup source', () => {
-  test('loads every approved dataset with explicit owner filters', async () => {
-    const { client, builders } = createClient({
-      profiles: { data: { id: 'user-1' } },
-      categories: { data: [] },
-      transactions: { data: [] },
-      monthly_budgets: { data: [] },
-      budgets: { data: [] },
-      savings_goals: { data: [] },
-      savings_contributions: { data: [] },
-      reports: { data: [] },
-      notification_preferences: { data: null },
-      reminders: { data: [] },
-      alerts: { data: [] },
-    });
-
-    await expect(fetchBackupSourceData('user-1', client)).resolves.toMatchObject({
-      profile: { id: 'user-1' },
-      customCategories: [],
-      transactions: [],
-      alerts: [],
-    });
-
-    for (const table of [
-      'profiles',
-      'transactions',
-      'monthly_budgets',
-      'budgets',
-      'savings_goals',
-      'reports',
-      'notification_preferences',
-      'reminders',
-      'alerts',
-    ]) {
-      expect(builders.get(table)?.eq).toHaveBeenCalledWith(
-        table === 'profiles' ? 'id' : table === 'notification_preferences' ? 'user_id' : 'user_id',
-        'user-1',
-      );
-    }
-    expect(builders.get('categories')?.eq).toHaveBeenCalledWith('user_id', 'user-1');
+  test('loads approved data through the owner-scoped snapshot RPC', async () => {
+    const { client, rpc } = createClient();
+    const source = { profile: { id: 'user-1' }, customCategories: [], userCategories: [], transactions: [],
+      monthlyBudgets: [], categoryLimits: [], savingsGoals: [], savingsContributions: [], reports: [],
+      notificationPreferences: null, reminders: [], alerts: [] };
+    rpc.mockResolvedValue({ data: source, error: null });
+    await expect(fetchBackupSourceData('user-1', client)).resolves.toEqual(source);
+    expect(rpc).toHaveBeenCalledWith('financial_backup_snapshot_v2', { backup_record_id: null });
   });
 });
 
@@ -188,6 +161,53 @@ describe('private backup operations', () => {
     expect(builders.get('profiles')?.eq).toHaveBeenCalledWith('id', 'user-1');
   });
 
+  test('marks deletion unavailable before Storage and retains the tombstone on failure', async () => {
+    const { client, rpc, storageBucket, from } = createClient();
+    storageBucket.remove.mockRejectedValue(new Error('offline'));
+    await expect(deleteBackup({ id: 'backup-1', user_id: 'user-1', storage_path: 'user-1/file.json' } as never, client)).rejects.toThrow('offline');
+    expect(rpc).toHaveBeenCalledWith('begin_financial_backup_delete_v2', { backup_record_id: 'backup-1' });
+    expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(storageBucket.remove.mock.invocationCallOrder[0]);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  test('keeps a deletion tombstone when asset removal stops after a batch', async () => {
+    const { client, rpc, storageBucket, from } = createClient();
+    storageBucket.list.mockResolvedValueOnce({ data: [{ name: 'one.png' }], error: null })
+      .mockRejectedValueOnce(new Error('list disconnected'));
+    await expect(deleteBackup({ id: 'backup-1', user_id: 'user-1' } as never, client)).rejects.toThrow('list disconnected');
+    expect(rpc).toHaveBeenCalledWith('begin_financial_backup_delete_v2', { backup_record_id: 'backup-1' });
+    expect(storageBucket.remove).toHaveBeenCalledWith(['user-1/assets/backup-1/one.png']);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  test('retains the deletion marker when metadata deletion fails after files are removed', async () => {
+    const { client, rpc, storageBucket, builders } = createClient({ backups: { error: new Error('database disconnected') } });
+    await expect(deleteBackup({ id: 'backup-1', user_id: 'user-1', storage_path: 'user-1/file.json' } as never, client)).rejects.toThrow('database disconnected');
+    expect(storageBucket.remove).toHaveBeenCalledWith(['user-1/file.json']);
+    expect(builders.get('backups')?.delete).toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith('begin_financial_backup_delete_v2', { backup_record_id: 'backup-1' });
+  });
+
+  test('preserves an unknown restore outcome after a lost server response', async () => {
+    const { client, rpc } = createClient();
+    rpc.mockRejectedValue(new Error('network timeout'));
+    const document = { schemaVersion: 1, createdAt: '2026-07-16T00:00:00Z', userId: 'user-1', appVersion: '1',
+      data: { profile: null, customCategories: [], userCategories: [], transactions: [], monthlyBudgets: [], categoryLimits: [], savingsGoals: [], savingsContributions: [], reports: [], notificationPreferences: null, reminders: [], alerts: [] } } as FinancialBackupDocumentV1;
+    await expect(restoreFinancialBackup('backup-1', document, client)).rejects.toBeInstanceOf(RestoreOutcomeUnknownError);
+  });
+
+  test('reconciles a lost restore reply against newly committed server history', async () => {
+    const { client, rpc, from } = createClient();
+    rpc.mockRejectedValue(new Error('lost reply'));
+    const history = createBuilder();
+    history.maybeSingle.mockResolvedValueOnce({ data: { last_restored_at: null }, error: null })
+      .mockResolvedValueOnce({ data: { last_restore_status: 'completed', last_restored_at: '2026-10-10T16:00:00Z' }, error: null });
+    from.mockReturnValue(history);
+    const document = { schemaVersion: 1, createdAt: '2026-07-16T00:00:00Z', userId: 'user-1', appVersion: '1',
+      data: { profile: null, customCategories: [], userCategories: [], transactions: [], monthlyBudgets: [], categoryLimits: [], savingsGoals: [], savingsContributions: [], reports: [], notificationPreferences: null, reminders: [], alerts: [] } } as FinancialBackupDocumentV1;
+    await expect(restoreFinancialBackup('backup-1', document, client)).resolves.toMatchObject({ transactions: 0 });
+  });
+
   test('invokes the owner-validating restore RPC with the selected backup', async () => {
     const { client, rpc } = createClient();
     const document = {
@@ -195,7 +215,7 @@ describe('private backup operations', () => {
       createdAt: '2026-07-16T00:00:00Z',
       userId: 'user-1',
       appVersion: '1.0.0',
-      data: {},
+      data: { profile: null, customCategories: [], userCategories: [], transactions: [], monthlyBudgets: [], categoryLimits: [], savingsGoals: [], savingsContributions: [], reports: [], notificationPreferences: null, reminders: [], alerts: [] },
     } as unknown as FinancialBackupDocumentV1;
     await restoreFinancialBackup('backup-1', document, client);
     expect(rpc).toHaveBeenCalledWith('restore_financial_backup_v1', {

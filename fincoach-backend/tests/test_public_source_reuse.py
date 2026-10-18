@@ -69,11 +69,7 @@ def test_unknown_programme_and_extraction_cap_preserve_discovery(tmp_path, monke
     store = PublicSourceStore(tmp_path)
     assert not bootstrap(replace(PLAN, topic="Other programme"), store, WebResearchCache())
     cache = WebResearchCache()
-    # Sit exactly on the request-local extract ceiling. The cap is configurable
-    # (the public research envelope allows more than the old hardcoded 4), so read
-    # it from the cache rather than pinning a magic number that silently stops
-    # testing the cap once the default moves.
-    cache.extract_calls = cache.max_extract_calls
+    cache.extract_calls = 4
     assert not bootstrap(PLAN, store, cache)
     extract.assert_not_called()
 

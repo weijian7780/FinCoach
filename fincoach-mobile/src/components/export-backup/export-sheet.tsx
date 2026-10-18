@@ -10,7 +10,7 @@ import type { ExportContentType, ExportSelection } from '@/lib/types';
 const contentOptions: { value: ExportContentType; label: string; icon: keyof typeof MaterialIcons.glyphMap }[] = [
   { value: 'transaction', label: 'Transactions', icon: 'receipt-long' },
   { value: 'budget', label: 'Budgets', icon: 'account-balance-wallet' },
-  { value: 'savings', label: 'Savings', icon: 'savings' },
+  { value: 'savings', label: 'Savings — current balances', icon: 'savings' },
 ];
 
 export function ExportSheet({
@@ -102,6 +102,7 @@ export function ExportSheet({
             </View>
 
             <Text style={styles.label}>INCLUDE</Text>
+            <Text style={styles.fieldLabel}>Transactions use the selected dates. Budgets include intersecting months. Savings show current goals and balances.</Text>
             <View style={styles.options}>
               {contentOptions.map((option) => (
                 <View key={option.value} style={styles.optionRow}>

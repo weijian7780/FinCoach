@@ -6,6 +6,54 @@ const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 describe('coach API client', () => {
+  it('preserves structured report protocol errors and the competing lease', async () => {
+    const client = createCoachApiClient({
+      baseUrl: 'http://api',
+      auth: { getAccessToken: async () => 'token', refreshAccessToken: async () => null },
+      fetchImpl: async () => jsonResponse({ detail: {
+        code: 'action_in_progress', message: 'Report generation is already in progress.',
+        lease_expires_at: '2030-01-01T00:05:00Z',
+      } }, 409),
+    });
+    await expect(client.listConversations()).rejects.toMatchObject({
+      status: 409, code: 'action_in_progress', message: 'Report generation is already in progress.',
+      leaseExpiresAt: '2030-01-01T00:05:00Z',
+    });
+  });
+  it('keeps the deadline active while the response body is still downloading', async () => {
+    vi.useFakeTimers();
+    const client = createCoachApiClient({
+      baseUrl: 'http://api',
+      auth: { getAccessToken: async () => 'token', refreshAccessToken: async () => null },
+      timeoutMs: 100,
+      fetchImpl: async (_url, init) => ({
+        ok: true, status: 200,
+        json: () => new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted body')));
+        }),
+      }) as Response,
+      networkStatus: async () => 'online',
+    });
+    try {
+      let settled: unknown = 'pending';
+      void client.listConversations().catch((error: unknown) => { settled = error; });
+      await vi.advanceTimersByTimeAsync(101);
+      expect(settled).toMatchObject({ code: 'timeout' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves a safe network error when connectivity diagnostics also fail', async () => {
+    const client = createCoachApiClient({
+      baseUrl: 'http://api',
+      auth: { getAccessToken: async () => 'token', refreshAccessToken: async () => null },
+      fetchImpl: async () => { throw new Error('socket disconnected'); },
+      networkStatus: async () => { throw new Error('native module unavailable'); },
+    });
+    await expect(client.listConversations()).rejects.toMatchObject({ code: 'network', status: 0 });
+  });
+
   it('waits through the two-minute server deadline and aborts at 150 seconds', async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;
@@ -245,7 +293,9 @@ describe('coach API client', () => {
 
     await client.confirmAction('reply-1', 'action-1');
     await client.cancelAction('reply-1', 'action-1');
-    await client.completeAction('reply-1', 'action-1', true, { report_id: 42 });
+    await client.completeAction('reply-1', 'action-1', true, {
+      report_id: 42, storage_path: 'user-1/coach/attempt-1.pdf',
+    });
 
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       'http://api/coach/messages/reply-1/actions/confirm',
@@ -256,7 +306,60 @@ describe('coach API client', () => {
     expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({
       action_id: 'action-1',
       success: true,
-      result: { report_id: 42 },
+      result: { report_id: 42, storage_path: 'user-1/coach/attempt-1.pdf' },
     });
+  });
+
+  it('reserves the attempt id on confirmation and carries it through completion', async () => {
+    const fetchImpl = vi.fn().mockImplementation(
+      () => Promise.resolve(jsonResponse({ message: { id: 'reply-1' } })),
+    );
+    const client = createCoachApiClient({
+      baseUrl: 'http://api',
+      auth: { getAccessToken: vi.fn().mockResolvedValue('token'), refreshAccessToken: vi.fn() },
+      fetchImpl,
+    });
+
+    await client.confirmAction('reply-1', 'action-1', 'attempt-1');
+    await client.completeAction('reply-1', 'action-1', true, {
+      title: 'October report',
+      file_name: 'FinCoach_October_2026.pdf',
+      generated_at: '2026-10-16T00:00:00.000Z',
+    }, 'attempt-1');
+
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      action_id: 'action-1',
+      attempt_id: 'attempt-1',
+    });
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({
+      action_id: 'action-1',
+      success: true,
+      result: {
+        title: 'October report',
+        file_name: 'FinCoach_October_2026.pdf',
+        generated_at: '2026-10-16T00:00:00.000Z',
+      },
+      attempt_id: 'attempt-1',
+    });
+  });
+
+  it('reads and renews the owner-scoped report attempt', async () => {
+    const attempt = { attempt_id: 'attempt-1', status: 'active' };
+    const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(attempt)));
+    const client = createCoachApiClient({
+      baseUrl: 'http://api',
+      auth: { getAccessToken: vi.fn().mockResolvedValue('token'), refreshAccessToken: vi.fn() },
+      fetchImpl,
+    });
+
+    await expect(client.getReportAttempt('reply-1', 'attempt-1')).resolves.toEqual(attempt);
+    await expect(client.renewReportAttempt('reply-1', 'attempt-1')).resolves.toEqual(attempt);
+
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'http://api/coach/messages/reply-1/actions/report-attempt/attempt-1',
+      'http://api/coach/messages/reply-1/actions/report-attempt/attempt-1/renew',
+    ]);
+    expect(fetchImpl.mock.calls[0][1].method).toBeUndefined();
+    expect(fetchImpl.mock.calls[1][1].method).toBe('POST');
   });
 });

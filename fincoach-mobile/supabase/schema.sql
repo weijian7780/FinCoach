@@ -1,3 +1,8 @@
+-- Reference schema: apply all supabase/migrations in order for authoritative deployment.
+-- Financial integrity, receipt items, admin name sync, and coaching leases additionally require
+-- 20261015091221_repair_financial_integrity_and_admin_sync.sql and 20261015092100_recover_coaching_processing_leases.sql.
+-- Financial backup v2 snapshot, immutable attachments and lifecycle RPCs are defined in
+-- 20261010151101_complete_financial_backup_v2.sql and subsequent migrations.
 -- ============================================================
 -- FinCoach — database schema (PostgreSQL / Supabase)
 -- Paste into Supabase SQL Editor on a fresh project and Run.
@@ -1698,6 +1703,7 @@ as $$
 declare
   owner_id uuid := (select auth.uid());
   profile_data jsonb := payload -> 'data' -> 'profile';
+  selected_categories jsonb;
 begin
   if owner_id is null then raise exception 'Authentication required.'; end if;
   if coalesce((payload ->> 'schemaVersion')::integer, 0) <> 1 then
@@ -1708,6 +1714,24 @@ begin
     select 1 from public.backups b
     where b.id = backup_record_id and b.user_id = owner_id and b.status = 'completed'
   ) then raise exception 'Completed backup not found.'; end if;
+
+  -- New backups capture tracked categories. Older v1 backups did not, so keep
+  -- the current selections whose categories still exist in the restored data.
+  if (payload -> 'data') ? 'userCategories' then
+    selected_categories := payload -> 'data' -> 'userCategories';
+    if jsonb_typeof(selected_categories) is distinct from 'array' then
+      raise exception 'Invalid tracked categories in backup.';
+    end if;
+  else
+    select coalesce(jsonb_agg(to_jsonb(uc)), '[]'::jsonb)
+      into selected_categories
+    from public.user_categories uc where uc.user_id = owner_id;
+  end if;
+  if exists (
+    select 1 from jsonb_to_recordset(selected_categories)
+      as x(user_id uuid, category_id bigint)
+    where x.user_id is distinct from owner_id or x.category_id is null
+  ) then raise exception 'Invalid tracked category owner in backup.'; end if;
 
   update public.backups set last_restore_status = 'processing'
   where id = backup_record_id and user_id = owner_id;
@@ -1722,12 +1746,12 @@ begin
   where goal_id in (select id from public.savings_goals where user_id = owner_id);
   delete from public.savings_goals where user_id = owner_id;
   delete from public.reports where user_id = owner_id;
+  delete from public.user_categories where user_id = owner_id;
   delete from public.categories where user_id = owner_id;
 
   if profile_data is not null and profile_data <> 'null'::jsonb then
     update public.profiles
-    set email = coalesce(profile_data ->> 'email', email),
-        full_name = profile_data ->> 'full_name',
+    set full_name = profile_data ->> 'full_name',
         avatar_url = profile_data ->> 'avatar_url',
         monthly_allowance = nullif(profile_data ->> 'monthly_allowance', '')::numeric,
         university = coalesce(profile_data ->> 'university', university),
@@ -1736,10 +1760,6 @@ begin
         financial_status = profile_data ->> 'financial_status',
         coaching_style = profile_data ->> 'coaching_style',
         onboarding_completed = coalesce((profile_data ->> 'onboarding_completed')::boolean, onboarding_completed),
-        spending_records_consent = coalesce(
-          (profile_data ->> 'spending_records_consent')::public.spending_records_consent,
-          spending_records_consent
-        ),
         updated_at = now()
     where id = owner_id;
   end if;
@@ -1749,6 +1769,20 @@ begin
   select id, name, type, icon, icon_image_path, owner_id, color
   from jsonb_to_recordset(coalesce(payload -> 'data' -> 'customCategories', '[]'::jsonb))
     as x(id bigint, name text, type text, icon text, icon_image_path text, user_id uuid, color text);
+
+  -- Validate new snapshots against visible categories. The definer function
+  -- must not allow a supplied category ID to link to another account's data.
+  if (payload -> 'data') ? 'userCategories' and exists (
+    select 1 from jsonb_to_recordset(selected_categories) as x(category_id bigint)
+    left join public.categories c on c.id = x.category_id
+    where c.id is null or (c.user_id is not null and c.user_id <> owner_id)
+  ) then raise exception 'Tracked category is not available to this account.'; end if;
+
+  insert into public.user_categories (user_id, category_id, created_at)
+  select owner_id, x.category_id, coalesce(x.created_at, now())
+  from jsonb_to_recordset(selected_categories) as x(category_id bigint, created_at timestamptz)
+  join public.categories c on c.id = x.category_id
+  where c.user_id is null or c.user_id = owner_id;
 
   insert into public.monthly_budgets (id, user_id, month, limit_amount, created_at, updated_at)
   select id, owner_id, month, limit_amount, created_at, updated_at
@@ -1782,11 +1816,19 @@ begin
     as x(id uuid, user_id uuid, category_id bigint, amount numeric, transaction_date date,
       description text, source text, receipt_image_path text, created_at timestamptz, updated_at timestamptz);
 
-  insert into public.reports (id, user_id, period, type, generated_at)
+  -- Restore PDF metadata as well as the history row so existing stored files
+  -- remain reachable from the report screen after a restore.
+  insert into public.reports (
+    id, user_id, period, type, generated_at, title, file_name, storage_path,
+    report_key, start_date, end_date, category_id
+  )
   overriding system value
-  select id, owner_id, period, type, generated_at
+  select id, owner_id, period, type, generated_at, title, file_name, storage_path,
+    report_key, start_date, end_date, category_id
   from jsonb_to_recordset(coalesce(payload -> 'data' -> 'reports', '[]'::jsonb))
-    as x(id bigint, user_id uuid, period text, type text, generated_at timestamptz);
+    as x(id bigint, user_id uuid, period text, type text, generated_at timestamptz,
+      title text, file_name text, storage_path text, report_key text,
+      start_date date, end_date date, category_id bigint);
 
   insert into public.notification_preferences (
     user_id, budget_enabled, savings_enabled, savings_lead_days, savings_reminder_time,
@@ -1836,14 +1878,6 @@ begin
       delivery_attempt_count smallint, delivery_claimed_at timestamptz,
       next_delivery_attempt_at timestamptz, delivery_receipts jsonb, created_at timestamptz);
 
-  perform setval(pg_get_serial_sequence('public.categories', 'id'),
-    greatest(coalesce((select max(id) from public.categories), 1), 1), true);
-  perform setval(pg_get_serial_sequence('public.budgets', 'id'),
-    greatest(coalesce((select max(id) from public.budgets), 1), 1), true);
-  perform setval(pg_get_serial_sequence('public.savings_contributions', 'id'),
-    greatest(coalesce((select max(id) from public.savings_contributions), 1), 1), true);
-  perform setval(pg_get_serial_sequence('public.reports', 'id'),
-    greatest(coalesce((select max(id) from public.reports), 1), 1), true);
 
   update public.backups
   set last_restore_status = 'completed', last_restored_at = now()

@@ -56,13 +56,12 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
 
-# ---- Receipt visual OCR correction (original image + indexed OCR lines) ----
+# ---- Gemini-first receipt interpretation (image + supporting OCR lines) ----
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_RECEIPT_MODEL = os.environ.get("GEMINI_RECEIPT_MODEL", "gemini-3.5-flash-lite")
 
-# ---- Receipt text cleanup ----
-# Reuses the coach's LLM provider chain (OpenRouter primary -> DeepSeek fallback);
-# see app/llm.py generate_extraction_json. Only the per-call timeout is receipt-specific.
+# Shared budget for Gemini extraction and at most one contract repair.
+# Legacy text cleanup is not part of the active receipt extraction path.
 RECEIPT_CLEANUP_TIMEOUT_SECONDS = float(
     # Leave enough time for the initial image verification and one contract
     # repair. Both requests still share this single bounded deadline.
@@ -107,8 +106,8 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 WEB_FALLBACK_ENABLED = _environment_flag("WEB_FALLBACK_ENABLED", True)
 COACH_RESEARCH_POLICY_ENABLED = _environment_flag("COACH_RESEARCH_POLICY_ENABLED", False)
 COACH_PUBLIC_SOURCE_CACHE_ENABLED = _environment_flag("COACH_PUBLIC_SOURCE_CACHE_ENABLED", True)
-# Guarded direct fetch of official tier-1/2 pages when Tavily extraction fails or
-# is clipped (for example hosts that omit their TLS intermediate certificate).
+# Guarded direct fetch of official tier-1/2 pages when Tavily extraction fails
+# or is clipped (e.g. hosts that omit their TLS intermediate certificate).
 COACH_DIRECT_FETCH_ENABLED = _environment_flag("COACH_DIRECT_FETCH_ENABLED", True)
 COACH_PUBLIC_SOURCE_CACHE_DIR = os.environ.get("COACH_PUBLIC_SOURCE_CACHE_DIR", "data/public-source-cache")
 COACH_PUBLIC_SOURCE_CACHE_TTL_SECONDS = _bounded_setting("COACH_PUBLIC_SOURCE_CACHE_TTL_SECONDS", 86400, 0, 86400)
@@ -125,23 +124,29 @@ COACH_CATEGORY_INTERPRETATION_ENABLED = _environment_flag(
 # diagnose why a stable/definitional query escalated to web. Off in prod.
 COACH_RESEARCH_DEBUG = _environment_flag("COACH_RESEARCH_DEBUG", False)
 COACH_STRUCTURED_TIMEOUT_SECONDS = _bounded_setting("COACH_STRUCTURED_TIMEOUT_SECONDS", 8, 1, 60)
-COACH_RESEARCH_PHASE_SECONDS = _bounded_setting("COACH_RESEARCH_PHASE_SECONDS", 75, 10, 100)
-COACH_RESEARCH_WRITER_SECONDS = _bounded_setting("COACH_RESEARCH_WRITER_SECONDS", 20, 5, 60)
-COACH_RESEARCH_CORRECTION_SECONDS = _bounded_setting("COACH_RESEARCH_CORRECTION_SECONDS", 15, 5, 45)
-COACH_FINALIZATION_RESERVE_SECONDS = _bounded_setting("COACH_FINALIZATION_RESERVE_SECONDS", 5, 1, 30)
 COACH_RESEARCH_ANSWER_RESERVE_SECONDS = _bounded_setting(
-    "COACH_RESEARCH_ANSWER_RESERVE_SECONDS", 40, 1, 60,
+    "COACH_RESEARCH_ANSWER_RESERVE_SECONDS", 30, 1, 60,
+)
+# Absolute stage bounds for the public-research answer path. They retain ONE
+# request clock: research, the initial writer, the single corrective writer and
+# the final semantic check all draw down the same deadline, and a small
+# finalization margin is reserved before any optional model work starts.
+COACH_FINALIZATION_RESERVE_SECONDS = _bounded_setting(
+    "COACH_FINALIZATION_RESERVE_SECONDS", 5, 0, 30,
+)
+COACH_RESEARCH_PHASE_SECONDS = _bounded_setting(
+    "COACH_RESEARCH_PHASE_SECONDS", 35, 1, 60,
+)
+COACH_RESEARCH_WRITER_SECONDS = _bounded_setting(
+    "COACH_RESEARCH_WRITER_SECONDS", 35, 5, 60,
+)
+COACH_RESEARCH_CORRECTION_SECONDS = _bounded_setting(
+    "COACH_RESEARCH_CORRECTION_SECONDS", 24, 5, 60,
 )
 COACH_RESEARCH_MAX_ROUNDS = _bounded_setting("COACH_RESEARCH_MAX_ROUNDS", 3, 1, 3, integer=True)
 COACH_RESEARCH_MAX_ASSESSMENT_RETRIES = _bounded_setting(
     "COACH_RESEARCH_MAX_ASSESSMENT_RETRIES", 1, 0, 1, integer=True,
 )
-COACH_RESEARCH_MAX_SEARCH_CALLS = _bounded_setting("COACH_RESEARCH_MAX_SEARCH_CALLS", 6, 1, 10, integer=True)
-COACH_RESEARCH_MAX_EXTRACT_CALLS = _bounded_setting("COACH_RESEARCH_MAX_EXTRACT_CALLS", 6, 1, 10, integer=True)
-COACH_RESEARCH_MAX_ASSESSMENT_CALLS = _bounded_setting("COACH_RESEARCH_MAX_ASSESSMENT_CALLS", 10, 1, 20, integer=True)
-COACH_RESEARCH_MAX_UNIQUE_URLS = _bounded_setting("COACH_RESEARCH_MAX_UNIQUE_URLS", 6, 1, 15, integer=True)
-COACH_RESEARCH_MAX_PART_VARIANTS = _bounded_setting("COACH_RESEARCH_MAX_PART_VARIANTS", 2, 1, 4, integer=True)
-COACH_RESEARCH_MAX_ADVANCED_RETRIES = _bounded_setting("COACH_RESEARCH_MAX_ADVANCED_RETRIES", 2, 0, 4, integer=True)
 # Trigger the web fallback when the best corpus chunk scores below this. Defaults
 # to the retrieval threshold, so the fallback fires mainly on an empty corpus hit.
 WEB_FALLBACK_SIM_THRESHOLD = float(
@@ -163,6 +168,16 @@ COACH_WRITE_ACTIONS_ENABLED = _environment_flag(
     # this setting. Operators explicitly opt in only after action flows pass
     # their production acceptance checks.
     False,
+)
+# Reserved coaching report PDFs. The backend only publishes an artifact after
+# downloading the exact stored object; these bounds keep that read small and
+# finite. The size cap mirrors the storage bucket's file_size_limit.
+REPORT_ARTIFACT_BUCKET = os.environ.get("REPORT_ARTIFACT_BUCKET", "financial-reports")
+REPORT_ARTIFACT_MAX_BYTES = int(
+    os.environ.get("REPORT_ARTIFACT_MAX_BYTES", "10485760")
+)
+REPORT_ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS = float(
+    os.environ.get("REPORT_ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS", "10")
 )
 COACH_LLM_CHOICES_ENABLED = _environment_flag(
     "COACH_LLM_CHOICES_ENABLED",

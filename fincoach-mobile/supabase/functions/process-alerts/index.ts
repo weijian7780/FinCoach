@@ -61,11 +61,15 @@ export async function processBillReminders(service: SupabaseClient, now: Date): 
   let claimed = 0;
   for (const reminder of data ?? []) {
     if (!await isAccountActive(service, reminder.user_id)) continue;
+    const { data: preferences, error: preferencesError } = await service.from('notification_preferences')
+      .select('timezone').eq('user_id', reminder.user_id).maybeSingle();
+    if (preferencesError) throw preferencesError;
     const expectedTrigger = reminder.next_trigger_at as string;
     const nextDue = advanceRecurrence(
       reminder.due_at,
       reminder.recurrence,
       reminder.recurrence_anchor_day,
+      preferences?.timezone ?? 'Asia/Kuala_Lumpur',
     );
     const amountText = reminder.amount == null ? '' : ` RM ${Number(reminder.amount).toFixed(2)} is due.`;
     const { data: alertId, error: claimError } = await service.rpc(

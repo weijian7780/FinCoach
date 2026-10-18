@@ -248,6 +248,9 @@ Apply `supabase/migrations/20260716131958_complete_financial_data_export_backup.
 - Restore is atomic: an insertion failure leaves the user's current financial data unchanged.
 - Restore leaves authentication, default categories, receipt objects, device tokens, `auto_backup_enabled`, export history, and backup history unchanged.
 - The latest restore status and completion time are recorded on the selected backup.
+- New backups restore tracked-category selections, including an explicitly empty selection. Legacy v1 backups preserve current selections whose categories remain available after restore.
+- Report history retains PDF metadata and existing Storage download paths after restore.
+- Live service evidence (8 October 2026): see `backup-restore-verification.md` and `backup-restore-live-verification.json`; representative manual/automatic round trips and rollback checks passed with disposable accounts.
 - Repeat manual backup, delete, corruption rejection, and successful restore on the Honor 200 physical device.
 
 # AI Financial Coaching Acceptance Tests

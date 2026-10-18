@@ -104,7 +104,7 @@ export default function ExportBackupScreen() {
     try {
       await performCloudBackup(userId, 'manual');
       await load(true);
-      appDialog.open('Backup completed', 'Your private cloud backup is ready.');
+      appDialog.open('Backup completed', 'Your financial records and attached receipts, reports and category images were saved to your private cloud backup.');
     } catch (error) {
       appDialog.open('Backup failed', errorMessage(error));
     } finally {
@@ -146,7 +146,7 @@ export default function ExportBackupScreen() {
           <View style={styles.preferenceIcon}><MaterialIcons name="cloud-sync" size={23} color={authColors.primary} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>Auto-backup to cloud</Text>
-            <Text style={styles.cardDescription}>Creates at most one automatic backup every 24 hours.</Text>
+            <Text style={styles.cardDescription}>Checks for a daily backup when you sign in or reopen the app.</Text>
           </View>
           <Switch value={autoBackup} onValueChange={(enabled) => void changeAutoBackup(enabled)} trackColor={{ false: authColors.surfaceContainerHigh, true: authColors.primary }} thumbColor="#ffffff" />
         </View>

@@ -146,7 +146,8 @@ export default function ScanReceiptScreen() {
               style={StyleSheet.absoluteFill}
             />
           ) : null}
-          {capturedImage ? <Image contentFit="contain" source={{ uri: capturedImage.uri }} style={StyleSheet.absoluteFill} /> : null}
+          {capturedImage ? <Image key={capturedImage.uri} contentFit="contain" contentPosition="center"
+            source={{ uri: capturedImage.uri }} style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]} /> : null}
           {!permission && !capturedImage ? <ActivityIndicator color="white" size="large" /> : null}
           {permissionDenied && !capturedImage ? (
             <View style={emptyState}>

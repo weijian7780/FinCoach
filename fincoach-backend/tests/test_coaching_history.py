@@ -190,30 +190,26 @@ class CoachingHistoryRepositoryTests(unittest.TestCase):
         self.assertEqual(mutation_query.update_payload, {"title": "Food budget"})
 
     def test_inserts_user_message_with_verified_owner(self):
-        session_query = query_with({"id": "session-1", "user_id": "user-1"})
-        message_query = MutationQueryWithoutSingle({"id": "message-1", "role": "user"})
-        user_client = MagicMock()
-        user_client.table.side_effect = lambda table: session_query if table == "coaching_sessions" else message_query
         from app.coaching_history import CoachingHistoryRepository
-
-        repository = CoachingHistoryRepository(user_client, MagicMock(), "user-1")
-        try:
-            row = repository.insert_user_message("session-1", "message-1", "Help me save")
-        except AttributeError as error:
-            self.fail(f"Mutation query used an unsupported builder method: {error}")
-
+        admin = MagicMock()
+        admin.rpc.return_value = query_with([{"id": "message-1", "role": "user"}])
+        repository = CoachingHistoryRepository(MagicMock(), admin, "user-1")
+        row = repository.insert_user_message("session-1", "message-1", "Help me save")
         self.assertEqual(row["id"], "message-1")
-        self.assertEqual(
-            message_query.insert_payload,
-            {
-                "id": "message-1",
-                "session_id": "session-1",
-                "user_id": "user-1",
-                "role": "user",
-                "content": "Help me save",
-                "status": "completed",
-            },
-        )
+        name, args = admin.rpc.call_args.args
+        self.assertEqual(name, "claim_coaching_message")
+        self.assertEqual(args["p_user_id"], "user-1")
+        self.assertEqual(args["p_session_id"], "session-1")
+        self.assertEqual(args["p_content"], "Help me save")
+        self.assertEqual(str(UUID(args["p_token"])), repository._processing_tokens["message-1"])
+
+    def test_active_claim_returns_no_message_or_token(self):
+        repository, _, admin = self.make_repository()
+        admin.rpc.return_value = query_with([])
+        self.assertIsNone(repository.claim_failed_user_message("message-1"))
+        self.assertEqual(repository._processing_tokens, {})
+        self.assertIsNone(repository.mark_user_message_failed("message-1", "timeout"))
+        self.assertEqual(admin.rpc.call_count, 1)
 
     def test_lists_latest_messages_in_chronological_order(self):
         session_query = query_with({"id": "session-1", "user_id": "user-1"})
@@ -261,10 +257,11 @@ class CoachingHistoryRepositoryTests(unittest.TestCase):
             [row["id"] for row in page["messages"]],
             ["message-12", "message-13", "message-14"],
         )
-        self.assertEqual(page["next_before"], "2026-07-17T00:00:12+00:00")
+        self.assertEqual(page["next_before"], "2026-07-17T00:00:12+00:00|message-12")
         self.assertEqual(sources, retrievals)
         messages_query.lt.assert_called_once_with("created_at", "2026-07-17T00:00:15+00:00")
-        messages_query.order.assert_called_once_with("created_at", desc=True)
+        messages_query.order.assert_any_call("created_at", desc=True)
+        messages_query.order.assert_any_call("id", desc=True)
         messages_query.limit.assert_called_once_with(4)
         retrievals_query.eq.assert_called_once_with("user_id", "user-1")
         retrievals_query.in_.assert_called_once_with(
@@ -321,6 +318,7 @@ class CoachingHistoryRepositoryTests(unittest.TestCase):
         from app.coaching_history import CoachingHistoryRepository
 
         repository = CoachingHistoryRepository(MagicMock(), admin_client, "user-1")
+        repository._processing_tokens["message-1"] = "lease-token"
         row = repository.complete_turn(
             session_id="session-1",
             user_message_id="message-1",
@@ -331,11 +329,12 @@ class CoachingHistoryRepositoryTests(unittest.TestCase):
 
         self.assertEqual(row, assistant)
         admin_client.rpc.assert_called_once_with(
-            "complete_coaching_turn",
+            "complete_coaching_turn_leased",
             {
                 "p_user_id": "user-1",
                 "p_session_id": "session-1",
                 "p_user_message_id": "message-1",
+                "p_token": "lease-token",
                 "p_assistant_message": assistant,
                 "p_retrievals": [{"knowledge_document_id": 9, "rank": 1}],
                 "p_title": "Help me save",
@@ -359,32 +358,16 @@ class CoachingHistoryRepositoryTests(unittest.TestCase):
         self.assertEqual(mutation_query.update_payload["title"], "Help me save")
 
     def test_marks_failed_message_and_claims_it_for_retry(self):
-        failed = {
-            "id": "message-1",
-            "user_id": "user-1",
-            "role": "user",
-            "status": "failed",
-        }
-        failed_query = MutationQueryWithoutSingle(failed)
-        claimed_query = MutationQueryWithoutSingle({**failed, "status": "completed"})
-        admin_client = MagicMock()
-        admin_client.table.side_effect = [failed_query, claimed_query]
-        from app.coaching_history import CoachingHistoryRepository
-
-        repository = CoachingHistoryRepository(MagicMock(), admin_client, "user-1")
+        repository, _, admin = self.make_repository()
+        repository._processing_tokens["message-1"] = "old-token"
+        admin.rpc.side_effect = [query_with([{ "id": "message-1", "status": "failed" }]), query_with([{ "id": "message-1", "status": "completed" }])]
         repository.mark_user_message_failed("message-1", "provider_timeout")
         claimed = repository.claim_failed_user_message("message-1")
-
-        self.assertEqual(failed_query.update_payload, {
-            "status": "failed",
-            "error_code": "provider_timeout",
-        })
         self.assertEqual(claimed["status"], "completed")
-        self.assertEqual(claimed_query.update_payload, {
-            "status": "completed",
-            "error_code": None,
-        })
-        self.assertIn(("status", "failed"), claimed_query.eq_calls)
+        self.assertEqual(admin.rpc.call_args_list[0].args, ("fail_coaching_message", {
+            "p_user_id": "user-1", "p_message_id": "message-1", "p_token": "old-token", "p_error_code": "provider_timeout",
+        }))
+        self.assertNotEqual(repository._processing_tokens["message-1"], "old-token")
 
     def test_sets_feedback_only_on_the_owned_assistant_message(self):
         updated = {

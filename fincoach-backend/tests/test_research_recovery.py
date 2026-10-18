@@ -36,7 +36,7 @@ def test_research_checker_cannot_spend_explanation_reserve():
           patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
           patch.object(llm, "LLM_PRIMARY_TIMEOUT_SECONDS", 50),
           patch.object(llm, "_providers", return_value=[SimpleNamespace(role="primary")]),
-          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}", finish_reason="stop")) as call):
+          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}")) as call):
         llm.generate_structured_result("public", budget=CoachRequestBudget(0),
                                        reserve_after_seconds=30)
         assert call.call_args.kwargs["timeout_seconds"] <= 5
@@ -333,43 +333,6 @@ def test_schema_is_sent_only_to_documented_gemini_endpoint(host, expected):
     assert factory.call_args.kwargs["max_retries"] == 0
 
 
-def test_gemini_bound_schema_avoids_rejected_nested_limit_without_relaxing_local_checks():
-    from copy import deepcopy
-    from pydantic import ValidationError
-    from app import llm
-    from app.rag.research_policy import _BoundEvidenceProposal, _FactBindingProposal
-
-    schema = _BoundEvidenceProposal.model_json_schema()
-    original = deepcopy(schema)
-    expected = deepcopy(schema)
-    expected['$defs']['_FactBindingProposal']['properties']['alternatives'].pop('maxItems')
-    provider = SimpleNamespace(base_url='https://generativelanguage.googleapis.com/v1beta/openai/',
-        api_key='test', model='gemini-3.5-flash-lite', role='primary')
-    factory = MagicMock()
-    def sdk_completion(**request):
-        wire = request['response_format']['json_schema']['schema']
-        # Reproduce the provider's isolated rejection, rather than accepting
-        # every mocked request irrespective of the incompatible schema.
-        if 'maxItems' in wire['$defs']['_FactBindingProposal']['properties']['alternatives']:
-            raise ValueError('HTTP 400: nested alternatives bound')
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{}'))], usage=None)
-    factory.return_value.chat.completions.create.side_effect = sdk_completion
-    llm._generate_with_provider(factory, provider, 'fixed public evidence', reasoning_effort='low',
-        timeout_seconds=15, structured=True, response_schema=schema, max_tokens=2200)
-    sent = factory.return_value.chat.completions.create.call_args.kwargs
-    assert sent['response_format']['json_schema']['schema'] == expected
-    assert schema == original
-    assert factory.return_value.chat.completions.create.call_count == 1
-    assert factory.call_args.kwargs['max_retries'] == 0
-    row = dict(binding_id='b1', quote_index=1, source_span_id='a'*64,
-        requirement_kind='informational', alternatives=['literal anchor']*7,
-        relation='all', jurisdiction='Malaysia', scope_known=True)
-    with pytest.raises(ValidationError) as failure:
-        _FactBindingProposal.model_validate(row)
-    assert any(e['loc'] == ('alternatives',) and e['type'] == 'too_long'
-               for e in failure.value.errors())
-
-
 def test_structured_failover_shares_one_call_timeout():
     from app import llm
     budget = MagicMock(provider_session=None)
@@ -380,7 +343,7 @@ def test_structured_failover_shares_one_call_timeout():
           patch.object(llm, "COACH_STRUCTURED_TIMEOUT_SECONDS", 8, create=True),
           patch.object(llm, "monotonic", side_effect=[0, 0, 3]),
           patch.object(llm, "_generate_with_provider", side_effect=[
-              TimeoutError(), SimpleNamespace(content="{}", finish_reason="stop"),
+              TimeoutError(), SimpleNamespace(content="{}"),
           ]) as generate):
         llm.generate_structured_result("public prompt", budget=budget)
     assert [call.kwargs["timeout_seconds"] for call in generate.call_args_list] == [5, 5]
@@ -407,7 +370,7 @@ def test_primary_timeout_leaves_fallback_three_seconds():
           patch.object(llm, "COACH_STRUCTURED_TIMEOUT_SECONDS", 8),
           patch.object(llm, "monotonic", side_effect=[0, 0, 5]),
           patch.object(llm, "_generate_with_provider", side_effect=[
-              TimeoutError(), SimpleNamespace(content="{}", finish_reason="stop")]) as generate):
+              TimeoutError(), SimpleNamespace(content="{}")]) as generate):
         llm.generate_structured_result("public prompt", budget=budget)
     assert [c.kwargs["timeout_seconds"] for c in generate.call_args_list] == [5, 3]
 
@@ -457,7 +420,7 @@ def test_expired_primary_phase_skips_primary_without_starving_fallback():
     with (patch.object(llm, "_providers", return_value=[
               SimpleNamespace(role="primary"), SimpleNamespace(role="fallback")]),
           patch.object(llm, "monotonic", side_effect=[0, 0, 0]),
-          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}", finish_reason="stop")) as generate):
+          patch.object(llm, "_generate_with_provider", return_value=SimpleNamespace(content="{}")) as generate):
         llm.generate_structured_result("public prompt", budget=budget)
     assert generate.call_count == 1
     assert generate.call_args.args[1].role == "fallback"
@@ -489,6 +452,13 @@ def test_later_applicability_rejection_invalidates_previous_quotes(scope, unsupp
 
 
 def test_public_search_uses_general_country_and_restricts_known_official_host():
+    # Ruling retained from the controlled live comparison recorded in
+    # docs/superpowers/plans/2026-10-06-coach-definition-progress.md: with an
+    # identified official host, `country="malaysia"` displaced substantive
+    # official pages with clipped news snippets, so the restricted public search
+    # carries NO country boost. Open public discovery (no identified host) still
+    # gets the Malaysian boost. The direct low-level call is covered by
+    # test_research_definition_recovery.test_official_domain_search_does_not_also_apply_country_reranking.
     import sys
     from app.rag import web_research as web
     client = MagicMock()
@@ -497,10 +467,18 @@ def test_public_search_uses_general_country_and_restricts_known_official_host():
         web.research_evidence("waiver documents", api_key="test", single_search=True,
                               public_policy=True, official_domains=("ptptn.gov.my",))
     args = client.search.call_args.kwargs
-    assert args["topic"] == "general" and args["country"] == "malaysia"
+    assert args["topic"] == "general" and "country" not in args
     assert args["include_domains_mode"] == "restrict"
     assert args["include_domains"] == ["ptptn.gov.my"]
     assert args["search_depth"] == "basic"
+    client.search.reset_mock()
+    with patch.dict(sys.modules, {"tavily": SimpleNamespace(TavilyClient=lambda **_: client)}):
+        web.research_evidence("waiver documents", api_key="test", single_search=True,
+                              public_policy=True)
+    open_discovery = client.search.call_args.kwargs
+    assert open_discovery["topic"] == "general"
+    assert open_discovery["country"] == "malaysia"
+    assert "include_domains" not in open_discovery
 
 
 def test_request_cache_reuses_calls_but_extract_query_is_part_of_key():

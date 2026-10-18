@@ -32,11 +32,6 @@ describe('Coach spending-consent placement', () => {
     expect(coach).toContain('requiredForQuestion={Boolean(pendingConsentQuestion)}');
   });
 
-  it('continues a queued question after either consent decision', () => {
-    const coach = read('components', 'coach', 'coach-screen.tsx');
-
-    expect(coach).toContain('if (queuedQuestion)');
-    expect(coach).toContain('void send(queuedQuestion, undefined, true)');
-    expect(coach).toContain('general guidance while transaction rows remain unavailable');
-  });
+  // Consent continuation is exercised through real React callbacks in
+  // coach-screen.test.tsx, including structured choices and a chat change.
 });

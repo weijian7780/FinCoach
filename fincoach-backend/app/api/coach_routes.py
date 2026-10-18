@@ -1,6 +1,7 @@
 """Authenticated REST API for saved financial-coaching conversations."""
 
-from typing import Annotated
+from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
@@ -11,6 +12,7 @@ from app.agent_actions import (
 )
 from app.auth import AuthenticatedUser, require_authenticated_user
 from app.coaching_history import (
+    ActionProtocolError,
     CoachingHistoryRepository,
     CoachingRateLimitExceeded,
     ConversationNotFound,
@@ -21,6 +23,7 @@ from app.models import (
     CoachActionCompletion,
     CoachActionDecision,
     CoachActionResponse,
+    CoachReportAttemptResponse,
     CoachTurnResponse,
     ConversationCreate,
     ConversationResponse,
@@ -136,6 +139,8 @@ def list_messages(
         page = repository.list_message_page(session_id, limit=limit, before=before)
     except ConversationNotFound as exc:
         raise _not_found() from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail='Invalid history cursor.') from exc
 
     messages = page["messages"]
     assistant_ids = [
@@ -182,10 +187,28 @@ def set_message_feedback(
 def _run_action(operation):
     try:
         return operation()
+    except ActionProtocolError as exc:
+        # A protocol refusal carries a stable code the mobile reconciles by;
+        # the optional lease detail never widens what the client may do.
+        detail: dict[str, Any] = {"code": exc.code, "message": str(exc)}
+        if exc.lease_expires_at:
+            detail["lease_expires_at"] = exc.lease_expires_at
+        raise HTTPException(exc.status_code, detail) from exc
     except (AgentActionNotFound, MessageNotFound) as exc:
         raise HTTPException(404, "Action not found.") from exc
     except AgentActionConflict as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+def _required_uuid(value: str, detail: str) -> str:
+    try:
+        return str(UUID(value))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(404, detail) from exc
+
+
+def _attempt_id(payload: CoachActionDecision) -> str | None:
+    return str(payload.attempt_id) if payload.attempt_id else None
 
 
 @router.post(
@@ -197,7 +220,11 @@ def confirm_action(
     payload: CoachActionDecision,
     service: ActionService,
 ):
-    return _run_action(lambda: service.confirm(message_id, str(payload.action_id)))
+    return _run_action(
+        lambda: service.confirm(
+            message_id, str(payload.action_id), attempt_id=_attempt_id(payload),
+        )
+    )
 
 
 @router.post(
@@ -227,8 +254,45 @@ def complete_action(
             str(payload.action_id),
             success=payload.success,
             result=payload.result,
+            attempt_id=_attempt_id(payload),
         )
     )
+
+
+@router.get(
+    "/messages/{message_id}/actions/report-attempt/{attempt_id}",
+    response_model=CoachReportAttemptResponse,
+)
+def get_report_attempt(
+    message_id: str,
+    attempt_id: str,
+    repository: Repository,
+):
+    """Owner-scoped attempt status so a device can reconcile a lost response."""
+    attempt = repository.find_report_attempt(
+        message_id, _required_uuid(attempt_id, "Report attempt not found."),
+    )
+    if not attempt:
+        raise HTTPException(404, "Report attempt not found.")
+    return attempt
+
+
+@router.post(
+    "/messages/{message_id}/actions/report-attempt/{attempt_id}/renew",
+    response_model=CoachReportAttemptResponse,
+)
+def renew_report_attempt(
+    message_id: str,
+    attempt_id: str,
+    repository: Repository,
+):
+    """Extend the caller's live report lease while the PDF is still rendering."""
+    try:
+        return repository.renew_report_attempt(
+            message_id, _required_uuid(attempt_id, "Report attempt not found."),
+        )
+    except MessageNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.post(

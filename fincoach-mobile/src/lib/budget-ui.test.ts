@@ -28,9 +28,7 @@ describe('Budget routes', () => {
 
   test('manage screen supports overall and category-limit CRUD', () => {
     const source = read('src', 'app', 'budget', 'manage.tsx');
-    expect(source).toContain('upsertMonthlyBudget');
-    expect(source).toContain('upsertCategoryLimit');
-    expect(source).toContain('deleteCategoryLimit');
+    expect(source).toContain('saveBudgetMonth');
     expect(source).toContain('deleteMonthlyBudget');
     expect(source).toContain('MoneyField');
     expect(source).toContain('CategoryPicker');

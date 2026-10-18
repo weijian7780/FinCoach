@@ -184,13 +184,12 @@ def test_request_below_provider_minimum_is_never_sent():
     factory.return_value.__enter__.return_value.models.generate_content.assert_not_called()
 
 
-def test_partial_items_and_rejected_decisions_always_require_review():
+def test_fallback_with_missing_items_always_requires_review():
     source = rows("AYAM GEPUK", "05-10-2026", "Qty Total", "Product", "RM14.00",
                   "Total QTY", "Amount RM14.00", "QR RM14.00")
     with patch("app.receipt_ocr.run_paddle_ocr", return_value=source), patch(
-        "app.receipt_ocr.verify_receipt_image", return_value={"confirmedLineIds": list(range(len(source))),
-            "uncertainLineIds": [3]}), patch("app.receipt_ocr.classify_category", return_value=("Food", .7, "test")):
+        "app.receipt_extraction.extract_with_gemini", return_value=None), patch("app.receipt_ocr.classify_category", return_value=("Food", .7, "test")):
         result = extract_receipt(b"unused")
     assert result["reviewRequired"]
-    assert any("product" in warning.lower() for warning in result["reviewWarnings"])
-    assert any("decision" in warning.lower() for warning in result["reviewWarnings"])
+    assert result["extractionSource"] == "ocr_fallback"
+    assert any("fallback" in warning.lower() for warning in result["reviewWarnings"])

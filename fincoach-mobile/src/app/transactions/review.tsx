@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import * as Crypto from 'expo-crypto';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -16,9 +15,10 @@ import { emitBudgetAlertsAfterTransactionChange } from '@/lib/alert-events';
 import { useAuth } from '@/lib/auth-context';
 import { clearReceiptDraft, getReceiptDraft } from '@/lib/receipt-ocr';
 import { receiptInitialDate, receiptReviewWarnings } from '@/lib/receipt-review-domain';
+import { receiptSaveErrorMessage } from '@/lib/receipt-save-error';
 import { parseMoney } from '@/lib/savings-domain';
 import { validateTransactionInput } from '@/lib/transaction-domain';
-import { createTransaction, deleteReceiptImage, fetchTransactionCategories, uploadReceiptImage } from '@/lib/transactions';
+import { saveReceiptTransaction, fetchTransactionCategories, TransactionDraftConflictError } from '@/lib/transactions';
 import type { Category, ReceiptItemDraft } from '@/lib/types';
 
 type EditableReceiptItem = Omit<ReceiptItemDraft, 'amount'> & { amount: string };
@@ -38,6 +38,8 @@ export default function ReviewReceiptScreen() {
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [fallbackReviewed, setFallbackReviewed] = useState(false);
+  const isFallback = draft?.extraction.extractionSource === 'ocr_fallback';
 
   useEffect(() => {
     if (!draft) { router.replace('/transactions/scan' as never); return; }
@@ -56,7 +58,7 @@ export default function ReviewReceiptScreen() {
 
   function updateItem(index: number, patch: Partial<EditableReceiptItem>) { setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)); }
 
-  async function syncBudgetAlerts(saved: Awaited<ReturnType<typeof createTransaction>>) {
+  async function syncBudgetAlerts(saved: Awaited<ReturnType<typeof saveReceiptTransaction>>) {
     try {
       await emitBudgetAlertsAfterTransactionChange(userId!, null, saved);
       clearReceiptDraft();
@@ -73,7 +75,8 @@ export default function ReviewReceiptScreen() {
     }
   }
   async function save() {
-    if (!userId) return;
+    if (!userId || receiptDraft.uploading) return;
+    if (isFallback && !fallbackReviewed) { setMessage('Review the OCR fallback fields and confirm them before saving.'); return; }
     if (!categoryId) { setMessage('Choose a category before saving.'); return; }
     if (items.some((item) => !item.description.trim() || (parseMoney(item.amount) ?? 0) <= 0)) {
       setMessage('Enter a name and positive amount for each item, or remove the empty item.'); return;
@@ -83,20 +86,27 @@ export default function ReviewReceiptScreen() {
     if (Object.keys(errors).length) { setMessage(Object.values(errors)[0] ?? 'Correct the highlighted receipt fields.'); return; }
     const parsedAmount = parseMoney(amount); if (parsedAmount == null) return;
     setSaving(true); setMessage(null);
-    const transactionId = Crypto.randomUUID();
+    const transactionId = receiptDraft.id;
     const extension = receiptDraft.image.mimeType === 'image/png' ? 'png' : receiptDraft.image.mimeType === 'image/webp' ? 'webp' : 'jpg';
     const receiptPath = `${userId}/${transactionId}.${extension}`;
-    let uploaded = false;
+    const payload = { id: transactionId, category_id: categoryId, amount: parsedAmount, transaction_date: date, source: merchant.trim(), description: 'Scanned receipt', receipt_image_path: receiptPath,
+      receipt_items: items.map(item => ({ ...item, description: item.description.trim(), amount: parseMoney(item.amount)! })) };
     try {
-      const bytes = await fetch(receiptDraft.image.uri).then((response) => response.arrayBuffer());
-      await uploadReceiptImage(receiptPath, bytes, receiptDraft.image.mimeType);
-      uploaded = true;
-      const itemSummary = items.slice(0, 8).map((item) => `${item.description}${item.modifiers?.length ? ` (${item.modifiers.join('; ')})` : ''} RM${Number(item.amount).toFixed(2)}`).join(', ');
-        const saved = await createTransaction(userId, { id: transactionId, category_id: categoryId, amount: parsedAmount, transaction_date: date, source: merchant.trim(), description: itemSummary ? `Scanned receipt: ${itemSummary}`.slice(0, 300) : 'Scanned receipt', receipt_image_path: receiptPath });
-        await syncBudgetAlerts(saved);
+      const saved = await saveReceiptTransaction(userId, payload, receiptDraft,
+        () => fetch(receiptDraft.image.uri).then(response => response.arrayBuffer()), receiptDraft.image.mimeType);
+      await syncBudgetAlerts(saved);
     } catch (caught) {
-      if (uploaded) await deleteReceiptImage(receiptPath).catch(() => {});
-      setMessage(caught instanceof Error ? caught.message : 'Could not save this receipt.'); setSaving(false);
+      // Never delete an attachment while the database commit outcome is uncertain.
+      if (caught instanceof TransactionDraftConflictError) {
+        appDialog.open('Receipt already saved', 'This receipt was saved before these edits. Open the saved transaction to review or edit it.', [
+          { text: 'Stay here', style: 'cancel' },
+          { text: 'Open transaction', onPress: () => { clearReceiptDraft(); router.replace(`/transactions/${caught.existing.id}` as never); } },
+        ]);
+      }
+      setMessage(receiptSaveErrorMessage(caught));
+    } finally {
+      receiptDraft.uploading = false;
+      setSaving(false);
     }
   }
 
@@ -129,6 +139,10 @@ export default function ReviewReceiptScreen() {
         </View>) : <Text style={helper}>No line items detected. The transaction can still be saved.</Text>}
       </View>
       {message ? <Text style={messageBox}>{message}</Text> : null}
+      {isFallback ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: fallbackReviewed }} accessibilityLabel="I reviewed the OCR fallback fields" onPress={() => setFallbackReviewed((value) => !value)} style={[attentionCard, { flexDirection: 'row', alignItems: 'center', minHeight: 48 }]}>
+        <MaterialIcons name={fallbackReviewed ? 'check-box' : 'check-box-outline-blank'} size={24} color={authColors.primary} />
+        <Text style={[attentionText, { flex: 1 }]}>I checked the merchant, date, total and items against the receipt image.</Text>
+      </Pressable> : null}
       <Pressable disabled={saving} onPress={() => void save()} style={[saveButton, saving && { opacity: 0.65 }]}>{saving ? <ActivityIndicator color="white" /> : <MaterialIcons name="check-circle" size={21} color="white" />}<Text style={saveText}>{saving ? 'Saving receipt…' : 'Save transaction'}</Text></Pressable>
       <Pressable onPress={() => { appDialog.open('Rescan receipt?', 'The current extraction will be discarded.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Rescan', onPress: () => { clearReceiptDraft(); router.replace('/transactions/scan' as never); } }]); }}><Text style={rescan}>Rescan receipt</Text></Pressable>
     </ScrollView>

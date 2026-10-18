@@ -1708,13 +1708,6 @@ class LLMClientTests(unittest.TestCase):
 
 
 class CoachingServiceTests(unittest.TestCase):
-    def setUp(self):
-        # These fixtures exercise the retained legacy grounding/tool route.
-        # The research coordinator has separate flag-on integration coverage.
-        legacy = patch('app.rag.service.COACH_RESEARCH_POLICY_ENABLED', False)
-        legacy.start()
-        self.addCleanup(legacy.stop)
-
     def test_simple_profile_read_skips_the_llm_after_the_verified_tool_result(self):
         from app.rag.service import CoachingService
 

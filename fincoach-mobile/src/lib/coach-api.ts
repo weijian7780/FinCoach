@@ -4,6 +4,7 @@ import type {
   CoachInteractionReply,
   CoachMessage,
   CoachMessagePage,
+  CoachReportAttempt,
   CoachTurnResponse,
 } from './types';
 import type { CoachFeedback } from './coach-ui';
@@ -11,7 +12,11 @@ import type { CoachFeedback } from './coach-ui';
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export type CoachNetworkStatus = 'online' | 'offline' | 'unknown';
-export type CoachErrorCode = 'network' | 'offline' | 'timeout' | 'consent_required';
+export type CoachErrorCode = 'network' | 'offline' | 'timeout' | 'consent_required'
+  | 'update_required' | 'action_in_progress' | 'attempt_expired' | 'attempt_id_reused'
+  | 'report_artifact_invalid';
+const REPORT_ERROR_CODES: readonly string[] = ['update_required', 'action_in_progress',
+  'attempt_expired', 'attempt_id_reused', 'report_artifact_invalid'];
 
 export type CoachAuthAdapter = {
   getAccessToken: () => Promise<string | null>;
@@ -36,6 +41,7 @@ export class CoachApiError extends Error {
     public readonly status: number,
     message: string,
     public readonly code?: CoachErrorCode,
+    public readonly leaseExpiresAt?: string,
   ) {
     super(message);
     this.name = 'CoachApiError';
@@ -70,6 +76,14 @@ async function safeError(response: Response): Promise<CoachApiError> {
     const body: unknown = await response.json();
     if (typeof body === 'object' && body !== null && 'detail' in body) {
       const detail = (body as { detail?: unknown }).detail;
+      if (typeof detail === 'object' && detail !== null) {
+        const value = detail as Record<string, unknown>;
+        if (typeof value.message === 'string' && value.message.length <= 200
+          && typeof value.code === 'string' && REPORT_ERROR_CODES.includes(value.code)) {
+          return new CoachApiError(response.status, value.message, value.code as CoachErrorCode,
+            typeof value.lease_expires_at === 'string' ? value.lease_expires_at : undefined);
+        }
+      }
       if (typeof detail === 'string' && detail.length <= 200) {
         return new CoachApiError(
           response.status,
@@ -102,7 +116,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
     const initialToken = await auth.getAccessToken();
     if (!initialToken) throw new CoachApiError(401, 'No active session found.');
 
-    const execute = async (token: string): Promise<Response> => {
+    const execute = async (token: string): Promise<{ response: Response; value?: T; error?: CoachApiError }> => {
       const controller = new AbortController();
       let timedOut = false;
       const timeout = setTimeout(() => {
@@ -110,7 +124,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
         controller.abort();
       }, timeoutMs);
       try {
-        return await fetchImpl(`${baseUrl}${path}`, {
+        const response = await fetchImpl(`${baseUrl}${path}`, {
           ...init,
           headers: {
             Authorization: `Bearer ${token}`,
@@ -119,6 +133,10 @@ export function createCoachApiClient(options: ClientOptions = {}) {
           },
           signal: controller.signal,
         });
+        // Fetch resolves at the headers. Keep the deadline until the body has
+        // arrived too, otherwise an interrupted download can leave the chat busy.
+        if (!response.ok) return { response, error: await safeError(response) };
+        return { response, value: response.status === 204 ? undefined : await response.json() as T };
       } catch {
         if (timedOut) {
           throw new CoachApiError(
@@ -127,7 +145,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
             'timeout',
           );
         }
-        const status = await networkStatus();
+        const status = await networkStatus().catch(() => 'unknown' as const);
         if (status === 'offline') {
           throw new CoachApiError(
             0,
@@ -145,15 +163,14 @@ export function createCoachApiClient(options: ClientOptions = {}) {
       }
     };
 
-    let response = await execute(initialToken);
-    if (response.status === 401) {
+    let result = await execute(initialToken);
+    if (result.response.status === 401) {
       const refreshedToken = await auth.refreshAccessToken();
       if (!refreshedToken) throw new CoachApiError(401, 'No active session found.');
-      response = await execute(refreshedToken);
+      result = await execute(refreshedToken);
     }
-    if (!response.ok) throw await safeError(response);
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    if (result.error) throw result.error;
+    return result.value as T;
   }
 
   return {
@@ -201,10 +218,13 @@ export function createCoachApiClient(options: ClientOptions = {}) {
         method: 'PATCH',
         body: JSON.stringify({ feedback }),
       }),
-    confirmAction: (messageId: string, actionId: string) =>
+    confirmAction: (messageId: string, actionId: string, attemptId?: string) =>
       request<CoachActionResponse>(`/coach/messages/${encodeURIComponent(messageId)}/actions/confirm`, {
         method: 'POST',
-        body: JSON.stringify({ action_id: actionId }),
+        body: JSON.stringify({
+          action_id: actionId,
+          ...(attemptId ? { attempt_id: attemptId } : {}),
+        }),
       }),
     cancelAction: (messageId: string, actionId: string) =>
       request<CoachActionResponse>(`/coach/messages/${encodeURIComponent(messageId)}/actions/cancel`, {
@@ -216,11 +236,26 @@ export function createCoachApiClient(options: ClientOptions = {}) {
       actionId: string,
       success: boolean,
       result: Record<string, unknown>,
+      attemptId?: string,
     ) =>
       request<CoachActionResponse>(`/coach/messages/${encodeURIComponent(messageId)}/actions/complete`, {
         method: 'POST',
-        body: JSON.stringify({ action_id: actionId, success, result }),
+        body: JSON.stringify({
+          action_id: actionId,
+          success,
+          result,
+          ...(attemptId ? { attempt_id: attemptId } : {}),
+        }),
       }),
+    getReportAttempt: (messageId: string, attemptId: string) =>
+      request<CoachReportAttempt>(
+        `/coach/messages/${encodeURIComponent(messageId)}/actions/report-attempt/${encodeURIComponent(attemptId)}`,
+      ),
+    renewReportAttempt: (messageId: string, attemptId: string) =>
+      request<CoachReportAttempt>(
+        `/coach/messages/${encodeURIComponent(messageId)}/actions/report-attempt/${encodeURIComponent(attemptId)}/renew`,
+        { method: 'POST' },
+      ),
   };
 }
 
@@ -236,3 +271,5 @@ export const setCoachMessageFeedback = defaultClient.setMessageFeedback;
 export const confirmCoachAction = defaultClient.confirmAction;
 export const cancelCoachAction = defaultClient.cancelAction;
 export const completeCoachAction = defaultClient.completeAction;
+export const getReportAttempt = defaultClient.getReportAttempt;
+export const renewReportAttempt = defaultClient.renewReportAttempt;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from calendar import monthrange
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 import re
@@ -54,7 +55,7 @@ def _reminder_arguments_with_user_hints(
     due_day = _DAY_OF_MONTH_HINT.search(request_text)
     if due_day:
         value = int(due_day.group("day"))
-        if 1 <= value <= 28:
+        if 1 <= value <= 31:
             adjusted["day_of_month"] = value
 
     lead_days = _LEAD_DAYS_HINT.search(request_text)
@@ -288,7 +289,7 @@ AGENT_TOOL_DEFINITIONS = [
         "Prepare, but never directly create, a reminder. Call even when details are missing so FinCoach can ask a focused follow-up.",
         {
             "title": {"type": "string"},
-            "amount": {"type": "number", "exclusiveMinimum": 0},
+            "amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 9999999999.99, "multipleOf": 0.01},
             "due_at": {
                 "type": "string",
                 "description": "ISO 8601 date-time with timezone. Omit when unknown.",
@@ -301,7 +302,7 @@ AGENT_TOOL_DEFINITIONS = [
             "day_of_month": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 28,
+                "maximum": 31,
                 "description": "For monthly reminders such as 'on the 15th'.",
             },
             "time_of_day": {
@@ -464,10 +465,12 @@ class _ReminderRangeArgs(_Args):
 
 class _ReminderDraft(_Args):
     title: str = Field(min_length=1, max_length=100)
-    amount: Decimal | None = Field(default=None, gt=0)
+    # Match reminders.amount numeric(12,2): the confirmed amount must never
+    # round to a different payment or overflow when it reaches PostgreSQL.
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
     due_at: datetime | None = None
     due_date: date | None = None
-    day_of_month: int | None = Field(default=None, ge=1, le=28)
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
     time_of_day: time | None = None
     lead_days: int = Field(default=0, ge=0, le=30)
     recurrence: str = "none"
@@ -1858,7 +1861,7 @@ class AgentToolExecutor:
             candidate = datetime(
                 year,
                 month,
-                args.day_of_month,
+                min(args.day_of_month, monthrange(year, month)[1]),
                 args.time_of_day.hour,
                 args.time_of_day.minute,
                 tzinfo=malaysia,
@@ -1869,14 +1872,14 @@ class AgentToolExecutor:
                 candidate = datetime(
                     year,
                     month,
-                    args.day_of_month,
+                    min(args.day_of_month, monthrange(year, month)[1]),
                     args.time_of_day.hour,
                     args.time_of_day.minute,
                     tzinfo=malaysia,
                 )
             due_at = candidate
         if not due_at and not args.due_date:
-            today = self.now().date()
+            today = self._malaysia_now().date()
             return self._clarification(
                 action_type="create_reminder",
                 question=f"When should I remind you about “{args.title}”?",
@@ -1905,6 +1908,8 @@ class AgentToolExecutor:
             )
         if due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=malaysia)
+        # Persist the same local date that the confirmation card displays.
+        due_at = due_at.astimezone(malaysia)
         current = self.now()
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
@@ -1919,6 +1924,10 @@ class AgentToolExecutor:
             "due_at": due_at.isoformat(),
             "lead_days": args.lead_days,
             "recurrence": args.recurrence,
+            "recurrence_anchor_day": (
+                args.day_of_month if args.recurrence == "monthly" and args.day_of_month
+                else due_at.day
+            ),
         }
         local_due = due_at.astimezone(malaysia)
         local_time = local_due.strftime("%I:%M %p").lstrip("0")
@@ -1932,7 +1941,10 @@ class AgentToolExecutor:
         if args.amount is not None:
             fields.insert(1, {"label": "Amount", "value": _money(args.amount)})
         if args.recurrence != "none":
-            fields.append({"label": "Repeats", "value": args.recurrence.title()})
+            recurrence_label = args.recurrence.title()
+            if args.recurrence == "monthly" and arguments["recurrence_anchor_day"] > 28:
+                recurrence_label += f" (day {arguments['recurrence_anchor_day']}; last day in shorter months)"
+            fields.append({"label": "Repeats", "value": recurrence_label})
         if args.lead_days > 0:
             fields.append({
                 "label": "Notify",
@@ -1968,7 +1980,7 @@ class AgentToolExecutor:
                 ],
                 draft=args.model_dump(mode="json", exclude_none=True),
             )
-        today = self.now().date()
+        today = self._malaysia_now().date()
         current_start, current_next = _month_bounds(today)
         if args.period == "current_month":
             start, end = current_start, current_next - timedelta(days=1)

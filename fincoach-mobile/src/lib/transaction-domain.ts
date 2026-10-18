@@ -41,7 +41,8 @@ export function transactionMatchesInput(transaction: TransactionWithCategory, in
     && Number(transaction.amount) === input.amount && transaction.transaction_date === input.transaction_date
     && transaction.source.trim() === input.source.trim()
     && (transaction.description?.trim() || null) === (input.description?.trim() || null)
-    && transaction.receipt_image_path === input.receipt_image_path;
+    && transaction.receipt_image_path === input.receipt_image_path
+    && (input.receipt_items === undefined || JSON.stringify((transaction.receipt_items ?? []).map(item => [item.description, Number(item.amount), item.confidence ?? null, item.modifiers ?? []])) === JSON.stringify(input.receipt_items.map(item => [item.description, Number(item.amount), item.confidence ?? null, item.modifiers ?? []])));
 }
 
 function isValidIsoDate(value: string) {

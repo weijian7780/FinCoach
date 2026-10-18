@@ -45,7 +45,9 @@ _EXAMPLE_CUE = re.compile(
     r"\b(?:for\s+example|for\s+instance|as\s+an\s+example|let'?s\s+say|"
     r"let\s+us\s+say|suppose|imagine|hypothetical(?:ly)?|say|such\s+as|"
     r"contoh(?:nya)?|sebagai\s+contoh|misal(?:nya)?|umpama(?:nya)?|"
-    r"katakan(?:lah)?|andai(?:kan)?)\b|(?:e\.?g\.?|i\.?e\.?)",
+    # Abbreviations must stand alone: "Begin" and "convenient" are not
+    # hypothetical labels and must never whitelist an unsupported amount.
+    r"katakan(?:lah)?|andai(?:kan)?)\b|(?<!\w)(?:e\.?g\.?|i\.?e\.?)(?!\w)",
     re.IGNORECASE,
 )
 _EXAMPLE_SENTENCE_BOUNDARY = re.compile(r"[.!?](?:\s|$)|\n")
@@ -344,32 +346,25 @@ def _normalise_word(word: str) -> str:
 
 
 def _citation_supports_claim(line: str, source_texts: list[str]) -> bool:
-    """Check a claim against cited evidence while preserving negation polarity."""
+    """Accept only a locally supported claim; otherwise request semantic review.
+
+    Tokens from unrelated sentences cannot jointly establish one policy rule.
+    Explicit leading conditions must also survive this lexical shortcut.
+    """
     claim_tokens = _support_tokens(line)
     if not claim_tokens:
         return True
     claim_is_negative = bool(_NEGATION.search(line))
     for source_text in source_texts:
-        passages = list(_PASSAGE_BOUNDARY.split(source_text))
-        # Markdown titles qualify their following paragraph. Retain that local
-        # hierarchy without combining independent statements or sources.
-        headings = []
-        for source_line in source_text.splitlines():
-            heading = re.match(r'^(#{1,6})\s+(.+)', source_line.strip())
-            if heading:
-                level = len(heading.group(1))
-                headings = [(depth, label) for depth, label in headings if depth < level]
-                headings.append((level, heading.group(2)))
-            elif source_line.strip() and headings:
-                passages.extend(' '.join(label for _, label in headings) + ' ' + passage
-                                for passage in _PASSAGE_BOUNDARY.split(source_line))
-        for passage in passages:
+        for passage in _PASSAGE_BOUNDARY.split(source_text):
             if claim_is_negative != bool(_NEGATION.search(passage)):
                 continue
-            # Unrelated passages cannot pool vocabulary into proof of a new
-            # relationship. Conditional audience labels must also survive.
-            qualifier = re.match(r'\s*(?:for|if|when|only for|untuk|jika|bagi)\s+([^,:.]+)[,:]', passage, re.I)
-            if qualifier and not _support_tokens(qualifier.group(1)).issubset(claim_tokens):
+            qualifier = re.match(
+                r"\s*(?:(?:only\s+)?for|if|when|unless|except|provided\s+that|"
+                r"bagi|untuk|jika|apabila|kecuali)\b([^,;:\n]+)[,;:]",
+                passage, re.I,
+            )
+            if qualifier and not _support_tokens(qualifier.group()).issubset(claim_tokens):
                 continue
             matched = claim_tokens.intersection(_support_tokens(passage))
             if len(matched) >= ceil(len(claim_tokens) * 0.8):

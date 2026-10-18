@@ -67,11 +67,37 @@ class MessageFeedbackUpdate(StrictModel):
 
 class CoachActionDecision(StrictModel):
     action_id: UUID
+    # The device reserves the attempt id before asking the server to start it,
+    # so a lost response can be reconciled instead of silently restarted.
+    attempt_id: UUID | None = None
 
 
 class CoachActionCompletion(CoachActionDecision):
     success: bool
     result: dict[str, Any] = Field(default_factory=dict)
+
+
+class CoachReportAttemptResponse(StrictModel):
+    attempt_id: UUID
+    message_id: UUID
+    action_id: UUID
+    status: Literal["active", "completed", "cancelled", "superseded"]
+    storage_path: str
+    period: str
+    report_type: Literal[
+        "monthly", "monthly_category", "multi_month", "multi_month_category",
+        "custom", "custom_category",
+    ]
+    start_date: str
+    end_date: str
+    category_id: int | None = None
+    category_name: str | None = None
+    report_id: int | None = None
+    # Server-calculated lease facts: the client never decides whether its claim
+    # is still live, so clock skew cannot extend a lease.
+    lease_expires_at: str | None = None
+    server_time: str | None = None
+    lease_valid: bool = False
 
 
 class SourceResponse(StrictModel):
