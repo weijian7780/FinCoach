@@ -1,0 +1,41 @@
+services:
+  backend:
+    container_name: fincoach-backend
+    build:
+      context: .
+      dockerfile: Dockerfile.arm64
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # The official ARM64 Paddle wheel can crash in the static PIR predictor.
+      PADDLE_OCR_ENGINE: ${PADDLE_OCR_ENGINE:-paddle_dynamic}
+      # Keep receipt detection responsive on the four-core Ampere CPU.
+      PADDLE_OCR_MAX_SIDE: ${PADDLE_OCR_MAX_SIDE:-1600}
+      PADDLE_OCR_CPU_THREADS: ${PADDLE_OCR_CPU_THREADS:-4}
+      RECEIPT_CLEANUP_MIN_CONFIDENCE: ${RECEIPT_CLEANUP_MIN_CONFIDENCE:-0.85}
+    init: true
+    ports:
+      # Nginx on the VPS is the only public entry point.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Keep downloaded models when the application image is rebuilt.
+      - fincoach_huggingface:/root/.cache/huggingface
+      - fincoach_paddlex:/root/.paddlex
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # The first startup downloads and loads BGE-M3 and PaddleOCR.
+      start_period: 15m
+
+volumes:
+  fincoach_huggingface:
+  fincoach_paddlex:

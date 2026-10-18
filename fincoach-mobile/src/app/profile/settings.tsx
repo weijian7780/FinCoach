@@ -2,10 +2,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StatusBar, Switch, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StatusBar, Switch, View } from 'react-native';
 import type { StyleProp, TextStyle } from 'react-native';
 
 import { AppText as Text } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
@@ -42,14 +43,14 @@ export default function AppSettingsScreen() {
           icon="payments"
           label="Currency"
           value="MYR (RM)"
-          onPress={() => Alert.alert('Currency', 'Only MYR (RM) is supported.')}
+          onPress={() => appDialog.open('Currency', 'Only MYR (RM) is supported.')}
         />
 
         <SectionLabel style={{ marginTop: 12 }}>DATA</SectionLabel>
         <SettingRow
           icon="storage"
           label="Export & Backup"
-          onPress={() => Alert.alert('Coming soon', 'Export & Backup will be available in a later update.')}
+          onPress={() => router.push('/export-backup' as never)}
         />
       </ScrollView>
     </View>

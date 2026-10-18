@@ -1,0 +1,58 @@
+{
+  "_meta": {
+    "purpose": "UNSEEN test set for Jev multi-label ACTION + topic detection. Human ground-truth labels written BEFORE querying Jev. Frozen candidate (jev_frozen_candidate.md) and the deterministic baseline are evaluated here ONCE. No tuning against this set.",
+    "relationship_to_dev": "New queries only; not paraphrases of jev_action_dev_cases.json pg_* groups. Same action_vocabulary and finalized_labeling_rules as the dev set.",
+    "finalized_labeling_rules_applied": {
+      "budget_allocation": "allocation/split-method questions = education only, requires_personal_records=false",
+      "ptptn_vs_student_aid": "PTPTN questions labelled ['ptptn'] only; student_aid over-firing is a real precision cost"
+    }
+  },
+  "cases": [
+    {"id": "t-spend-food-en", "lang": "en", "category": "personal_single", "query": "What did I spend on groceries in July?", "expected_actions": ["get_spending_summary"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-budget-ms", "lang": "ms", "category": "personal_single", "query": "Bajet saya okay tak bulan ni?", "expected_actions": ["get_budget_status"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-goals-progress-en", "lang": "en", "category": "personal_single", "query": "How close am I to my laptop savings goal?", "expected_actions": ["get_savings_goals"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-reminders-ms", "lang": "ms", "category": "personal_single", "query": "Ada bil apa yang saya kena bayar minggu depan?", "expected_actions": ["get_upcoming_reminders"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-search-en", "lang": "en", "category": "personal_single", "query": "List all my Grab rides last month", "expected_actions": ["search_transactions"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-profile-ms", "lang": "ms", "category": "personal_single", "query": "Apa sumber pendapatan yang saya dah set?", "expected_actions": ["get_financial_profile"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+
+    {"id": "t-plan-weekly-en", "lang": "en", "category": "planning", "query": "Set up a weekly savings schedule for me", "expected_actions": ["get_weekly_savings_plan"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false, "expected_monthly_cadence": false},
+    {"id": "t-predict-ms", "lang": "ms", "category": "planning", "query": "Boleh ramal berapa saya boleh simpan bulan depan?", "expected_actions": ["predict_savings"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-cashflow-en", "lang": "en", "category": "planning", "query": "Will I run out of money before payday?", "expected_actions": ["get_cashflow_forecast"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-plan-monthly-ms", "lang": "ms", "category": "planning", "query": "Buat pelan simpanan, sekali bayar setiap bulan", "expected_actions": ["get_weekly_savings_plan"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": true, "expected_monthly_cadence": true, "note": "monthly cadence unsupported by weekly handler -> clarify"},
+    {"id": "t-plan-nextmonth-period-en", "lang": "en", "category": "planning", "query": "Draw up a savings plan for the coming month", "expected_actions": ["get_weekly_savings_plan"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false, "expected_monthly_cadence": false, "note": "'coming month' = period, not monthly cadence"},
+
+    {"id": "t-multi-spend-goals-en", "lang": "en", "category": "multi_action", "query": "Show my spending this month and my savings goals", "expected_actions": ["get_spending_summary", "get_savings_goals"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-multi-cashflow-plan-en", "lang": "en", "category": "multi_action", "query": "Check if my cash lasts the month and set me a weekly savings plan", "expected_actions": ["get_cashflow_forecast", "get_weekly_savings_plan"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false, "expected_monthly_cadence": false, "note": "both reads requested; deterministic single-read ceiling exposed here"},
+    {"id": "t-multi-report-predict-en", "lang": "en", "category": "multi_action", "query": "Generate a PDF report and predict my month-end savings", "expected_actions": ["prepare_report", "predict_savings"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-multi-overview-reminder-ms", "lang": "ms", "category": "multi_action", "query": "Macam mana kewangan saya secara keseluruhan, dan ingatkan saya bayar sewa 5hb", "expected_actions": ["get_financial_overview", "prepare_reminder"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+
+    {"id": "t-comb-budget-emergency-en", "lang": "en", "category": "combined", "query": "Am I over budget, and how much should I keep as an emergency fund?", "expected_actions": ["get_budget_status", "education"], "expected_topics": ["emergency_fund"], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-comb-spend-bnpl-ms", "lang": "ms", "category": "combined", "query": "Berapa saya belanja bulan ni, dan BNPL ni selamat tak?", "expected_actions": ["get_spending_summary", "education"], "expected_topics": ["bnpl"], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-comb-plan-tax-en", "lang": "en", "category": "combined", "query": "Make me a savings plan and tell me whether I pay tax on side income", "expected_actions": ["get_weekly_savings_plan", "education"], "expected_topics": ["tax"], "requires_personal_records": true, "expected_clarification": false, "expected_monthly_cadence": false},
+
+    {"id": "t-edu-ccris-en", "lang": "en", "category": "education", "query": "What is CCRIS and how do I check my record?", "expected_actions": ["education"], "expected_topics": ["credit_records"], "requires_personal_records": false, "expected_clarification": false},
+    {"id": "t-edu-pidm-ms", "lang": "ms", "category": "education", "query": "PIDM lindungi duit simpanan ke?", "expected_actions": ["education"], "expected_topics": ["pidm"], "requires_personal_records": false, "expected_clarification": false},
+    {"id": "t-edu-shariah-en", "lang": "en", "category": "education", "query": "How does Shariah-compliant investing actually work?", "expected_actions": ["education"], "expected_topics": ["shariah"], "requires_personal_records": false, "expected_clarification": false},
+    {"id": "t-edu-akpk-complaints-en", "lang": "en", "category": "education", "query": "What's the difference between AKPK help and filing a financial complaint?", "expected_actions": ["education"], "expected_topics": ["akpk", "financial_complaints"], "requires_personal_records": false, "expected_clarification": false, "note": "genuine 2-topic"},
+    {"id": "t-edu-scam-en", "lang": "en", "category": "education", "query": "How can I tell if an investment offer is a scam?", "expected_actions": ["education"], "expected_topics": ["scams"], "requires_personal_records": false, "expected_clarification": false},
+    {"id": "t-edu-ptptn-ms", "lang": "ms", "category": "education", "query": "Macam mana nak mohon pinjaman PTPTN?", "expected_actions": ["education"], "expected_topics": ["ptptn"], "requires_personal_records": false, "expected_clarification": false, "note": "PTPTN only; student_aid over-firing is a precision cost"},
+
+    {"id": "t-neg-noreminder-en", "lang": "en", "category": "negation", "query": "Just show my upcoming bills, don't create any reminder", "expected_actions": ["get_upcoming_reminders"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false, "note": "must NOT fire prepare_reminder"},
+    {"id": "t-neg-noplan-ms", "lang": "ms", "category": "negation", "query": "Terangkan simpanan mingguan sahaja, jangan buat sebarang pelan", "expected_actions": ["education"], "expected_topics": [], "requires_personal_records": false, "expected_clarification": false, "note": "must NOT fire get_weekly_savings_plan"},
+
+    {"id": "t-casual-bye-en", "lang": "en", "category": "casual", "query": "Alright, talk to you later!", "expected_actions": ["casual"], "expected_topics": [], "requires_personal_records": false, "expected_clarification": false},
+    {"id": "t-casual-howareyou-mix", "lang": "mix", "category": "casual", "query": "Apa khabar, you okay tak today?", "expected_actions": ["casual"], "expected_topics": [], "requires_personal_records": false, "expected_clarification": false},
+
+    {"id": "t-act-report-ms", "lang": "ms", "category": "write_action", "query": "Buatkan laporan kewangan dalam bentuk PDF", "expected_actions": ["prepare_report"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-act-reminder-en", "lang": "en", "category": "write_action", "query": "Set a reminder for my car insurance renewal on the 20th", "expected_actions": ["prepare_reminder"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+
+    {"id": "t-amb-vague-en", "lang": "en", "category": "ambiguous", "query": "I need help with some stuff", "expected_actions": [], "expected_topics": [], "requires_personal_records": false, "expected_clarification": true},
+    {"id": "t-amb-money-ms", "lang": "ms", "category": "ambiguous", "query": "Tolong uruskan duit saya sikit", "expected_actions": [], "expected_topics": [], "requires_personal_records": false, "expected_clarification": true},
+
+    {"id": "t-unsup-sellstock-en", "lang": "en", "category": "unsupported", "query": "Sell my Tenaga shares now", "expected_actions": [], "expected_topics": [], "requires_personal_records": false, "expected_clarification": false, "note": "no money-movement/execution handler"},
+    {"id": "t-unsup-robo-en", "lang": "en", "category": "unsupported", "query": "Which robo-advisor is the best to invest with?", "expected_actions": ["education"], "expected_topics": [], "requires_personal_records": false, "expected_clarification": false, "note": "product-ranking intercept -> neutral education, no matching corpus topic"},
+
+    {"id": "t-fu-nextmonth-en", "lang": "en", "category": "follow_up", "query": "And what about next month?", "history": [{"role": "user", "content": "How much did I spend on food this month?"}, {"role": "assistant", "content": "You spent RM420 on food this month."}], "expected_actions": ["get_spending_summary"], "expected_topics": [], "requires_personal_records": true, "expected_clarification": false},
+    {"id": "t-fu-topicchange-en", "lang": "en", "category": "follow_up", "query": "Wait, what is compound interest anyway?", "history": [{"role": "user", "content": "Am I over budget?"}, {"role": "assistant", "content": "You are RM50 under budget."}], "expected_actions": ["education"], "expected_topics": ["compound_interest"], "requires_personal_records": false, "expected_clarification": false, "note": "explicit topic change clears personal context"}
+  ]
+}

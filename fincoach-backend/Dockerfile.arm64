@@ -1,0 +1,44 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TOKENIZERS_PARALLELISM=false
+
+WORKDIR /app
+
+# Runtime libraries required by PaddlePaddle, PaddleOCR, and OpenCV on ARM64.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        libsm6 \
+        libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+
+# The regular requirements file retains PaddlePaddle 3.3.1 for Windows/x86
+# development. Oracle Ampere needs the official 3.3.0 Linux ARM64 CPU wheel.
+RUN grep -v "^paddlepaddle==" /tmp/requirements.txt > /tmp/requirements-arm64.txt \
+    && python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install -r /tmp/requirements-arm64.txt \
+    && python -m pip install paddlepaddle==3.3.0 \
+        --index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+
+ENV ADMIN_STATIC_DIR=/app/admin-static
+
+COPY app ./app
+COPY corpus ./corpus
+COPY sql ./sql
+COPY ingest.py ./
+COPY admin_setup.py ./
+COPY admin-static ./admin-static
+COPY deploy/provider-smoke-test.py ./deploy/provider-smoke-test.py
+
+EXPOSE 8000
+
+# A single worker prevents every model from being duplicated in memory.
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

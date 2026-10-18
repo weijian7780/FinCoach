@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StatusBar, View } from 'react-native';
 
+import { CategoryIcon } from '@/components/categories/category-icon';
 import { AppText as Text, AppTextInput as TextInput } from '@/components/ui/app-text';
 import { ChipGroup } from '@/components/ui/chip-group';
 import { authColors, authFont } from '@/constants/auth-theme';
@@ -17,8 +18,6 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import { fetchCategories, fetchTrackedCategoryIds, setTrackedCategories } from '@/lib/finance';
 import type { Category } from '@/lib/types';
-
-type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
 const TOTAL_STEPS = 4;
 
@@ -170,12 +169,13 @@ export default function ProfileSetupScreen() {
         {/* Step 2: money source */}
         {step === 1 ? (
           <View style={{ gap: 16 }}>
-            <Field label="Monthly Allowance / Income (RM)">
+            <Field label="Expected Monthly Allowance / Income (RM)">
               <View style={{ position: 'relative', justifyContent: 'center' }}>
                 <Text style={{ position: 'absolute', left: 16, zIndex: 1, fontSize: 16, fontFamily: authFont.regular, color: authColors.outline }}>RM</Text>
                 <TextInput style={[fieldStyle, { paddingLeft: 44 }]} value={income} onChangeText={setIncome} placeholder="1500" placeholderTextColor={authColors.outline} keyboardType="decimal-pad" />
               </View>
             </Field>
+            <Text style={{ fontSize: 12, fontFamily: authFont.regular, color: authColors.onSurfaceVariant }}>Used for planning. Record money received to include it in Reports.</Text>
             <Field label="Source Type">
               <ChipGroup options={INCOME_SOURCE_OPTIONS} value={incomeSource} onSelect={setIncomeSource} />
             </Field>
@@ -209,7 +209,7 @@ export default function ProfileSetupScreen() {
                         borderColor: selected ? authColors.primary : 'transparent',
                         backgroundColor: selected ? authColors.primaryFixed : authColors.surfaceContainer,
                       }}>
-                      <MaterialIcons name={(category.icon as IconName) ?? 'category'} size={18} color={selected ? authColors.primary : authColors.onSurfaceVariant} />
+                      <CategoryIcon category={category} size={22} glyphSize={18} tintColor={selected ? authColors.primary : authColors.onSurfaceVariant} backgroundColor="transparent" />
                       <Text style={{ fontSize: 13, fontFamily: authFont.semibold, color: selected ? authColors.primary : authColors.onSurfaceVariant }}>{category.name}</Text>
                     </Pressable>
                   );

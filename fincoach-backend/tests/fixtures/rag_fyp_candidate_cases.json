@@ -1,0 +1,29 @@
+{
+  "dataset_version": "fyp-candidate-v1",
+  "purpose": "Candidate held-out questions: do not tune on these; human review and independent additional questions required before final FYP claims.",
+  "label_policy": "expected_sources must exhaustively list relevant source documents in the frozen corpus; draft labels below are not ground truth.",
+  "cases": [
+    {"id":"fyp-ptptn-living","language":"en","label_status":"candidate_unreviewed","query":"Does the education loan from PTPTN only pay tuition, or can it also help with living costs?","expected_sources":["official_ptptn_loan_guidance.md"]},
+    {"id":"fyp-ptptn-hardship","language":"ms","label_status":"candidate_unreviewed","query":"Saya bimbang tidak mampu bayar balik pinjaman PTPTN. Adakah penstrukturan semula pasti diluluskan?","expected_sources":["official_ptptn_loan_guidance.md"]},
+    {"id":"fyp-ptptn-typo","language":"mixed","label_status":"candidate_unreviewed","query":"ptpn repayment susah, siapa patut saya contact?","expected_sources":["official_ptptn_loan_guidance.md"]},
+    {"id":"fyp-pidm-fee","language":"en","label_status":"candidate_unreviewed","query":"Someone wants an activation fee for PIDM deposit insurance. Is that necessary?","expected_sources":["official_pidm_deposit_protection.md"]},
+    {"id":"fyp-pidm-separate","language":"ms","label_status":"candidate_unreviewed","query":"Adakah deposit Islam dan konvensional mendapat perlindungan PIDM yang berasingan?","expected_sources":["official_pidm_deposit_protection.md"]},
+    {"id":"fyp-pidm-bankfail","language":"mixed","label_status":"candidate_unreviewed","query":"kalau member bank tutup, deposit insurance protect depositor macam mana?","expected_sources":["official_pidm_deposit_protection.md"]},
+    {"id":"fyp-compound-v-simple","language":"en","label_status":"candidate_unreviewed","query":"Why can compound interest grow savings faster than interest calculated only on the original deposit?","expected_sources":["official_compound_interest_and_savings_growth.md"]},
+    {"id":"fyp-compound-debt","language":"ms","label_status":"candidate_unreviewed","query":"Bagaimana faedah kompaun boleh menyebabkan hutang bertambah apabila bayaran ditangguhkan?","expected_sources":["official_compound_interest_and_savings_growth.md"]},
+    {"id":"fyp-compound-withdraw","language":"mixed","label_status":"candidate_unreviewed","query":"selalu withdraw savings, compounding effect jadi kurang ke?","expected_sources":["official_compound_interest_and_savings_growth.md"]},
+    {"id":"fyp-akpk-prepare","language":"en","label_status":"candidate_unreviewed","query":"What financial information should I prepare before asking AKPK for debt help?","expected_sources":["official_akpk_debt_help_and_financial_education.md"]},
+    {"id":"fyp-akpk-newdebt","language":"ms","label_status":"candidate_unreviewed","query":"Saya guna hutang baru untuk bayar hutang lama. Patutkah saya hubungi AKPK lebih awal?","expected_sources":["official_akpk_debt_help_and_financial_education.md"]},
+    {"id":"fyp-akpk-eligibility","language":"mixed","label_status":"candidate_unreviewed","query":"akpk confirm accept semua orang punya repayment plan ke?","expected_sources":["official_akpk_debt_help_and_financial_education.md"]},
+    {"id":"fyp-multi-debt","language":"en","label_status":"candidate_unreviewed","query":"Explain PTPTN restructuring and what records to prepare when seeking AKPK help.","expected_sources":["official_ptptn_loan_guidance.md","official_akpk_debt_help_and_financial_education.md"]},
+    {"id":"fyp-multi-saving","language":"ms","label_status":"candidate_unreviewed","query":"Terangkan faedah kompaun dan sama ada perlindungan deposit PIDM perlu dibayar.","expected_sources":["official_compound_interest_and_savings_growth.md","official_pidm_deposit_protection.md"]},
+    {"id":"fyp-followup-ptptn","language":"en","label_status":"candidate_unreviewed","history":[{"role":"user","content":"Explain PTPTN education financing."}],"query":"What about restructuring when repayments are difficult?","expected_sources":["official_ptptn_loan_guidance.md"]},
+    {"id":"fyp-followup-pidm","language":"en","label_status":"candidate_unreviewed","history":[{"role":"user","content":"Explain PIDM deposit insurance."}],"query":"And do I need to pay to activate it?","expected_sources":["official_pidm_deposit_protection.md"]},
+    {"id":"fyp-followup-compound","language":"en","label_status":"candidate_unreviewed","history":[{"role":"user","content":"Explain compound interest."}],"query":"What about leaving the balance untouched for longer?","expected_sources":["official_compound_interest_and_savings_growth.md"]},
+    {"id":"fyp-unsupported-weather","language":"en","label_status":"candidate_unreviewed","query":"What will the weather in Kota Kinabalu be tomorrow?","expected_sources":[]},
+    {"id":"fyp-unsupported-medical","language":"ms","label_status":"candidate_unreviewed","query":"Apakah dos ubat yang sesuai untuk sakit kepala saya?","expected_sources":[]},
+    {"id":"fyp-unsupported-code","language":"mixed","label_status":"candidate_unreviewed","query":"tolong repair Python syntax error dalam for loop","expected_sources":[]},
+    {"id":"fyp-unsupported-live-price","language":"en","label_status":"candidate_unreviewed","query":"Give the exact closing price of every Bursa stock yesterday.","expected_sources":[]},
+    {"id":"fyp-unsupported-personal-balance","language":"en","label_status":"candidate_unreviewed","query":"What is the exact balance in my bank account right now?","expected_sources":[]}
+  ]
+}

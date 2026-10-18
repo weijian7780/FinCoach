@@ -1,0 +1,11 @@
+# Explicit opt-in deployment of the reviewed candidate to Windows Docker Desktop.
+# Use with docker-compose.yml and --context desktop-linux.
+services:
+  backend:
+    image: fincoach-backend:research-20261007
+    build:
+      context: ../.deploy-stage/public-research-reliability-20261006-115500
+      dockerfile: Dockerfile.desktop-candidate
+    volumes:
+      # Replace the same container destination; keep canonical source untouched.
+      - ../.deploy-stage/public-research-reliability-20261006-115500/app:/app/app:ro

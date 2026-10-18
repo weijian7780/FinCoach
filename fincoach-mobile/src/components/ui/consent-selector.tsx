@@ -1,54 +1,85 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '@/constants/design';
+import { AppText as Text } from '@/components/ui/app-text';
+import { authColors, authFont } from '@/constants/auth-theme';
+import { declinedSpendingConsentStatus } from '@/lib/spending-consent';
 import type { ConsentStatus } from '@/lib/types';
 
 type ConsentSelectorProps = {
+  disabled?: boolean;
   onChange: (value: ConsentStatus) => void;
+  requiredForQuestion?: boolean;
   value: ConsentStatus;
 };
 
-const options: Array<{ label: string; value: ConsentStatus }> = [
-  { label: 'Unset', value: 'unset' },
-  { label: 'Granted', value: 'granted' },
-  { label: 'Denied', value: 'denied' },
-  { label: 'Withdrawn', value: 'withdrawn' },
-];
+export function ConsentSelector({
+  disabled = false,
+  onChange,
+  requiredForQuestion = false,
+  value,
+}: ConsentSelectorProps) {
+  const allowLabel = requiredForQuestion ? 'Allow and continue' : 'Allow access';
+  const declineLabel = requiredForQuestion ? 'Continue without data' : 'Not now';
 
-export function ConsentSelector({ onChange, value }: ConsentSelectorProps) {
   return (
-    <View style={{ gap: spacing.sm }}>
-      <Text style={typography.label} selectable>
-        Spending records consent
+    <View style={{ gap: 10 }}>
+      <Text selectable style={{ color: authColors.onSurface, fontFamily: authFont.semibold, fontSize: 15 }}>
+        Use your recorded spending?
       </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        {options.map((option) => {
-          const selected = option.value === value;
-          return (
-            <Pressable
-              key={option.value}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: selected }}
-              onPress={() => onChange(option.value)}
-              style={{
-                minHeight: 42,
-                justifyContent: 'center',
-                borderRadius: radius.full,
-                paddingHorizontal: spacing.md,
-                backgroundColor: selected ? colors.primary : colors.surfaceAlt,
-                borderWidth: 1,
-                borderColor: selected ? colors.primary : colors.border,
-              }}>
-              <Text style={[typography.captionStrong, { color: selected ? colors.onPrimary : colors.text }]}>
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <Text selectable style={{ color: authColors.onSurfaceVariant, fontFamily: authFont.regular, fontSize: 13, lineHeight: 19 }}>
+        Allow FinCoach to use transactions you record for personalised answers. It cannot
+        access your bank account.
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Pressable
+          accessibilityLabel={allowLabel}
+          accessibilityRole="button"
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={() => onChange('granted')}
+          style={({ pressed }) => ({
+            minWidth: 136,
+            minHeight: 44,
+            flexGrow: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 14,
+            paddingHorizontal: 14,
+            backgroundColor: authColors.primary,
+            opacity: disabled ? 0.55 : pressed ? 0.82 : 1,
+          })}>
+          <Text style={{ color: authColors.onPrimary, fontFamily: authFont.semibold, fontSize: 13 }}>
+            {allowLabel}
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel={declineLabel}
+          accessibilityRole="button"
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={() => onChange(declinedSpendingConsentStatus(value))}
+          style={({ pressed }) => ({
+            minWidth: 136,
+            minHeight: 44,
+            flexGrow: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1,
+            borderColor: authColors.primary,
+            borderRadius: 14,
+            paddingHorizontal: 14,
+            backgroundColor: authColors.surfaceContainerLowest,
+            opacity: disabled ? 0.55 : pressed ? 0.7 : 1,
+          })}>
+          <Text style={{ color: authColors.primary, fontFamily: authFont.semibold, fontSize: 13 }}>
+            {declineLabel}
+          </Text>
+        </Pressable>
       </View>
-      <Text style={typography.caption} selectable>
-        Consent controls whether spending records can be used for personalized advice in later
-        modules.
+      <Text selectable style={{ color: authColors.outline, fontFamily: authFont.regular, fontSize: 12, lineHeight: 17 }}>
+        {requiredForQuestion
+          ? 'Without access, FinCoach can give general guidance but cannot calculate your exact transaction totals.'
+          : 'You can allow access later when a question needs your transaction records.'}
       </Text>
     </View>
   );

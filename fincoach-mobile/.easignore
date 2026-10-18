@@ -1,0 +1,50 @@
+# Dependencies and local tooling
+# The parent repository's .easignore controls EAS uploads in this checkout.
+# Keep these rules for standalone copies of fincoach-mobile too.
+node_modules
+_node_modules_partial_delete_me
+.git-backup-before-monorepo
+.expo
+.kotlin
+.test-tmp
+.claude
+.vscode
+
+# Generated output
+dist
+web-build
+output
+docs
+coverage
+expo-env.d.ts
+*.tsbuildinfo
+
+# Native build folders and credentials
+/android
+/ios
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+*-firebase-adminsdk-*.json
+*service-account*.json
+
+# Local environment and logs
+.env
+.env*.local
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+eas_build.*
+*.log
+*.apk
+*.aab
+*.tar.gz
+*.zip
+
+# OS files
+.DS_Store

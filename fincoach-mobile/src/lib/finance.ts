@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Budget, Category, SavingsGoal, SavingsGoalInput } from '@/lib/types';
+import type { Budget, Category } from '@/lib/types';
 
 // First day of the current month as YYYY-MM-DD (the key BUDGET rows are stored under).
 export function currentMonthStart() {
@@ -24,12 +24,7 @@ export async function fetchTrackedCategoryIds(userId: string) {
 
 // Replace the user's tracked set with exactly `categoryIds`.
 export async function setTrackedCategories(userId: string, categoryIds: number[]) {
-  const { error: deleteError } = await supabase.from('user_categories').delete().eq('user_id', userId);
-  if (deleteError) throw deleteError;
-
-  if (categoryIds.length === 0) return;
-  const rows = categoryIds.map((category_id) => ({ user_id: userId, category_id }));
-  const { error } = await supabase.from('user_categories').insert(rows);
+  const { error } = await supabase.rpc('replace_tracked_categories', { p_user_id: userId, p_category_ids: categoryIds });
   if (error) throw error;
 }
 
@@ -55,42 +50,5 @@ export async function deleteBudget(userId: string, categoryId: number, month: st
     .eq('user_id', userId)
     .eq('category_id', categoryId)
     .eq('month', month);
-  if (error) throw error;
-}
-
-// ---------- SAVINGS_GOAL (many per user) ----------
-export async function fetchSavingsGoals(userId: string) {
-  const { data, error } = await supabase
-    .from('savings_goals')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as SavingsGoal[];
-}
-
-export async function createSavingsGoal(userId: string, input: SavingsGoalInput) {
-  const { data, error } = await supabase
-    .from('savings_goals')
-    .insert({ user_id: userId, ...input })
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as SavingsGoal;
-}
-
-export async function updateSavingsGoal(id: number, patch: Partial<SavingsGoalInput>) {
-  const { data, error } = await supabase
-    .from('savings_goals')
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as SavingsGoal;
-}
-
-export async function deleteSavingsGoal(id: number) {
-  const { error } = await supabase.from('savings_goals').delete().eq('id', id);
   if (error) throw error;
 }
