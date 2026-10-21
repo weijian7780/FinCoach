@@ -4,10 +4,12 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText as Text } from '@/components/ui/app-text';
+import { ReceiptImageEditor } from '@/components/transactions/receipt-image-editor';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { useAuth } from '@/lib/auth-context';
 import { extractReceipt, setReceiptDraft, type ReceiptImageDraft } from '@/lib/receipt-ocr';
@@ -24,6 +26,7 @@ export default function ScanReceiptScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [capturedImage, setCapturedImage] = useState<ReceiptImageDraft | null>(null);
+  const [editingImage, setEditingImage] = useState(false);
   const [isFocused, setIsFocused] = useState(true);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -43,8 +46,10 @@ export default function ScanReceiptScreen() {
     }
   }, [permission, requestPermission]);
 
-  const maxFrameHeight = Math.max(260, height - insets.top - insets.bottom - 250);
-  const frameWidth = Math.max(210, Math.min(width - 60, 340, maxFrameHeight * 0.72));
+  // Reserve room for the new preparation control on short phones rather than
+  // letting the preview extend underneath the header or capture buttons.
+  const maxFrameHeight = Math.max(120, height - insets.top - insets.bottom - (capturedImage ? 340 : 270));
+  const frameWidth = Math.max(100, Math.min(width - 60, 340, maxFrameHeight * 0.72));
 
   async function processImage(image: ReceiptImageDraft) {
     if (!session?.access_token || processing) return;
@@ -55,7 +60,7 @@ export default function ScanReceiptScreen() {
       setReceiptDraft(image, extraction);
       router.push('/transactions/review' as never);
     } catch (caught) {
-      Alert.alert('Receipt could not be read', caught instanceof Error ? caught.message : 'Try another photo or enter it manually.');
+      appDialog.open('Receipt could not be read', caught instanceof Error ? caught.message : 'Try another photo or enter it manually.');
       setStatus('Receipt was not clear. Retake it or try this photo again.');
     } finally {
       setProcessing(false);
@@ -68,10 +73,10 @@ export default function ScanReceiptScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
       if (!photo?.uri) throw new Error('The camera did not return a photo.');
       setTorchEnabled(false);
-      setCapturedImage({ uri: photo.uri, fileName: `receipt-${Date.now()}.jpg`, mimeType: 'image/jpeg' });
+      setCapturedImage({ uri: photo.uri, width: photo.width, height: photo.height, fileName: `receipt-${Date.now()}.jpg`, mimeType: 'image/jpeg' });
       setStatus('Check that the receipt is sharp and fully visible.');
     } catch (caught) {
-      Alert.alert('Photo could not be taken', caught instanceof Error ? caught.message : 'Please try again.');
+      appDialog.open('Photo could not be taken', caught instanceof Error ? caught.message : 'Please try again.');
     }
   }
 
@@ -79,7 +84,7 @@ export default function ScanReceiptScreen() {
     if (processing) return;
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to choose a receipt image.');
+      appDialog.open('Permission needed', 'Allow photo access to choose a receipt image.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, allowsEditing: false });
@@ -87,6 +92,8 @@ export default function ScanReceiptScreen() {
     const asset = result.assets[0];
     setCapturedImage({
       uri: asset.uri,
+      width: asset.width,
+      height: asset.height,
       fileName: asset.fileName ?? `receipt-${Date.now()}.jpg`,
       mimeType: asset.mimeType ?? 'image/jpeg',
     });
@@ -139,7 +146,8 @@ export default function ScanReceiptScreen() {
               style={StyleSheet.absoluteFill}
             />
           ) : null}
-          {capturedImage ? <Image contentFit="cover" source={{ uri: capturedImage.uri }} style={StyleSheet.absoluteFill} /> : null}
+          {capturedImage ? <Image key={capturedImage.uri} contentFit="contain" contentPosition="center"
+            source={{ uri: capturedImage.uri }} style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]} /> : null}
           {!permission && !capturedImage ? <ActivityIndicator color="white" size="large" /> : null}
           {permissionDenied && !capturedImage ? (
             <View style={emptyState}>
@@ -170,11 +178,13 @@ export default function ScanReceiptScreen() {
           <Corner position="br" />
         </View>
         <Text style={hint}>{status}</Text>
-        <View style={securePill}>
-          <MaterialIcons name="lock" size={14} color="#D8D7FF" />
-          <Text style={secureText}>Private upload • 5 MB maximum</Text>
-        </View>
+        {capturedImage ? <Pressable accessibilityLabel="Crop or rotate receipt" disabled={processing}
+          onPress={() => setEditingImage(true)} style={prepareButton}>
+          <MaterialIcons name="crop-rotate" size={22} color="white" /><Text style={prepareText}>Crop / rotate</Text>
+        </Pressable> : null}
       </View>
+      {editingImage && capturedImage ? <ReceiptImageEditor image={capturedImage} onClose={() => setEditingImage(false)}
+        onApply={(prepared) => { setCapturedImage(prepared); setEditingImage(false); setStatus('Check that the merchant, date and final payment are included.'); }} /> : null}
 
       <View style={[controls, { paddingBottom: Math.max(insets.bottom + 22, 30) }]}>
         <Pressable
@@ -216,8 +226,8 @@ const frameArea = { flex: 1, minHeight: 0, alignItems: 'center', justifyContent:
 const frame = { maxWidth: 340, aspectRatio: 0.72, borderRadius: 20, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center' } as const;
 const corner = { position: 'absolute', width: 42, height: 42, borderColor: 'white', zIndex: 4 } as const;
 const hint = { marginTop: 18, textAlign: 'center', fontSize: 14, fontFamily: authFont.semibold, color: 'white' } as const;
-const securePill = { marginTop: 10, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, flexDirection: 'row', gap: 6, backgroundColor: 'rgba(70,72,212,0.35)' } as const;
-const secureText = { fontSize: 12, fontFamily: authFont.regular, color: '#D8D7FF' } as const;
+const prepareButton = { marginTop: 12, minHeight: 44, paddingHorizontal: 18, borderRadius: 24, backgroundColor: 'rgba(255,255,255,.12)', flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' } as const;
+const prepareText = { fontSize: 14, fontFamily: authFont.semibold, color: 'white' } as const;
 const controls = { paddingTop: 14, paddingHorizontal: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
 const sideButton = { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' } as const;
 const capture = { width: 76, height: 76, borderRadius: 38, borderWidth: 5, borderColor: 'rgba(255,255,255,0.45)', backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' } as const;

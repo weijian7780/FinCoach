@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { fetch } from 'expo/fetch';
 import { File } from 'expo-file-system';
 
@@ -9,12 +10,17 @@ export type ReceiptImageDraft = {
   uri: string;
   fileName: string;
   mimeType: string;
+  width?: number;
+  height?: number;
+  originalUri?: string;
+  originalMimeType?: string;
+  transforms?: Array<{ kind: 'rotate'; degrees: number } | { kind: 'crop'; originX: number; originY: number; width: number; height: number }>;
 };
 
-let currentDraft: { image: ReceiptImageDraft; extraction: ReceiptExtractionDraft } | null = null;
+let currentDraft: { id: string; uploading: boolean; uploaded: boolean; image: ReceiptImageDraft; extraction: ReceiptExtractionDraft } | null = null;
 
 export function setReceiptDraft(image: ReceiptImageDraft, extraction: ReceiptExtractionDraft) {
-  currentDraft = { image, extraction };
+  currentDraft = { id: Crypto.randomUUID(), uploading: false, uploaded: false, image, extraction };
 }
 
 export function getReceiptDraft() {

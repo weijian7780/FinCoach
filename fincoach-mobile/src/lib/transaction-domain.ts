@@ -1,5 +1,5 @@
 import { formatMoney, parseMoney } from '@/lib/savings-domain';
-import type { Category, TransactionWithCategory } from '@/lib/types';
+import type { Category, Profile, TransactionWithCategory, TransactionWriteInput } from '@/lib/types';
 
 export type TransactionType = 'expense' | 'income';
 
@@ -15,6 +15,35 @@ export type TransactionFormInput = {
 export type TransactionFieldErrors = Partial<Record<keyof TransactionFormInput, string>>;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Build an editable draft; expected income is never recorded without confirmation. */
+export function buildProfileIncomeDraft(profile: Pick<Profile, 'monthly_allowance' | 'income_source'>, categories: Category[], today: string): TransactionFormInput | null {
+  const amount = parseMoney(String(profile.monthly_allowance ?? ''));
+  if (amount == null || amount <= 0) return null;
+  const source = ['Allowance', 'Part-time job', 'Scholarship', 'PTPTN'].includes(profile.income_source ?? '') ? profile.income_source! : '';
+  const incomeCategories = categories.filter((category) => category.type === 'income');
+  const category = incomeCategories.find((item) => source && item.name.toLowerCase() === source.toLowerCase())
+    ?? incomeCategories.find((item) => item.name.toLowerCase() === 'income');
+  return { type: 'income', amount: String(amount), source, transactionDate: today, description: '', categoryId: category?.id ?? null };
+}
+
+/** Advisory matching preserves genuine equal installments as separate payments. */
+export function findSimilarIncomeEntries(entries: TransactionWithCategory[], draft: TransactionFormInput) {
+  return entries.filter((entry) => entry.category.type === 'income' && entry.category_id === draft.categoryId
+    && Number(entry.amount) === parseMoney(draft.amount)
+    && entry.transaction_date.slice(0, 7) === draft.transactionDate.slice(0, 7)
+    && entry.source.trim().toLowerCase() === draft.source.trim().toLowerCase());
+}
+
+/** Recovery accepts only the identical persisted financial payload. */
+export function transactionMatchesInput(transaction: TransactionWithCategory, input: TransactionWriteInput) {
+  return transaction.id === input.id && transaction.category_id === input.category_id
+    && Number(transaction.amount) === input.amount && transaction.transaction_date === input.transaction_date
+    && transaction.source.trim() === input.source.trim()
+    && (transaction.description?.trim() || null) === (input.description?.trim() || null)
+    && transaction.receipt_image_path === input.receipt_image_path
+    && (input.receipt_items === undefined || JSON.stringify((transaction.receipt_items ?? []).map(item => [item.description, Number(item.amount), item.confidence ?? null, item.modifiers ?? []])) === JSON.stringify(input.receipt_items.map(item => [item.description, Number(item.amount), item.confidence ?? null, item.modifiers ?? []])));
+}
 
 function isValidIsoDate(value: string) {
   if (!ISO_DATE.test(value)) return false;

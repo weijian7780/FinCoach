@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  buildProfileIncomeDraft,
+  findSimilarIncomeEntries,
+  transactionMatchesInput,
   filterTransactions,
   formatTransactionAmount,
   groupTransactionsByDate,
@@ -26,6 +29,38 @@ const makeTransaction = (overrides: Partial<TransactionWithCategory>): Transacti
   updated_at: '2026-07-14T08:00:00Z',
   category: categories[0],
   ...overrides,
+});
+
+describe('profile income drafts', () => {
+  test.each(['Allowance', 'Part-time job', 'Scholarship', 'PTPTN'])('prefills %s using a generic income category', (source) => {
+    expect(buildProfileIncomeDraft({ monthly_allowance: 2000, income_source: source }, categories, '2026-10-02')).toEqual({
+      type: 'income', amount: '2000', source, transactionDate: '2026-10-02', categoryId: 2, description: '',
+    });
+  });
+  test.each(['Mixed', 'Other', null])('requires the actual source for %s', (income_source) => {
+    expect(buildProfileIncomeDraft({ monthly_allowance: 2000, income_source }, categories, '2026-10-02')?.source).toBe('');
+  });
+  test.each([null, 0, -1, NaN, Infinity])('rejects an invalid expected amount %s', (monthly_allowance) => {
+    expect(buildProfileIncomeDraft({ monthly_allowance, income_source: 'Allowance' }, categories, '2026-10-02')).toBeNull();
+  });
+  test('prefers the matching income category and never selects an expense category', () => {
+    const allowance = { ...categories[1], id: 3, name: 'Allowance' };
+    expect(buildProfileIncomeDraft({ monthly_allowance: 2000, income_source: 'Allowance' }, [...categories, allowance], '2026-10-02')?.categoryId).toBe(3);
+    expect(buildProfileIncomeDraft({ monthly_allowance: 2000, income_source: 'Allowance' }, [categories[0]], '2026-10-02')?.categoryId).toBeNull();
+  });
+  test('finds similar installments without collapsing separate rows or matching different payments', () => {
+    const draft = buildProfileIncomeDraft({ monthly_allowance: 2000, income_source: 'Allowance' }, categories, '2026-10-02')!;
+    const entry = makeTransaction({ category_id: 2, category: categories[1], amount: 2000, source: ' allowance ', transaction_date: '2026-10-01' });
+    const entries = [entry, { ...entry, id: 'second' }, { ...entry, id: 'other-month', transaction_date: '2026-09-30' }, { ...entry, id: 'other-source', source: 'Salary' }, { ...entry, id: 'other-amount', amount: 1000 }, { ...entry, id: 'other-category', category_id: 3 }];
+    expect(findSimilarIncomeEntries(entries, draft).map((item) => item.id)).toEqual([entry.id, 'second']);
+  });
+  test('recovery requires the same financial payload, including the receipt', () => {
+    const entry = makeTransaction({});
+    const payload = { id: entry.id, amount: entry.amount, category_id: entry.category_id, source: entry.source, transaction_date: entry.transaction_date, description: '', receipt_image_path: null };
+    expect(transactionMatchesInput(entry, payload)).toBe(true);
+    expect(transactionMatchesInput(entry, { ...payload, amount: 500 })).toBe(false);
+    expect(transactionMatchesInput(entry, { ...payload, receipt_image_path: 'receipt.jpg' })).toBe(false);
+  });
 });
 
 describe('transaction form validation', () => {
