@@ -43,7 +43,7 @@ _ALLOWED_INTENTS = frozenset(_TOOL_INTENT.values()) | {
     "transaction_search",
 }
 _ALLOWED_FIELDS = frozenset(
-    {"month", "savings_intent", "transaction_filter", "periods", "date_range"}
+    {"month", "savings_intent", "transaction_filter", "amount", "periods", "date_range"}
 )
 
 _SAVINGS_OPTIONS = (
@@ -58,6 +58,31 @@ _CANCEL = re.compile(
 )
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _YEAR_MONTH = re.compile(r"^\s*(20\d{2})-(0[1-9]|1[0-2])\s*$")
+
+
+# Transaction filters that survive a clarification unchanged; the reply resolves
+# only the one missing constraint (merchant / category / amount / date).
+_TXN_KEEP_KEYS = frozenset({
+    "start_date", "end_date", "category_name", "transaction_type",
+    "amount", "limit", "result_mode", "text",
+})
+
+
+def _txn_constraint_satisfied(reason: str | None, merged: dict, has_dates: bool) -> bool:
+    """Whether the reply has resolved the *specific* constraint that was asked."""
+    if reason == "multiple_merchants":
+        return "text" in merged
+    if reason == "excluded_category":
+        return "category_name" in merged
+    if reason == "unresolved_reference":
+        return "text" in merged or has_dates
+    return "text" in merged or "category_name" in merged or has_dates
+
+
+def _txn_reask_message(reason: str | None) -> str:
+    if reason == "excluded_category":
+        return "Which category should I include? Name one, for example 'Food'."
+    return "Please name one merchant to search, for example 'Grab'."
 
 
 # --- Build -----------------------------------------------------------------
@@ -117,6 +142,14 @@ def _question_for(field: str, request: ResolvedReadRequest, anchor: date):
             True,
             "periods",
         )
+    if field == "amount":
+        return (
+            "Which exact amount should I search for, for example RM25?",
+            "text",
+            [],
+            True,
+            "amount",
+        )
     return (
         "Which period should I use? Give a start and end date as "
         "YYYY-MM-DD to YYYY-MM-DD.",
@@ -156,6 +189,7 @@ def build_read_clarification(
             "parameter_sources": dict(request.parameter_sources),
             "missing_required": list(request.missing_required),
             "invalid_fields": list(request.invalid_fields),
+            "reason": request.clarify_reason,
         },
     }
 
@@ -189,7 +223,10 @@ def _coerce_state(payload: object) -> dict | None:
         if isinstance(value, str) and len(value) > _MAX_STR:
             return None
         clean_arguments[key] = value
-    return {"route": route, "tool_name": tool_name, "intent": intent, "arguments": clean_arguments}
+    reason = state.get("reason")
+    if reason is not None and not isinstance(reason, str):
+        reason = None
+    return {"route": route, "tool_name": tool_name, "intent": intent, "arguments": clean_arguments, "reason": reason}
 
 
 def _unavailable() -> ResolvedReadRequest:
@@ -214,16 +251,18 @@ def _cancelled() -> ResolvedReadRequest:
     )
 
 
-def _reask(field: str, tool_name: str | None, intent: str | None, message: str) -> ResolvedReadRequest:
+def _reask(field: str, tool_name: str | None, intent: str | None, message: str,
+           *, arguments: dict | None = None, reason: str | None = None) -> ResolvedReadRequest:
     return ResolvedReadRequest(
         route=CoachingRoute.PERSONAL_FINANCE,
         tool_name=tool_name,
-        arguments={},
+        arguments=dict(arguments or {}),
         readiness=ReadReadiness.NEEDS_CLARIFICATION,
         intent=intent,
-        invalid_fields=(field,) if field in {"month", "date_range"} else (),
-        missing_required=() if field in {"month", "date_range"} else (field,),
+        invalid_fields=(field,) if field in {"month", "date_range", "amount"} else (),
+        missing_required=() if field in {"month", "date_range", "amount"} else (field,),
         clarification=message,
+        clarify_reason=reason,
     )
 
 
@@ -275,14 +314,67 @@ def resume_read_clarification(payload: dict, reply: str, *, now: date) -> Resolv
                       "Please choose savings-goal progress, or how much you could save.")
 
     if field == "transaction_filter":
-        iso = _ISO_DATE.search(reply)
-        if iso:
-            arguments = {"start_date": iso.group(0), "end_date": iso.group(0)}
-            sources = {"start_date": "explicit", "end_date": "explicit"}
-        else:
-            arguments = {"text": reply[:_MAX_STR]}
-            sources = {"text": "explicit"}
-        return _ready(route_value, "search_transactions", arguments, "transaction_search", sources)
+        reason = state.get("reason")
+        # Keep every filter that survived clarification; the reply resolves only
+        # the one missing constraint.
+        merged = {k: v for k, v in arguments.items() if k in _TXN_KEEP_KEYS}
+        sources = {k: "context" for k in merged}
+        try:
+            reply_args = required_read_agent_tool_arguments(reply, "search_transactions", now=now)
+        except ValueError:
+            reply_args = {}
+        has_dates = bool(reply_args.get("start_date") and reply_args.get("end_date"))
+        if has_dates:
+            merged["start_date"] = reply_args["start_date"]
+            merged["end_date"] = reply_args["end_date"]
+            sources["start_date"] = sources["end_date"] = "explicit"
+            merged.pop("all_dates", None)
+        elif _ISO_DATE.search(reply):
+            iso = _ISO_DATE.search(reply).group(0)
+            merged["start_date"] = merged["end_date"] = iso
+            sources["start_date"] = sources["end_date"] = "explicit"
+            merged.pop("all_dates", None)
+            has_dates = True
+        # A non-date reply names the missing merchant (or category, for exclusions).
+        merchant = reply_args.get("text")
+        if not merchant and not has_dates:
+            merchant = reply[:_MAX_STR]
+        if merchant:
+            if reason == "excluded_category":
+                merged["category_name"] = merchant
+                sources["category_name"] = "explicit"
+            else:
+                merged["text"] = merchant
+                sources["text"] = "explicit"
+        if not _txn_constraint_satisfied(reason, merged, has_dates):
+            return _reask("transaction_filter", "search_transactions", "transaction_search",
+                          _txn_reask_message(reason), arguments=merged, reason=reason)
+        if (merged.get("result_mode", "list") == "list"
+                and ("text" in merged or "amount" in merged)
+                and not (merged.get("start_date") and merged.get("end_date"))):
+            merged["all_dates"] = True
+            sources["all_dates"] = "default"
+        return _ready(route_value, "search_transactions", merged, "transaction_search", sources)
+
+    if field == "amount":
+        merged = {k: v for k, v in arguments.items() if k in _TXN_KEEP_KEYS}
+        sources = {k: "context" for k in merged}
+        try:
+            reply_args = required_read_agent_tool_arguments(reply, "search_transactions", now=now)
+        except ValueError:
+            reply_args = {}
+        amount = reply_args.get("amount")
+        if not amount:
+            return _reask("amount", "search_transactions", "transaction_search",
+                          "Please give one exact amount, for example RM25.",
+                          arguments=merged, reason="amount")
+        merged["amount"] = amount
+        sources["amount"] = "explicit"
+        if (merged.get("result_mode", "list") == "list"
+                and not (merged.get("start_date") and merged.get("end_date"))):
+            merged["all_dates"] = True
+            sources["all_dates"] = "default"
+        return _ready(route_value, "search_transactions", merged, "transaction_search", sources)
 
     if field == "periods":
         try:

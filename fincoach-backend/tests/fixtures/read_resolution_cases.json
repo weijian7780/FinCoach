@@ -193,5 +193,148 @@
       "missing_required": [],
       "invalid_fields": []
     }
+  },
+  {
+    "id": "search_last_five_transactions",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my last 5 transactions",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-09-01", "end_date": "2026-09-30", "limit": 5},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_at_merchant",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my transactions at Grab",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"text": "Grab", "all_dates": true},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_exact_amount",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my transactions for RM25",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"amount": "25.00", "all_dates": true},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_combined_filters",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my last 5 Food transactions at Grab for RM25",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"category_name": "Food", "text": "Grab", "amount": "25.00", "limit": 5, "all_dates": true},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_comparative_amount_clarifies",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my transactions over RM25",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": ["amount"]
+    }
+  },
+  {
+    "id": "search_count_at_merchant",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "How many transactions at Grab?",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-09-01", "end_date": "2026-09-30", "text": "Grab", "result_mode": "count"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_merchant_expense_total",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "How much did I spend at Grab?",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-09-01", "end_date": "2026-09-30", "text": "Grab", "result_mode": "expense_total"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_from_month_is_period_not_text",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my transactions from July 2026",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "search_top_n_clarifies",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "Show my top 5 transactions",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "needs_clarification",
+      "arguments": {},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "verbfree_transactions_from_month_is_a_list",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "transactions from July",
+    "expected": {
+      "tool_name": "search_transactions",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
+  },
+  {
+    "id": "ranking_transactions_in_month_stays_summary",
+    "now": "2026-09-22",
+    "history": [],
+    "query": "which category had the most transactions in July",
+    "expected": {
+      "tool_name": "get_spending_summary",
+      "readiness": "ready",
+      "arguments": {"start_date": "2026-07-01", "end_date": "2026-07-31"},
+      "missing_required": [],
+      "invalid_fields": []
+    }
   }
 ]

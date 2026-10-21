@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "public_questions": [
+    {"id": "str_informal_exact", "question": "how do i apply STR, what document do i need", "scope": "current", "coverage": ["application channels and steps", "conditional supporting document checklist"]},
+    {"id": "str_application", "question": "How do I apply for Sumbangan Tunai Rahmah, and what supporting documents are needed?", "scope": "current", "coverage": ["application steps", "supporting documents and applicant categories"]},
+    {"id": "akpk_application", "question": "How do I apply for AKPK's Debt Management Programme, who is eligible, and what documents do I need?", "scope": "current", "coverage": ["application steps", "eligibility", "documents"]},
+    {"id": "ptptn_waiver", "question": "how can i get waive in ptptn", "scope": "current", "coverage": ["eligibility", "application steps", "documents"]},
+    {"id": "epf_education", "question": "How do I apply for EPF education withdrawal, who qualifies, and what documents do I need?", "scope": "current", "coverage": ["application steps", "eligibility", "documents"]},
+    {"id": "str_married", "question": "How do I apply for Sumbangan Tunai Rahmah, and which documents are required for married applicants?", "scope": "current", "coverage": ["application steps", "documents for married applicants"]},
+    {"id": "ptptn_deadline", "question": "How do I apply for a PTPTN repayment exemption, who qualifies, and what is the application deadline?", "scope": "current", "coverage": ["application steps", "eligibility", "deadline"]},
+    {"id": "sara_english", "question": "How do I apply for SARA assistance? Explain the eligibility and application process in English.", "scope": "current", "coverage": ["eligibility", "application process", "English explanation"]},
+    {"id": "icu_general", "question": "ICU, JPM do for?", "public_topic": "Role of ICU JPM in SARA", "scope": "general", "coverage": ["general agency role and functions"]},
+    {"id": "current_policy", "question": "What is the current Bank Negara Malaysia overnight policy rate?", "scope": "current", "coverage": ["effective rate", "effective date"]},
+    {"id": "historical_policy", "question": "What was Malaysia's overnight policy rate in December 2023?", "scope": "historical", "coverage": ["rate applicable in the requested period"]},
+    {"id": "comparison", "question": "Compare the current basic savings account fees at Maybank and CIMB in Malaysia.", "scope": "current", "coverage": ["official terms for each bank", "equivalent account types"]}
+  ],
+  "contract_scenarios": [
+    {"id": "no_official_faq", "expected": "relevant official programme page can establish requirements without FAQ/PDF"},
+    {"id": "reported_requirements", "expected": "broader discovery; independent applicable reports; attributed explanation"},
+    {"id": "syndicated_requirements", "expected": "one shared origin; useful reported partial, incomplete checklist"},
+    {"id": "no_reliable_sources", "expected": "bounded source recovery; accurate unavailable reason; no fabricated facts"},
+    {"id": "malformed_missing", "missing": "application documents", "expected": "local repair, preserve exact support"},
+    {"id": "invalid_support", "support": [{"source_id": "1", "quote": "Invented quote."}], "expected": "reject, bounded checker retry, no fake-gap search"},
+    {"id": "partial_evidence", "missing": ["application documents"], "expected": "focused public recovery, preserve supported steps"},
+    {"id": "complete_failure", "failure": "search_failed", "expected": "useful official next step, no invented policy"}
+  ]
+}

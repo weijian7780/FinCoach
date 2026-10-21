@@ -14,6 +14,53 @@ NOW = date(2026, 9, 22)  # September 2026 is the in-progress current month
 
 
 class ComparisonRoutingTests(unittest.TestCase):
+    def test_trailing_year_applies_to_the_whole_month_list(self):
+        parsed = parse_comparison_request(
+            "Compare my spending in July and September 2025", now=NOW
+        )
+        self.assertEqual(parsed["periods"], ["2025-07", "2025-09"])
+
+    def test_trailing_year_applies_to_the_whole_month_range(self):
+        parsed = parse_comparison_request(
+            "Compare my spending from January to March 2025", now=NOW
+        )
+        self.assertEqual(parsed["periods"], ["2025-01", "2025-02", "2025-03"])
+
+    def test_cross_year_range_respects_its_explicit_endpoint(self):
+        for text in (
+            "Compare spending November to February 2025",
+            "Compare spending November 2024 to February",
+        ):
+            with self.subTest(text=text):
+                parsed = parse_comparison_request(text, now=NOW)
+                self.assertEqual(parsed["periods"], ["2024-11", "2024-12", "2025-01", "2025-02"])
+
+    def test_too_many_months_require_clarification_instead_of_truncation(self):
+        from app.rag.routing import ReadReadiness, resolve_read_request
+
+        for text in (
+            "Compare my spending for the last 13 months",
+            "Compare my spending for the last 100 months",
+            "Compare this month with the previous twelve",
+            "Compare January 2025 to February 2026 spending",
+        ):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, "12"):
+                    parse_comparison_request(text, now=NOW)
+                resolved = resolve_read_request(text, [], now=NOW)
+                self.assertEqual(resolved.readiness, ReadReadiness.NEEDS_CLARIFICATION)
+                self.assertNotIn("periods", resolved.arguments)
+
+    def test_relative_month_period_is_not_used_as_a_category(self):
+        parsed = parse_comparison_request(
+            "Compare my spending for the last three months", now=NOW
+        )
+        self.assertIsNone(parsed["category_name"])
+        parsed = parse_comparison_request(
+            "Compare my spending on Food for the last three months", now=NOW
+        )
+        self.assertEqual(parsed["category_name"], "Food")
+
     def test_named_month_list_resolves_to_calendar_months(self):
         parsed = parse_comparison_request(
             "Compare July, August and September spending", now=NOW

@@ -47,6 +47,10 @@ class RetrievedChunk:
     source_type: str = "corpus"
     tier: int | None = None
     confidence: str | None = None
+    published_date: str | None = None
+    checked_at: str | None = None
+    # Internal excerpt identity; canonical URL still owns origin and citation.
+    evidence_window_id: str | None = None
 
 
 def select_retrieved_chunks(

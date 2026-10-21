@@ -23,6 +23,9 @@ from __future__ import annotations
 import re
 from typing import Iterable, Mapping
 
+from app.category_resolution import is_category_ranking_query
+from app.rag.text_normalize import normalize_for_intent
+
 # --- Intent vocabulary ------------------------------------------------------
 # Each next-step candidate is tagged with a stable intent key. The same keys are
 # used to recognise what the user has already asked, so a candidate can be
@@ -127,6 +130,9 @@ def _asked_intents(texts: Iterable[str]) -> set[str]:
     for text in texts:
         if not text:
             continue
+        text = normalize_for_intent(text)
+        if is_category_ranking_query(text):
+            asked.add(TOP_CATEGORY)
         for intent, pattern in _ASKED_PATTERNS.items():
             if intent not in asked and pattern.search(text):
                 asked.add(intent)

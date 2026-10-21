@@ -1,0 +1,12 @@
+[
+  {"id":"spending-summary","split":"dev","question":"Where does my money go each month?","history":[],"personal":true,"external":false,"scope":"stable"},
+  {"id":"compound-interest","split":"dev","question":"How does compound interest work?","history":[],"personal":false,"external":true,"scope":"stable"},
+  {"id":"context-rule-current","split":"dev","question":"Has that rule changed recently?","history":["How do EPF withdrawals work?"],"personal":false,"external":true,"scope":"current"},
+  {"id":"bank-comparison-current","split":"dev","question":"Compare Maybank and CIMB fixed deposit rates today","history":[],"personal":false,"external":true,"scope":"current","entities":["Maybank","CIMB"]},
+  {"id":"mixed-impact","split":"dev","question":"How would the latest OPR change affect my budget?","history":[],"personal":true,"external":true,"scope":"current"},
+  {"id":"historical-rule","split":"dev","question":"What were EPF withdrawal rules in 2023?","history":[],"personal":false,"external":true,"scope":"historical","period":"2023"},
+  {"id":"deposit-followup","split":"holdout","question":"What about their 12-month products right now?","history":["Compare RHB and Bank Islam fixed deposits"],"personal":false,"external":true,"scope":"current","entities":["RHB","Bank Islam"]},
+  {"id":"historical-protection","split":"holdout","question":"What did PIDM cover in 2022?","history":[],"personal":false,"external":true,"scope":"historical","period":"2022"},
+  {"id":"personal-paraphrase","split":"holdout","question":"Show me the areas that swallowed most of my spending","history":[],"personal":true,"external":false,"scope":"stable"},
+  {"id":"mixed-followup","split":"holdout","question":"If it rose again, what happens to my monthly room to spend?","history":["What is the current OPR?"],"personal":true,"external":true,"scope":"current"}
+]

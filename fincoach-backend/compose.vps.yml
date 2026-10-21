@@ -1,0 +1,58 @@
+services:
+  backend:
+    container_name: fincoach-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # x86_64 wheels do not hit the ARM64 static-predictor crash, so the
+      # PADDLE_OCR_ENGINE override that Oracle Ampere needed is deliberately
+      # absent here. Leave it unset unless a specific host misbehaves.
+      PADDLE_OCR_MAX_SIDE: ${PADDLE_OCR_MAX_SIDE:-1600}
+      PADDLE_OCR_CPU_THREADS: ${PADDLE_OCR_CPU_THREADS:-2}
+      RECEIPT_CLEANUP_MIN_CONFIDENCE: ${RECEIPT_CLEANUP_MIN_CONFIDENCE:-0.85}
+    init: true
+    ports:
+      # Bound to loopback: the Cloudflare Tunnel or a host reverse proxy is the
+      # only public entry point. Never publish 0.0.0.0:8000 — the coaching and
+      # receipt routes carry Supabase-authenticated user data.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Keep downloaded models when the application image is rebuilt.
+      - fincoach_huggingface:/root/.cache/huggingface
+      - fincoach_paddlex:/root/.paddlex
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # The first startup downloads and loads BGE-M3 and PaddleOCR.
+      start_period: 15m
+
+  # Optional: terminate HTTPS at Cloudflare instead of installing Nginx and
+  # Certbot on the host. Start it with:
+  #   docker compose -f compose.vps.yml --profile tunnel up -d
+  # Point the tunnel's public hostname at http://backend:8000 (the compose
+  # service name), not 127.0.0.1 — cloudflared runs in its own container.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.2
+    container_name: fincoach-tunnel
+    profiles:
+      - tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - backend
+
+volumes:
+  fincoach_huggingface:
+  fincoach_paddlex:

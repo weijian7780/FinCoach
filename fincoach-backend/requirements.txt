@@ -21,8 +21,11 @@ openai
 # runtime: imported lazily, and the coach degrades gracefully if it is absent.
 tavily-python
 
-# Receipt OCR text cleanup (server-side Gemini SDK; receipt images are never sent)
+# Receipt visual OCR verification (server-side Gemini SDK; image + OCR text)
 google-genai==2.11.0
+
+# Receipt category classification (TypeSafe Jev; receipt text only, never the image)
+typesafe-sdk
 
 # Receipt OCR (Transaction and Receipt Capture module)
 python-multipart

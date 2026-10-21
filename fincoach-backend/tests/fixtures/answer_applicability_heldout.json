@@ -1,0 +1,845 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "str-0",
+      "family": "str",
+      "query": "How do I apply for Sumbangan Tunai Rahmah, and which documents are required for married applicants?",
+      "sources": [
+        "S: Bagaimanakah kaedah permohonan STR 2026? Kaedah permohonan STR adalah seperti berikut: J: a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM 3. S: Di manakah saya boleh menghantar Borang Permohonan STR yang telah lengkap diisi berserta dokumen sokongan berkaitan? J: Borang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM. Penghantaran borang secara e-mel adalah tidak diterima. 4. S: Apakah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026? J: Berikut adalah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026: a. Pemohonan Baharu; b. Kemas Kini Permohonan; c. Permohonan Rayuan / Rayuan Tambahan; dan d. Perubahan Maklumat Asas Permohonan 5. S: Bagaimanakah semakan kelayakan permohonan STR 2026 dibuat? J: Semakan kelayakan dibuat secara berfasa dan semakan bagi kelayakan Fasa 1 STR 2026 akan dibuat kepada permohonan yang diterima sehingga 28 November 2025. Permohonan yang dibuat selepas tarikh berikut akan diproses bagi kelayakan fasa seterusnya. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 2 Tarikh Dikemaskini: 27/11/2025 B. PERMOHONAN BAHARU 6. S: Siapakah yang perlu membuat Permohonan Baharu STR 2026? J: Pemohon yang perlu membuat Permohonan Baharu STR 2026 adalah seperti berikut: a. Pemohon yang tiada rekod dalam sistem STR 2025; serta b. Berpendapatan isi rumah RM5,000 dan ke bawah; atau c. Berpendapatan RM2,500 dan ke bawah untuk individu bujang / tiada",
+        "S: Apakah dokumen yang perlu dikemukakan semasa membuat permohonan STR? J: Salinan dokumen sokongan pemohon / pasangan / anak (jika berkaitan) yang perlu dikemukakan adalah seperti berikut: a. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau ii. Salinan Sijil Kematian pasangan yang dikeluarkan oleh JPN; atau iii. Sijil Perceraian / Pembubaran Perkahwinan (asal dan salinan) yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau iv. Salinan Sijil Dekri Nisi / Dekri Nisi Mutlak yang dikeluarkan oleh Mahkamah; atau v. Salinan Kad OKU yang dikeluarkan oleh Jabatan Kebajikan Masyarakat (JKM) bagi pemohon berumur 19-20 tahun pada tahun 2026. b. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan c. Anak: i. Anak Kandung • Salinan Sijil Lahir; dan • Salinan MyKad / MyKid ii. Anak Angkat • Salinan MyKad / MyKid; dan • Salinan Sijil Daftar Anak Angkat yang dikeluarkan oleh JPN Borang Serahan Dokumen Sokongan STR (BK-04) perlu dilengkapkan dan diserahkan semasa mengemukakan dokumen sokongan berkenaan ke Pejabat HASiL ATAU boleh memuat naik ke sistem STR semasa permohonan secara dalam talian. 8. S: Saya hanya mempunyai Kad Pengenalan Lama dan tidak memperbaharuinya lagi. Adakah saya boleh membuat permohonan STR? J: Anda perlu merujuk Jabatan Pendaftaran Negara (JPN) untuk mendapatkan MyKad kerana Permohonan STR mewajibkan penggunaan MyKad sahaja. Permohonan STR hanya boleh dilakukan setelah anda mempunyai MyKad. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 3 Tarikh Dikemaskini: 27/11/2025 9. S: Saya bujang berumur 20 tahun pada tahun 2025 dan saya dimaklumkan bahawa tiada bayaran STR 2026 bagi kelayakan kategori Bujang. Adakah saya masih perlu membuat permohonan STR 2026? J: Ya. Anda perlu membuat Permo",
+        "IV. Dokumen Sokongan a) Sila pilih jenis dokumen, paparan senarai jenis dokumen adalah berdasarkan Status Kahwin. • Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Cerai, sistem akan paparkan dropdown list : - Sijil Cerai - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Kematian Pasangan, sistem akan paparkan dropdown list : - Sijil Kematian Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak b) Pilih fail dokumen untuk dimuat naik. • Saiz dokumen haruslah kurang dari 3MB • Jenis fail : PDF, JPG, JPEG atau PNG sahaja. • Dokumen yang berjaya dimuat naik akan dipaparkan seperti di bawah • Sila klik butang padam bagi tindakan menghapus dokumen. c) Klik butang Teruskan untuk ke halaman seterusnya. V. Maklumat Waris a) Pilih Maklumat Waris • Ada Waris • Tiada Waris • Sama Seperti Maklumat Pasangan b) Pilih Hubungan • Pasangan • Ibu/bapa • Anak • Adik beradik • Cucu c) Jika Maklumat Waris “Sama Seperti Maklumat Pasangan”, ruangan Hubungan akan diisi sebagai Pasangan. Jenis Pengenalan, No Pengenalan dan Nama Waris jugak akan diisi menggunakan data pada maklumat pasangan dan maklumat tersebut tidak boleh dipinda. d) Pilih Jenis Pengenalan Waris • No. MyKad / MyPR / MyKAS / MyKid • Sijil Lahir • No. Passport e) Nombor Pengenalan waris. f) Nama waris • Jika nombor pengenalan waris wujud pada data JPN, maklumat Nama waris akan dipaparkan secara automatik • Jika tidak wujud atau jenis pengenalan waris adalah Sijil Lahir / No. Pasport, ruangan Nama perlu diisi. g) Isikan No Telefon Waris h) Klik butang Teruskan untuk ke halaman seterusnya. VI. Pengesahan a) Isi Captcha • Masukkan nilai Captcha seperti dipaparkan • Boleh reset balik Cap",
+        "a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM\nBorang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM.\na. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN;\nb. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan\n• Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak"
+      ],
+      "source_sha256": [
+        "11e74fcb12361df8fa1096161ec1d25ea93a25ea7cfeba8023a64de43d1aa542",
+        "e6c7d6057a969187b1329d4851c4cb63adcf2501e5bc2abb05040914f382671e",
+        "2b1bdd0ea43930f27fa3f73d2756124e9d72c447acdc7692a425834312d27e81",
+        "32a34495819636bd0e71cc8799411dc29d7216096d7f0454e42fb21e9b0d25fc"
+      ],
+      "draft": "**Insight**\nYou can apply for STR online through its official portal. The paper application form is BK-01. The BK-01 application form is free. You can obtain the paper form from the STR portal.\n\n**Recommended action**\nYou can also obtain it at a HASiL Office, Satellite Office or UTC. Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC. For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN. For adopted children, provide a copy of the JPN adoption registration certificate.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "You can apply for STR online through its official portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "The paper application form is BK-01.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "The BK-01 application form is free.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "You can obtain the paper form from the STR portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "You can also obtain it at a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "For adopted children, provide a copy of the JPN adoption registration certificate.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 8,
+      "expected": "supported"
+    },
+    {
+      "id": "str-1",
+      "family": "str",
+      "query": "How do I apply for Sumbangan Tunai Rahmah, and which documents are required for married applicants?",
+      "sources": [
+        "S: Bagaimanakah kaedah permohonan STR 2026? Kaedah permohonan STR adalah seperti berikut: J: a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM 3. S: Di manakah saya boleh menghantar Borang Permohonan STR yang telah lengkap diisi berserta dokumen sokongan berkaitan? J: Borang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM. Penghantaran borang secara e-mel adalah tidak diterima. 4. S: Apakah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026? J: Berikut adalah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026: a. Pemohonan Baharu; b. Kemas Kini Permohonan; c. Permohonan Rayuan / Rayuan Tambahan; dan d. Perubahan Maklumat Asas Permohonan 5. S: Bagaimanakah semakan kelayakan permohonan STR 2026 dibuat? J: Semakan kelayakan dibuat secara berfasa dan semakan bagi kelayakan Fasa 1 STR 2026 akan dibuat kepada permohonan yang diterima sehingga 28 November 2025. Permohonan yang dibuat selepas tarikh berikut akan diproses bagi kelayakan fasa seterusnya. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 2 Tarikh Dikemaskini: 27/11/2025 B. PERMOHONAN BAHARU 6. S: Siapakah yang perlu membuat Permohonan Baharu STR 2026? J: Pemohon yang perlu membuat Permohonan Baharu STR 2026 adalah seperti berikut: a. Pemohon yang tiada rekod dalam sistem STR 2025; serta b. Berpendapatan isi rumah RM5,000 dan ke bawah; atau c. Berpendapatan RM2,500 dan ke bawah untuk individu bujang / tiada",
+        "S: Apakah dokumen yang perlu dikemukakan semasa membuat permohonan STR? J: Salinan dokumen sokongan pemohon / pasangan / anak (jika berkaitan) yang perlu dikemukakan adalah seperti berikut: a. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau ii. Salinan Sijil Kematian pasangan yang dikeluarkan oleh JPN; atau iii. Sijil Perceraian / Pembubaran Perkahwinan (asal dan salinan) yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau iv. Salinan Sijil Dekri Nisi / Dekri Nisi Mutlak yang dikeluarkan oleh Mahkamah; atau v. Salinan Kad OKU yang dikeluarkan oleh Jabatan Kebajikan Masyarakat (JKM) bagi pemohon berumur 19-20 tahun pada tahun 2026. b. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan c. Anak: i. Anak Kandung • Salinan Sijil Lahir; dan • Salinan MyKad / MyKid ii. Anak Angkat • Salinan MyKad / MyKid; dan • Salinan Sijil Daftar Anak Angkat yang dikeluarkan oleh JPN Borang Serahan Dokumen Sokongan STR (BK-04) perlu dilengkapkan dan diserahkan semasa mengemukakan dokumen sokongan berkenaan ke Pejabat HASiL ATAU boleh memuat naik ke sistem STR semasa permohonan secara dalam talian. 8. S: Saya hanya mempunyai Kad Pengenalan Lama dan tidak memperbaharuinya lagi. Adakah saya boleh membuat permohonan STR? J: Anda perlu merujuk Jabatan Pendaftaran Negara (JPN) untuk mendapatkan MyKad kerana Permohonan STR mewajibkan penggunaan MyKad sahaja. Permohonan STR hanya boleh dilakukan setelah anda mempunyai MyKad. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 3 Tarikh Dikemaskini: 27/11/2025 9. S: Saya bujang berumur 20 tahun pada tahun 2025 dan saya dimaklumkan bahawa tiada bayaran STR 2026 bagi kelayakan kategori Bujang. Adakah saya masih perlu membuat permohonan STR 2026? J: Ya. Anda perlu membuat Permo",
+        "IV. Dokumen Sokongan a) Sila pilih jenis dokumen, paparan senarai jenis dokumen adalah berdasarkan Status Kahwin. • Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Cerai, sistem akan paparkan dropdown list : - Sijil Cerai - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Kematian Pasangan, sistem akan paparkan dropdown list : - Sijil Kematian Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak b) Pilih fail dokumen untuk dimuat naik. • Saiz dokumen haruslah kurang dari 3MB • Jenis fail : PDF, JPG, JPEG atau PNG sahaja. • Dokumen yang berjaya dimuat naik akan dipaparkan seperti di bawah • Sila klik butang padam bagi tindakan menghapus dokumen. c) Klik butang Teruskan untuk ke halaman seterusnya. V. Maklumat Waris a) Pilih Maklumat Waris • Ada Waris • Tiada Waris • Sama Seperti Maklumat Pasangan b) Pilih Hubungan • Pasangan • Ibu/bapa • Anak • Adik beradik • Cucu c) Jika Maklumat Waris “Sama Seperti Maklumat Pasangan”, ruangan Hubungan akan diisi sebagai Pasangan. Jenis Pengenalan, No Pengenalan dan Nama Waris jugak akan diisi menggunakan data pada maklumat pasangan dan maklumat tersebut tidak boleh dipinda. d) Pilih Jenis Pengenalan Waris • No. MyKad / MyPR / MyKAS / MyKid • Sijil Lahir • No. Passport e) Nombor Pengenalan waris. f) Nama waris • Jika nombor pengenalan waris wujud pada data JPN, maklumat Nama waris akan dipaparkan secara automatik • Jika tidak wujud atau jenis pengenalan waris adalah Sijil Lahir / No. Pasport, ruangan Nama perlu diisi. g) Isikan No Telefon Waris h) Klik butang Teruskan untuk ke halaman seterusnya. VI. Pengesahan a) Isi Captcha • Masukkan nilai Captcha seperti dipaparkan • Boleh reset balik Cap",
+        "a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM\nBorang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM.\na. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN;\nb. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan\n• Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak"
+      ],
+      "source_sha256": [
+        "11e74fcb12361df8fa1096161ec1d25ea93a25ea7cfeba8023a64de43d1aa542",
+        "e6c7d6057a969187b1329d4851c4cb63adcf2501e5bc2abb05040914f382671e",
+        "2b1bdd0ea43930f27fa3f73d2756124e9d72c447acdc7692a425834312d27e81",
+        "32a34495819636bd0e71cc8799411dc29d7216096d7f0454e42fb21e9b0d25fc"
+      ],
+      "draft": "**Insight**\nYou can apply for STR online through its official portal. The paper application form is BK-01. The BK-01 application form is free. You can obtain the paper form from the STR portal.\n\n**Recommended action**\nYou can also obtain it at a HASiL Office, Satellite Office or UTC. Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC. For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN. Everyone must provide a copy of the JPN adoption registration certificate.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "You can apply for STR online through its official portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "The paper application form is BK-01.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "The BK-01 application form is free.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "You can obtain the paper form from the STR portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "You can also obtain it at a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "Everyone must provide a copy of the JPN adoption registration certificate.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 8,
+      "expected": "rejected"
+    },
+    {
+      "id": "str-2",
+      "family": "str",
+      "query": "How do I apply for Sumbangan Tunai Rahmah, and which documents are required for married applicants?",
+      "sources": [
+        "S: Bagaimanakah kaedah permohonan STR 2026? Kaedah permohonan STR adalah seperti berikut: J: a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM 3. S: Di manakah saya boleh menghantar Borang Permohonan STR yang telah lengkap diisi berserta dokumen sokongan berkaitan? J: Borang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM. Penghantaran borang secara e-mel adalah tidak diterima. 4. S: Apakah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026? J: Berikut adalah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026: a. Pemohonan Baharu; b. Kemas Kini Permohonan; c. Permohonan Rayuan / Rayuan Tambahan; dan d. Perubahan Maklumat Asas Permohonan 5. S: Bagaimanakah semakan kelayakan permohonan STR 2026 dibuat? J: Semakan kelayakan dibuat secara berfasa dan semakan bagi kelayakan Fasa 1 STR 2026 akan dibuat kepada permohonan yang diterima sehingga 28 November 2025. Permohonan yang dibuat selepas tarikh berikut akan diproses bagi kelayakan fasa seterusnya. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 2 Tarikh Dikemaskini: 27/11/2025 B. PERMOHONAN BAHARU 6. S: Siapakah yang perlu membuat Permohonan Baharu STR 2026? J: Pemohon yang perlu membuat Permohonan Baharu STR 2026 adalah seperti berikut: a. Pemohon yang tiada rekod dalam sistem STR 2025; serta b. Berpendapatan isi rumah RM5,000 dan ke bawah; atau c. Berpendapatan RM2,500 dan ke bawah untuk individu bujang / tiada",
+        "S: Apakah dokumen yang perlu dikemukakan semasa membuat permohonan STR? J: Salinan dokumen sokongan pemohon / pasangan / anak (jika berkaitan) yang perlu dikemukakan adalah seperti berikut: a. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau ii. Salinan Sijil Kematian pasangan yang dikeluarkan oleh JPN; atau iii. Sijil Perceraian / Pembubaran Perkahwinan (asal dan salinan) yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau iv. Salinan Sijil Dekri Nisi / Dekri Nisi Mutlak yang dikeluarkan oleh Mahkamah; atau v. Salinan Kad OKU yang dikeluarkan oleh Jabatan Kebajikan Masyarakat (JKM) bagi pemohon berumur 19-20 tahun pada tahun 2026. b. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan c. Anak: i. Anak Kandung • Salinan Sijil Lahir; dan • Salinan MyKad / MyKid ii. Anak Angkat • Salinan MyKad / MyKid; dan • Salinan Sijil Daftar Anak Angkat yang dikeluarkan oleh JPN Borang Serahan Dokumen Sokongan STR (BK-04) perlu dilengkapkan dan diserahkan semasa mengemukakan dokumen sokongan berkenaan ke Pejabat HASiL ATAU boleh memuat naik ke sistem STR semasa permohonan secara dalam talian. 8. S: Saya hanya mempunyai Kad Pengenalan Lama dan tidak memperbaharuinya lagi. Adakah saya boleh membuat permohonan STR? J: Anda perlu merujuk Jabatan Pendaftaran Negara (JPN) untuk mendapatkan MyKad kerana Permohonan STR mewajibkan penggunaan MyKad sahaja. Permohonan STR hanya boleh dilakukan setelah anda mempunyai MyKad. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 3 Tarikh Dikemaskini: 27/11/2025 9. S: Saya bujang berumur 20 tahun pada tahun 2025 dan saya dimaklumkan bahawa tiada bayaran STR 2026 bagi kelayakan kategori Bujang. Adakah saya masih perlu membuat permohonan STR 2026? J: Ya. Anda perlu membuat Permo",
+        "IV. Dokumen Sokongan a) Sila pilih jenis dokumen, paparan senarai jenis dokumen adalah berdasarkan Status Kahwin. • Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Cerai, sistem akan paparkan dropdown list : - Sijil Cerai - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Kematian Pasangan, sistem akan paparkan dropdown list : - Sijil Kematian Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak b) Pilih fail dokumen untuk dimuat naik. • Saiz dokumen haruslah kurang dari 3MB • Jenis fail : PDF, JPG, JPEG atau PNG sahaja. • Dokumen yang berjaya dimuat naik akan dipaparkan seperti di bawah • Sila klik butang padam bagi tindakan menghapus dokumen. c) Klik butang Teruskan untuk ke halaman seterusnya. V. Maklumat Waris a) Pilih Maklumat Waris • Ada Waris • Tiada Waris • Sama Seperti Maklumat Pasangan b) Pilih Hubungan • Pasangan • Ibu/bapa • Anak • Adik beradik • Cucu c) Jika Maklumat Waris “Sama Seperti Maklumat Pasangan”, ruangan Hubungan akan diisi sebagai Pasangan. Jenis Pengenalan, No Pengenalan dan Nama Waris jugak akan diisi menggunakan data pada maklumat pasangan dan maklumat tersebut tidak boleh dipinda. d) Pilih Jenis Pengenalan Waris • No. MyKad / MyPR / MyKAS / MyKid • Sijil Lahir • No. Passport e) Nombor Pengenalan waris. f) Nama waris • Jika nombor pengenalan waris wujud pada data JPN, maklumat Nama waris akan dipaparkan secara automatik • Jika tidak wujud atau jenis pengenalan waris adalah Sijil Lahir / No. Pasport, ruangan Nama perlu diisi. g) Isikan No Telefon Waris h) Klik butang Teruskan untuk ke halaman seterusnya. VI. Pengesahan a) Isi Captcha • Masukkan nilai Captcha seperti dipaparkan • Boleh reset balik Cap",
+        "a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM\nBorang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM.\na. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN;\nb. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan\n• Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak"
+      ],
+      "source_sha256": [
+        "11e74fcb12361df8fa1096161ec1d25ea93a25ea7cfeba8023a64de43d1aa542",
+        "e6c7d6057a969187b1329d4851c4cb63adcf2501e5bc2abb05040914f382671e",
+        "2b1bdd0ea43930f27fa3f73d2756124e9d72c447acdc7692a425834312d27e81",
+        "32a34495819636bd0e71cc8799411dc29d7216096d7f0454e42fb21e9b0d25fc"
+      ],
+      "draft": "**Insight**\nYou can apply for STR online through its official portal. The paper application form is BK-01. The BK-01 application form is free. You can obtain the paper form from the STR portal.\n\n**Recommended action**\nYou can also obtain it at a HASiL Office, Satellite Office or UTC. Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC. For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN. For biological children, provide a copy of the JPN adoption registration certificate.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "You can apply for STR online through its official portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "The paper application form is BK-01.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "The BK-01 application form is free.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "You can obtain the paper form from the STR portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "You can also obtain it at a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "For biological children, provide a copy of the JPN adoption registration certificate.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 8,
+      "expected": "rejected"
+    },
+    {
+      "id": "str-3",
+      "family": "str",
+      "query": "How do I apply for Sumbangan Tunai Rahmah, and which documents are required for married applicants?",
+      "sources": [
+        "S: Bagaimanakah kaedah permohonan STR 2026? Kaedah permohonan STR adalah seperti berikut: J: a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM 3. S: Di manakah saya boleh menghantar Borang Permohonan STR yang telah lengkap diisi berserta dokumen sokongan berkaitan? J: Borang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM. Penghantaran borang secara e-mel adalah tidak diterima. 4. S: Apakah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026? J: Berikut adalah kategori permohonan yang dibuka sepanjang tempoh permohonan STR 2026: a. Pemohonan Baharu; b. Kemas Kini Permohonan; c. Permohonan Rayuan / Rayuan Tambahan; dan d. Perubahan Maklumat Asas Permohonan 5. S: Bagaimanakah semakan kelayakan permohonan STR 2026 dibuat? J: Semakan kelayakan dibuat secara berfasa dan semakan bagi kelayakan Fasa 1 STR 2026 akan dibuat kepada permohonan yang diterima sehingga 28 November 2025. Permohonan yang dibuat selepas tarikh berikut akan diproses bagi kelayakan fasa seterusnya. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 2 Tarikh Dikemaskini: 27/11/2025 B. PERMOHONAN BAHARU 6. S: Siapakah yang perlu membuat Permohonan Baharu STR 2026? J: Pemohon yang perlu membuat Permohonan Baharu STR 2026 adalah seperti berikut: a. Pemohon yang tiada rekod dalam sistem STR 2025; serta b. Berpendapatan isi rumah RM5,000 dan ke bawah; atau c. Berpendapatan RM2,500 dan ke bawah untuk individu bujang / tiada",
+        "S: Apakah dokumen yang perlu dikemukakan semasa membuat permohonan STR? J: Salinan dokumen sokongan pemohon / pasangan / anak (jika berkaitan) yang perlu dikemukakan adalah seperti berikut: a. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau ii. Salinan Sijil Kematian pasangan yang dikeluarkan oleh JPN; atau iii. Sijil Perceraian / Pembubaran Perkahwinan (asal dan salinan) yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN; atau iv. Salinan Sijil Dekri Nisi / Dekri Nisi Mutlak yang dikeluarkan oleh Mahkamah; atau v. Salinan Kad OKU yang dikeluarkan oleh Jabatan Kebajikan Masyarakat (JKM) bagi pemohon berumur 19-20 tahun pada tahun 2026. b. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan c. Anak: i. Anak Kandung • Salinan Sijil Lahir; dan • Salinan MyKad / MyKid ii. Anak Angkat • Salinan MyKad / MyKid; dan • Salinan Sijil Daftar Anak Angkat yang dikeluarkan oleh JPN Borang Serahan Dokumen Sokongan STR (BK-04) perlu dilengkapkan dan diserahkan semasa mengemukakan dokumen sokongan berkenaan ke Pejabat HASiL ATAU boleh memuat naik ke sistem STR semasa permohonan secara dalam talian. 8. S: Saya hanya mempunyai Kad Pengenalan Lama dan tidak memperbaharuinya lagi. Adakah saya boleh membuat permohonan STR? J: Anda perlu merujuk Jabatan Pendaftaran Negara (JPN) untuk mendapatkan MyKad kerana Permohonan STR mewajibkan penggunaan MyKad sahaja. Permohonan STR hanya boleh dilakukan setelah anda mempunyai MyKad. Dikeluarkan oleh: Lembaga Hasil Dalam Negeri Malaysia (LHDNM) 3 Tarikh Dikemaskini: 27/11/2025 9. S: Saya bujang berumur 20 tahun pada tahun 2025 dan saya dimaklumkan bahawa tiada bayaran STR 2026 bagi kelayakan kategori Bujang. Adakah saya masih perlu membuat permohonan STR 2026? J: Ya. Anda perlu membuat Permo",
+        "IV. Dokumen Sokongan a) Sila pilih jenis dokumen, paparan senarai jenis dokumen adalah berdasarkan Status Kahwin. • Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Cerai, sistem akan paparkan dropdown list : - Sijil Cerai - Pengesahan Status Pelajar - Sijil Lahir Anak • Jika Status Kahwin = Kematian Pasangan, sistem akan paparkan dropdown list : - Sijil Kematian Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak b) Pilih fail dokumen untuk dimuat naik. • Saiz dokumen haruslah kurang dari 3MB • Jenis fail : PDF, JPG, JPEG atau PNG sahaja. • Dokumen yang berjaya dimuat naik akan dipaparkan seperti di bawah • Sila klik butang padam bagi tindakan menghapus dokumen. c) Klik butang Teruskan untuk ke halaman seterusnya. V. Maklumat Waris a) Pilih Maklumat Waris • Ada Waris • Tiada Waris • Sama Seperti Maklumat Pasangan b) Pilih Hubungan • Pasangan • Ibu/bapa • Anak • Adik beradik • Cucu c) Jika Maklumat Waris “Sama Seperti Maklumat Pasangan”, ruangan Hubungan akan diisi sebagai Pasangan. Jenis Pengenalan, No Pengenalan dan Nama Waris jugak akan diisi menggunakan data pada maklumat pasangan dan maklumat tersebut tidak boleh dipinda. d) Pilih Jenis Pengenalan Waris • No. MyKad / MyPR / MyKAS / MyKid • Sijil Lahir • No. Passport e) Nombor Pengenalan waris. f) Nama waris • Jika nombor pengenalan waris wujud pada data JPN, maklumat Nama waris akan dipaparkan secara automatik • Jika tidak wujud atau jenis pengenalan waris adalah Sijil Lahir / No. Pasport, ruangan Nama perlu diisi. g) Isikan No Telefon Waris h) Klik butang Teruskan untuk ke halaman seterusnya. VI. Pengesahan a) Isi Captcha • Masukkan nilai Captcha seperti dipaparkan • Boleh reset balik Cap",
+        "a. Permohonan Secara Dalam Talian i. Portal Rasmi STR, https://bantuantunai.hasil.gov.my; b. Permohonan Melalui Borang Kertas Borang Permohonan STR (BK-01) boleh didapati secara percuma di: i. Portal Rasmi STR; atau ii. Pejabat HASiL / HASiL Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM\nBorang STR 2026 yang telah lengkap diisi berserta dokumen sokongan berkaitan boleh: a. Diserahkan ke Pejabat HASiL / Pejabat Satelit (PS) / Pusat Transformasi Bandar (UTC) LHDNM.\na. Pemohon: i. Salinan Sijil Perkahwinan yang dikeluarkan oleh Jabatan Agama Islam Negeri / JPN;\nb. Pasangan: i. Salinan Pasport / Visa / UNHCR / Pas Sempadan\n• Jika Status Kahwin = Kahwin, sistem akan paparkan dropdown list : - Sijil Kahwin - Pengesahan Pasangan - Pengesahan Status Pelajar - Sijil Lahir Anak"
+      ],
+      "source_sha256": [
+        "11e74fcb12361df8fa1096161ec1d25ea93a25ea7cfeba8023a64de43d1aa542",
+        "e6c7d6057a969187b1329d4851c4cb63adcf2501e5bc2abb05040914f382671e",
+        "2b1bdd0ea43930f27fa3f73d2756124e9d72c447acdc7692a425834312d27e81",
+        "32a34495819636bd0e71cc8799411dc29d7216096d7f0454e42fb21e9b0d25fc"
+      ],
+      "draft": "**Insight**\nYou can apply for STR online through its official portal. The paper application form is BK-01. The BK-01 application form is free. You can obtain the paper form from the STR portal.\n\n**Recommended action**\nYou can also obtain it at a HASiL Office, Satellite Office or UTC. Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC. For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN. Every applicant must provide a spouse death certificate instead of a marriage certificate.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "You can apply for STR online through its official portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "The paper application form is BK-01.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "The BK-01 application form is free.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "You can obtain the paper form from the STR portal.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "You can also obtain it at a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "Submit the completed paper form with relevant supporting documents to a HASiL Office, Satellite Office or UTC.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "For married applicants, provide a copy of the marriage certificate issued by the State Islamic Religious Department or JPN.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "Every applicant must provide a spouse death certificate instead of a marriage certificate.",
+          "cited_indices": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 8,
+      "expected": "rejected"
+    },
+    {
+      "id": "sara-0",
+      "family": "sara",
+      "query": "How do I apply for SARA assistance? Explain the eligibility and application process in English.",
+      "sources": [
+        "Check Eligibility](https://checkstatus.mykasih.net/sara2/checkstatus)\n\n![Sumbangan Asas Rahmah](../images/hero-slider-general-shopping.jpg)\n\n[![Selected Merchant List](../images/ic-quick-links-merchant-list.svg)\n\nList of Selected Stores](https://checkstatus.mykasih.net/sara2/merchant-list) [![Purchasing Guide](../images/ic-quick-links-purchasing-guide.svg)\n\nPurchasing Guide](#Purchase-Steps) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA 2026 Frequently Asked Questions](../documents/sara2026_faqs_final_20260108.pdf) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA Untuk Semua Frequently Asked Questions](../documents/sara2026_sus_faqs_final_20260209.pdf)\n\nSARA is a cash assistance that will be credited to eligible recipients' MyKad  for purchases covering over 140,000 basic items in 15 categories at over 13,000 selected stores and supermarkets nationwide, and this number is expected to increase over time.\n\n*SARA Bulanan*\n\n*SARA Untuk Semua*\n\nSARA is an extension programme from Sumbangan Tunai Rahmah (STR), which is a targeted assistance programme for the people who are most affected by the high cost of living. This contribution programme aims to improve the economic status of the vulnerable groups under the 2026 Budget. SARA credit balance can be carried over to the following months.\n\nAll Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\n\n**STR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).",
+        "How To Apply\n\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required.\n\nFrequently Asked Questions\n\nFor more information, please [click here](../documents/sara2026_faqs_final_20260108.pdf) to read Frequently Asked Questions (FAQ).\n\nFor more information, please [click here](../documents/sara2026_sus_faqs_final_20260209.pdf) to read Frequently Asked Questions (FAQ).\n\n## 15 Approved Product Categories\n\nCovers over 140,000 basic necessities available nationwide.\n\n![Cooking Oil](../images/ic-sara-cooking-oil.png)\n\nCooking Oil\n\n![Instant Noodles](../images/ic-sara-instant-noodle.png)\n\nInstant Noodles\n\n![Beverages](../images/ic-sara-beverages.png)\n\nExample: Milk, Tea, Coffee, Milk Powder\n\n![Seasoning](../images/ic-sara-seasoning.png)\n\nSeasoning\n\nExample: Sauce, Soy Sauce, Sugar, Salt\n\n![Canned Food](../images/ic-sara-canned-food.png)\n\nCanned Food\n\nExample: Sardines, Tuna\n\n![Personal Hygiene Products](../images/ic-sara-hygiene-essentials.png)\n\nPersonal Hygiene Products\n\nExample: Toothpaste, Sanitary pads, Soap, Diapers\n\n![Medications](../images/ic-sara-medicines.png)\n\nMedications\n\napproved by KKM\n\n![School Supplies](../images/ic-sara-school-supplies.png)\n\nSchool Supplies\n\nExample: Uniform, Shoes, School bag, Stationery\n\n![Household Cleaning Products](../images/ic-sara-household-cleaning-products.png)\n\nHousehold Cleaning Products\n\nExample: Detergent, Dishwasher, Floor cleaner\n\n![Rice](../images/ic-sara-rice.png)\n\nRice\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nBrown Rice\n\nLocal White Rice\n\nSticky Glutinous Rice\n\n![Eggs](../images/ic-sara-egg.png)\n\nEggs\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nChicken Eggs\n\nDuck Eggs\n\nQuail Eggs\n\nSalted Eggs\n\n![Bread](../images/ic-sara-bread.png)\n\nBread\n\n![Expand](../images/ic-accordion-chevron.svg)",
+        "All Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\nSTR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required."
+      ],
+      "source_sha256": [
+        "2f9d0cf8f555d56a894f8ffb2ea5cebeaa5948aec3e140b6fe1ad6d322bb1d21",
+        "757c6a0828ac3c545be7c574868e10714c2730abae35cf05dbf7867d8ca281a2",
+        "159f16cc93a952933a5c0338ca4962adc68b341e3874933a2beab3650f986a3e"
+      ],
+      "draft": "**Insight**\nSARA assistance is credited to eligible recipients’ MyKad. It is used to purchase basic items at selected stores. SARA is an extension of Sumbangan Tunai Rahmah. Unused SARA credit can carry over to the following months.\n\n**Recommended action**\nMalaysians aged 18 and above receive a one-off RM100 from 9 February 2026. STR 2026 recipients verified as Extremely Poor or Poor in eKasih qualify for the stated RM100 or RM200 monthly assistance. That monthly assistance covers January through December 2026. No separate SARA application is required; STR application is required to qualify for SARA Bulanan.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "SARA assistance is credited to eligible recipients’ MyKad.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "It is used to purchase basic items at selected stores.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "SARA is an extension of Sumbangan Tunai Rahmah.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "Unused SARA credit can carry over to the following months.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "Malaysians aged 18 and above receive a one-off RM100 from 9 February 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "STR 2026 recipients verified as Extremely Poor or Poor in eKasih qualify for the stated RM100 or RM200 monthly assistance.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "That monthly assistance covers January through December 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "No separate SARA application is required; STR application is required to qualify for SARA Bulanan.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 6,
+      "expected": "supported"
+    },
+    {
+      "id": "sara-1",
+      "family": "sara",
+      "query": "How do I apply for SARA assistance? Explain the eligibility and application process in English.",
+      "sources": [
+        "Check Eligibility](https://checkstatus.mykasih.net/sara2/checkstatus)\n\n![Sumbangan Asas Rahmah](../images/hero-slider-general-shopping.jpg)\n\n[![Selected Merchant List](../images/ic-quick-links-merchant-list.svg)\n\nList of Selected Stores](https://checkstatus.mykasih.net/sara2/merchant-list) [![Purchasing Guide](../images/ic-quick-links-purchasing-guide.svg)\n\nPurchasing Guide](#Purchase-Steps) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA 2026 Frequently Asked Questions](../documents/sara2026_faqs_final_20260108.pdf) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA Untuk Semua Frequently Asked Questions](../documents/sara2026_sus_faqs_final_20260209.pdf)\n\nSARA is a cash assistance that will be credited to eligible recipients' MyKad  for purchases covering over 140,000 basic items in 15 categories at over 13,000 selected stores and supermarkets nationwide, and this number is expected to increase over time.\n\n*SARA Bulanan*\n\n*SARA Untuk Semua*\n\nSARA is an extension programme from Sumbangan Tunai Rahmah (STR), which is a targeted assistance programme for the people who are most affected by the high cost of living. This contribution programme aims to improve the economic status of the vulnerable groups under the 2026 Budget. SARA credit balance can be carried over to the following months.\n\nAll Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\n\n**STR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).",
+        "How To Apply\n\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required.\n\nFrequently Asked Questions\n\nFor more information, please [click here](../documents/sara2026_faqs_final_20260108.pdf) to read Frequently Asked Questions (FAQ).\n\nFor more information, please [click here](../documents/sara2026_sus_faqs_final_20260209.pdf) to read Frequently Asked Questions (FAQ).\n\n## 15 Approved Product Categories\n\nCovers over 140,000 basic necessities available nationwide.\n\n![Cooking Oil](../images/ic-sara-cooking-oil.png)\n\nCooking Oil\n\n![Instant Noodles](../images/ic-sara-instant-noodle.png)\n\nInstant Noodles\n\n![Beverages](../images/ic-sara-beverages.png)\n\nExample: Milk, Tea, Coffee, Milk Powder\n\n![Seasoning](../images/ic-sara-seasoning.png)\n\nSeasoning\n\nExample: Sauce, Soy Sauce, Sugar, Salt\n\n![Canned Food](../images/ic-sara-canned-food.png)\n\nCanned Food\n\nExample: Sardines, Tuna\n\n![Personal Hygiene Products](../images/ic-sara-hygiene-essentials.png)\n\nPersonal Hygiene Products\n\nExample: Toothpaste, Sanitary pads, Soap, Diapers\n\n![Medications](../images/ic-sara-medicines.png)\n\nMedications\n\napproved by KKM\n\n![School Supplies](../images/ic-sara-school-supplies.png)\n\nSchool Supplies\n\nExample: Uniform, Shoes, School bag, Stationery\n\n![Household Cleaning Products](../images/ic-sara-household-cleaning-products.png)\n\nHousehold Cleaning Products\n\nExample: Detergent, Dishwasher, Floor cleaner\n\n![Rice](../images/ic-sara-rice.png)\n\nRice\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nBrown Rice\n\nLocal White Rice\n\nSticky Glutinous Rice\n\n![Eggs](../images/ic-sara-egg.png)\n\nEggs\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nChicken Eggs\n\nDuck Eggs\n\nQuail Eggs\n\nSalted Eggs\n\n![Bread](../images/ic-sara-bread.png)\n\nBread\n\n![Expand](../images/ic-accordion-chevron.svg)",
+        "All Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\nSTR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required."
+      ],
+      "source_sha256": [
+        "2f9d0cf8f555d56a894f8ffb2ea5cebeaa5948aec3e140b6fe1ad6d322bb1d21",
+        "757c6a0828ac3c545be7c574868e10714c2730abae35cf05dbf7867d8ca281a2",
+        "159f16cc93a952933a5c0338ca4962adc68b341e3874933a2beab3650f986a3e"
+      ],
+      "draft": "**Insight**\nSARA assistance is credited to eligible recipients’ MyKad. It is used to purchase basic items at selected stores. SARA is an extension of Sumbangan Tunai Rahmah. Unused SARA credit can carry over to the following months.\n\n**Recommended action**\nMalaysians aged 18 and above receive a one-off RM100 from 9 February 2026. Only STR recipients verified as Extremely Poor or Poor in eKasih can receive any SARA assistance. That monthly assistance covers January through December 2026. No separate SARA application is required; STR application is required to qualify for SARA Bulanan.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "SARA assistance is credited to eligible recipients’ MyKad.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "It is used to purchase basic items at selected stores.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "SARA is an extension of Sumbangan Tunai Rahmah.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "Unused SARA credit can carry over to the following months.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "Malaysians aged 18 and above receive a one-off RM100 from 9 February 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "Only STR recipients verified as Extremely Poor or Poor in eKasih can receive any SARA assistance.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "That monthly assistance covers January through December 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "No separate SARA application is required; STR application is required to qualify for SARA Bulanan.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 6,
+      "expected": "rejected"
+    },
+    {
+      "id": "sara-2",
+      "family": "sara",
+      "query": "How do I apply for SARA assistance? Explain the eligibility and application process in English.",
+      "sources": [
+        "Check Eligibility](https://checkstatus.mykasih.net/sara2/checkstatus)\n\n![Sumbangan Asas Rahmah](../images/hero-slider-general-shopping.jpg)\n\n[![Selected Merchant List](../images/ic-quick-links-merchant-list.svg)\n\nList of Selected Stores](https://checkstatus.mykasih.net/sara2/merchant-list) [![Purchasing Guide](../images/ic-quick-links-purchasing-guide.svg)\n\nPurchasing Guide](#Purchase-Steps) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA 2026 Frequently Asked Questions](../documents/sara2026_faqs_final_20260108.pdf) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA Untuk Semua Frequently Asked Questions](../documents/sara2026_sus_faqs_final_20260209.pdf)\n\nSARA is a cash assistance that will be credited to eligible recipients' MyKad  for purchases covering over 140,000 basic items in 15 categories at over 13,000 selected stores and supermarkets nationwide, and this number is expected to increase over time.\n\n*SARA Bulanan*\n\n*SARA Untuk Semua*\n\nSARA is an extension programme from Sumbangan Tunai Rahmah (STR), which is a targeted assistance programme for the people who are most affected by the high cost of living. This contribution programme aims to improve the economic status of the vulnerable groups under the 2026 Budget. SARA credit balance can be carried over to the following months.\n\nAll Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\n\n**STR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).",
+        "How To Apply\n\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required.\n\nFrequently Asked Questions\n\nFor more information, please [click here](../documents/sara2026_faqs_final_20260108.pdf) to read Frequently Asked Questions (FAQ).\n\nFor more information, please [click here](../documents/sara2026_sus_faqs_final_20260209.pdf) to read Frequently Asked Questions (FAQ).\n\n## 15 Approved Product Categories\n\nCovers over 140,000 basic necessities available nationwide.\n\n![Cooking Oil](../images/ic-sara-cooking-oil.png)\n\nCooking Oil\n\n![Instant Noodles](../images/ic-sara-instant-noodle.png)\n\nInstant Noodles\n\n![Beverages](../images/ic-sara-beverages.png)\n\nExample: Milk, Tea, Coffee, Milk Powder\n\n![Seasoning](../images/ic-sara-seasoning.png)\n\nSeasoning\n\nExample: Sauce, Soy Sauce, Sugar, Salt\n\n![Canned Food](../images/ic-sara-canned-food.png)\n\nCanned Food\n\nExample: Sardines, Tuna\n\n![Personal Hygiene Products](../images/ic-sara-hygiene-essentials.png)\n\nPersonal Hygiene Products\n\nExample: Toothpaste, Sanitary pads, Soap, Diapers\n\n![Medications](../images/ic-sara-medicines.png)\n\nMedications\n\napproved by KKM\n\n![School Supplies](../images/ic-sara-school-supplies.png)\n\nSchool Supplies\n\nExample: Uniform, Shoes, School bag, Stationery\n\n![Household Cleaning Products](../images/ic-sara-household-cleaning-products.png)\n\nHousehold Cleaning Products\n\nExample: Detergent, Dishwasher, Floor cleaner\n\n![Rice](../images/ic-sara-rice.png)\n\nRice\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nBrown Rice\n\nLocal White Rice\n\nSticky Glutinous Rice\n\n![Eggs](../images/ic-sara-egg.png)\n\nEggs\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nChicken Eggs\n\nDuck Eggs\n\nQuail Eggs\n\nSalted Eggs\n\n![Bread](../images/ic-sara-bread.png)\n\nBread\n\n![Expand](../images/ic-accordion-chevron.svg)",
+        "All Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\nSTR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required."
+      ],
+      "source_sha256": [
+        "2f9d0cf8f555d56a894f8ffb2ea5cebeaa5948aec3e140b6fe1ad6d322bb1d21",
+        "757c6a0828ac3c545be7c574868e10714c2730abae35cf05dbf7867d8ca281a2",
+        "159f16cc93a952933a5c0338ca4962adc68b341e3874933a2beab3650f986a3e"
+      ],
+      "draft": "**Insight**\nSARA assistance is credited to eligible recipients’ MyKad. It is used to purchase basic items at selected stores. SARA is an extension of Sumbangan Tunai Rahmah. Unused SARA credit can carry over to the following months.\n\n**Recommended action**\nMalaysians aged 18 and above receive a one-off RM100 from 9 February 2026. Every Malaysian must register in eKasih and be verified as Extremely Poor or Poor to receive the one-off RM100. That monthly assistance covers January through December 2026. No separate SARA application is required; STR application is required to qualify for SARA Bulanan.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "SARA assistance is credited to eligible recipients’ MyKad.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "It is used to purchase basic items at selected stores.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "SARA is an extension of Sumbangan Tunai Rahmah.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "Unused SARA credit can carry over to the following months.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "Malaysians aged 18 and above receive a one-off RM100 from 9 February 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "Every Malaysian must register in eKasih and be verified as Extremely Poor or Poor to receive the one-off RM100.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "That monthly assistance covers January through December 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "No separate SARA application is required; STR application is required to qualify for SARA Bulanan.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 6,
+      "expected": "rejected"
+    },
+    {
+      "id": "sara-3",
+      "family": "sara",
+      "query": "How do I apply for SARA assistance? Explain the eligibility and application process in English.",
+      "sources": [
+        "Check Eligibility](https://checkstatus.mykasih.net/sara2/checkstatus)\n\n![Sumbangan Asas Rahmah](../images/hero-slider-general-shopping.jpg)\n\n[![Selected Merchant List](../images/ic-quick-links-merchant-list.svg)\n\nList of Selected Stores](https://checkstatus.mykasih.net/sara2/merchant-list) [![Purchasing Guide](../images/ic-quick-links-purchasing-guide.svg)\n\nPurchasing Guide](#Purchase-Steps) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA 2026 Frequently Asked Questions](../documents/sara2026_faqs_final_20260108.pdf) [![Frequently Asked Questions](../images/ic-quick-links-faqs.svg)\n\nSARA Untuk Semua Frequently Asked Questions](../documents/sara2026_sus_faqs_final_20260209.pdf)\n\nSARA is a cash assistance that will be credited to eligible recipients' MyKad  for purchases covering over 140,000 basic items in 15 categories at over 13,000 selected stores and supermarkets nationwide, and this number is expected to increase over time.\n\n*SARA Bulanan*\n\n*SARA Untuk Semua*\n\nSARA is an extension programme from Sumbangan Tunai Rahmah (STR), which is a targeted assistance programme for the people who are most affected by the high cost of living. This contribution programme aims to improve the economic status of the vulnerable groups under the 2026 Budget. SARA credit balance can be carried over to the following months.\n\nAll Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\n\n**STR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).",
+        "How To Apply\n\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required.\n\nFrequently Asked Questions\n\nFor more information, please [click here](../documents/sara2026_faqs_final_20260108.pdf) to read Frequently Asked Questions (FAQ).\n\nFor more information, please [click here](../documents/sara2026_sus_faqs_final_20260209.pdf) to read Frequently Asked Questions (FAQ).\n\n## 15 Approved Product Categories\n\nCovers over 140,000 basic necessities available nationwide.\n\n![Cooking Oil](../images/ic-sara-cooking-oil.png)\n\nCooking Oil\n\n![Instant Noodles](../images/ic-sara-instant-noodle.png)\n\nInstant Noodles\n\n![Beverages](../images/ic-sara-beverages.png)\n\nExample: Milk, Tea, Coffee, Milk Powder\n\n![Seasoning](../images/ic-sara-seasoning.png)\n\nSeasoning\n\nExample: Sauce, Soy Sauce, Sugar, Salt\n\n![Canned Food](../images/ic-sara-canned-food.png)\n\nCanned Food\n\nExample: Sardines, Tuna\n\n![Personal Hygiene Products](../images/ic-sara-hygiene-essentials.png)\n\nPersonal Hygiene Products\n\nExample: Toothpaste, Sanitary pads, Soap, Diapers\n\n![Medications](../images/ic-sara-medicines.png)\n\nMedications\n\napproved by KKM\n\n![School Supplies](../images/ic-sara-school-supplies.png)\n\nSchool Supplies\n\nExample: Uniform, Shoes, School bag, Stationery\n\n![Household Cleaning Products](../images/ic-sara-household-cleaning-products.png)\n\nHousehold Cleaning Products\n\nExample: Detergent, Dishwasher, Floor cleaner\n\n![Rice](../images/ic-sara-rice.png)\n\nRice\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nBrown Rice\n\nLocal White Rice\n\nSticky Glutinous Rice\n\n![Eggs](../images/ic-sara-egg.png)\n\nEggs\n\n![Expand](../images/ic-accordion-chevron.svg)\n\nChicken Eggs\n\nDuck Eggs\n\nQuail Eggs\n\nSalted Eggs\n\n![Bread](../images/ic-sara-bread.png)\n\nBread\n\n![Expand](../images/ic-accordion-chevron.svg)",
+        "All Malaysians aged 18 and above will receive one-off RM100 from **9 February 2026**.\nSTR 2026** recipients who have been verified from the **eKasih database as Extremely Poor and Poor** are eligible for SARA 2026 amounting to RM100 / RM200 per month for a period of **12 months** (January 2026 - December 2026).\nSTR application is required to qualify for *SARA Bulanan*.\n\nNo application is required."
+      ],
+      "source_sha256": [
+        "2f9d0cf8f555d56a894f8ffb2ea5cebeaa5948aec3e140b6fe1ad6d322bb1d21",
+        "757c6a0828ac3c545be7c574868e10714c2730abae35cf05dbf7867d8ca281a2",
+        "159f16cc93a952933a5c0338ca4962adc68b341e3874933a2beab3650f986a3e"
+      ],
+      "draft": "**Insight**\nSARA assistance is credited to eligible recipients’ MyKad. It is used to purchase basic items at selected stores. SARA is an extension of Sumbangan Tunai Rahmah. Unused SARA credit can carry over to the following months.\n\n**Recommended action**\nMalaysians aged 18 and above receive a one-off RM100 from 9 February 2026. All Malaysians aged 18 and above receive RM200 every month regardless of STR eligibility. That monthly assistance covers January through December 2026. No separate SARA application is required; STR application is required to qualify for SARA Bulanan.\n\n**Educational guidance**\nThis is educational guidance, not licensed financial advice.",
+      "claims": [
+        {
+          "id": 1,
+          "text": "SARA assistance is credited to eligible recipients’ MyKad.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 2,
+          "text": "It is used to purchase basic items at selected stores.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 3,
+          "text": "SARA is an extension of Sumbangan Tunai Rahmah.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 4,
+          "text": "Unused SARA credit can carry over to the following months.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 5,
+          "text": "Malaysians aged 18 and above receive a one-off RM100 from 9 February 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 6,
+          "text": "All Malaysians aged 18 and above receive RM200 every month regardless of STR eligibility.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 7,
+          "text": "That monthly assistance covers January through December 2026.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        },
+        {
+          "id": 8,
+          "text": "No separate SARA application is required; STR application is required to qualify for SARA Bulanan.",
+          "cited_indices": [
+            1,
+            2,
+            3
+          ],
+          "requires_citation": false
+        }
+      ],
+      "target_claim": 6,
+      "expected": "rejected"
+    }
+  ]
+}

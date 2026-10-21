@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 
@@ -23,11 +23,17 @@ class CoachAuthTests(unittest.TestCase):
                 user=SimpleNamespace(id="user-1", is_anonymous=False)
             )
         )
-        with patch("app.auth.get_supabase", return_value=SimpleNamespace(auth=auth)):
+        # A verified token also needs the server-side active-account check.
+        client = MagicMock()
+        client.auth = auth
+        client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {"status": "active"}
+        with (patch("app.auth.get_supabase", return_value=client),
+              patch("app.config.ACCOUNT_ACCESS_ENFORCED", True)):
             user = require_authenticated_user("Bearer valid-token")
 
         self.assertEqual(user.user_id, "user-1")
         self.assertEqual(user.token, "valid-token")
+        client.table.assert_called_once_with("account_access")
 
     def test_rejects_invalid_claims_without_leaking_error(self):
         from app.auth import require_authenticated_user

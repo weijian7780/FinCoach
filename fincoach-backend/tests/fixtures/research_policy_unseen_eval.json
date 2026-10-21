@@ -1,0 +1,9 @@
+[
+  {"id":"holdout-current-regulator","split":"unseen","question":"Have the Securities Commission Malaysia guidelines for digital investment advertising changed this year?","history":[],"personal":false,"external":true,"scope":"current","entities":["Securities Commission"]},
+  {"id":"holdout-car-interest","split":"unseen","question":"Explain how reducing-balance interest works on a car loan","history":[],"personal":false,"external":true,"scope":"stable"},
+  {"id":"holdout-bank-pair","split":"unseen","question":"Compare the present 12-month fixed deposit rates at Public Bank and Hong Leong Bank","history":[],"personal":false,"external":true,"scope":"current","entities":["Public Bank","Hong Leong"]},
+  {"id":"holdout-historical-pidm","split":"unseen","question":"In 2021, what protection did PIDM give Islamic deposits?","history":[],"personal":false,"external":true,"scope":"historical","period":"2021"},
+  {"id":"holdout-tax-budget","split":"unseen","question":"Would a new SST rate leave room in my recorded food budget?","history":[],"personal":true,"external":true,"scope":"current"},
+  {"id":"holdout-personal-month","split":"unseen","question":"How much did I spend on transport last month?","history":[],"personal":true,"external":false,"scope":"stable"},
+  {"id":"holdout-explicit-search","split":"unseen","question":"Search the latest PTPTN repayment rules","history":[],"personal":false,"external":true,"scope":"current"}
+]

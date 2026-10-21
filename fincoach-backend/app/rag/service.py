@@ -16,8 +16,10 @@ from app.agent_tools import AGENT_TOOL_DEFINITIONS, AgentToolExecutor
 from app.coaching_history import CoachingHistoryRepository
 from app.config import (
     COACH_HISTORY_LIMIT,
+    COACH_LLM_CHOICES_ENABLED,
     COACH_RATE_LIMIT_DAY,
     COACH_RATE_LIMIT_MINUTE,
+    COACH_RESEARCH_POLICY_ENABLED,
     COACH_GROUNDING_MODE,
     COACH_WRITE_ACTIONS_ENABLED,
     GROUNDING_VERIFIER_TIMEOUT_SECONDS,
@@ -33,6 +35,7 @@ from app.llm import (
     generate_fallback_result,
     generate_agent_result,
     generate_result,
+    generate_structured_result,
 )
 from app.rag.action_policy import (
     bounded_tool_definitions,
@@ -41,6 +44,7 @@ from app.rag.action_policy import (
     has_structured_action_ui,
 )
 from app.rag.follow_ups import build_follow_ups
+from app.rag.evidence_text import complete_evidence_passages
 from app.rag.allocation import (
     ALLOCATION_GUIDANCE,
     DIAGNOSTIC_GUIDANCE,
@@ -72,10 +76,72 @@ from app.rag.grounding import (
     safe_product_redirect,
     validate_coach_answer,
 )
-from app.rag.prompts import build_casual_prompt, build_coach_prompt
+from app.rag.prompts import (
+    build_casual_prompt, build_coach_prompt, build_research_recovery_prompt,
+    RESEARCH_EXPLANATION_SYSTEM_PROMPT,
+)
+from app.rag.research_answer import recover_research_answer
+from app.rag.research_answer_budget import initial_writer_budget, research_work_budget
+from app.rag.research_coverage import requires_full_clarification, clarification_question
 from app.rag.query_analysis import KnowledgeQueryAnalysis, analyze_knowledge_query
+from app.rag.research_policy import (
+    EvidenceAssessment,
+    QuestionPlan,
+    ResearchDecision,
+    assess_evidence,
+    interpret_question,
+    run_research_policy,
+)
 from app.rag.retrieval import RetrievedChunk, retrieve
 from app.rag.verifier import verify_grounding_claims
+
+_RESEARCH_EXPLANATION_MODES = frozenset({
+    "research_explanation", "research_explanation_recovery", "research_explanation_unavailable",
+})
+
+
+def _research_explanation_result(*, plan, decision, budget, question, personal_facts=""):
+    """Own research generation and checking once; private facts never enter it."""
+    budget = research_work_budget(budget)
+    public_question = question if not plan.needs_personal else build_research_query(
+        "; ".join((plan.topic, *plan.required_facts))
+    )
+    # Preserve a safe language directive independently of a de-identified topic.
+    # The bounded interpreter supplies general language codes; common explicit
+    # instructions also work with older plans that did not carry this field.
+    response_language = plan.response_language
+    for names, code in (("english", "en"), ("malay|bahasa melayu|bahasa malaysia", "ms"),
+                        ("mandarin|chinese", "zh"), ("tamil", "ta")):
+        if re.search(r"\b(?:answer|respond|reply|explain|write)\s+(?:to me\s+)?in\s+(?:" + names + r")\b", question, re.I):
+            response_language = code
+            break
+    if response_language:
+        public_question += f"\nResponse language: {response_language}."
+    public_question += (f"\nRequested scope: {plan.scope}; subject: {plan.topic}."
+                        f"\nRequested parts: {json.dumps(plan.required_facts)}")
+    draft = None
+    failure = None
+    # One absolute stage bound: the writer may only start when its own window and
+    # the 8-second semantic check still fit inside the ORIGINAL request deadline.
+    writer_budget = initial_writer_budget(budget)
+    if decision.assessment.supported_quotes and writer_budget is not None:
+        try:
+            draft = generate_result(
+                build_research_recovery_prompt(public_question, decision),
+                budget=replace(writer_budget, stage_name="answer_generation"),
+                system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
+            )
+        except Exception as error:
+            error_type = type(error).__name__
+            if error_type in {"AuthenticationError", "PermissionDeniedError"}:
+                failure = "provider_auth_error"
+            elif isinstance(error, RuntimeError) and "not configured" in str(error):
+                failure = "provider_configuration_error"
+            else:
+                failure = "answer_generation_unavailable"
+    return recover_research_answer(plan=plan, decision=decision, draft=draft,
+        budget=budget, public_question=public_question, personal_facts=personal_facts,
+        initial_failure=failure)
 from app.rag.web_research import (
     build_research_query,
     merge_evidence,
@@ -87,16 +153,41 @@ from app.rag.routing import (
     ReadReadiness,
     ambiguous_reminder_title,
     is_budget_planning_request,
+    is_budget_save_command,
     is_financial_triage_query,
     is_product_selection_request,
     required_agent_tool_name,
     required_agent_tool_names,
+    required_read_agent_tool_arguments,
     resolve_read_request,
 )
 from app.rag.read_clarification import (
     PAYLOAD_TYPE as READ_CLARIFICATION_TYPE,
     build_read_clarification,
     resume_read_clarification,
+)
+from app.rag.coach_choices import (
+    PAYLOAD_TYPE as COACH_CHOICES_TYPE,
+    build_choices_payload,
+    extract_choice_block,
+    parse_choices,
+    resolve_choice_query,
+)
+
+# Opt-in guidance appended to a coach prompt only when COACH_LLM_CHOICES_ENABLED
+# is on. The block is stripped from the visible answer and validated
+# independently; malformed or absent metadata simply yields prose with no cards.
+_CHOICE_EMISSION_GUIDANCE = (
+    "Optionally, if two to four concrete follow-up questions would genuinely help "
+    "the user act, append EXACTLY ONE metadata block at the very end, after all "
+    "prose, in this exact form and nothing else:\n"
+    "<<<FINCOACH_CHOICES>>>\n"
+    '{"choices": [{"label": "Short button text", "query": "A complete question '
+    'the user could ask next"}]}\n'
+    "<<<END_FINCOACH_CHOICES>>>\n"
+    "Each label is at most 60 characters; each query is a complete, standalone "
+    "question. Do not reference the block in your prose, do not wrap it in code "
+    "fences, and omit it entirely if no useful follow-up exists."
 )
 
 
@@ -262,6 +353,7 @@ def _is_fast_verified_read(
             "get_period_comparison",
             "search_transactions",
             "get_budget_status",
+            "get_category_budget_recommendation",
             "get_savings_goals",
             "get_upcoming_reminders",
             "get_financial_profile",
@@ -384,6 +476,16 @@ def _format_period_comparison(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _month_label(value: str | None) -> str:
+    """Format an ISO month key as a user-facing Malaysia calendar month."""
+    if not value:
+        return "an unavailable month"
+    try:
+        return date.fromisoformat(f"{value[:7]}-01").strftime("%B %Y")
+    except ValueError:
+        return value
+
+
 def _format_fast_verified_read(tool_name: str, result: dict[str, Any]) -> str:
     """Render compact factual read results without an LLM call."""
     if tool_name == "get_weekly_savings_plan":
@@ -405,14 +507,36 @@ def _format_fast_verified_read(tool_name: str, result: dict[str, Any]) -> str:
             f"of {result.get('scheduled_reminders', 'RM0.00')}. It is not a bank balance."
         )
     if tool_name == "search_transactions":
+        period = result.get("period") or {}
+        scope = (
+            "across all dates" if result.get("all_dates")
+            else f"between {period.get('start')} and {period.get('end')}"
+        )
+        if result.get("result_mode") == "count":
+            return (
+                f"You have {result.get('count', 0)} recorded transaction(s) matching "
+                f"those filters {scope}."
+            )
+        if result.get("result_mode") == "expense_total":
+            return (
+                f"Recorded expenses matching those filters {scope}: "
+                f"{result.get('expense_total')} over {result.get('expense_count')} transaction(s)."
+            )
         rows = result.get("transactions") or []
         if not rows:
-            return "No recorded transactions match those filters."
+            return f"No recorded transactions match those filters {scope}."
+        total = result.get("total_matched", len(rows))
+        # Show every returned row so the stated count matches what is listed.
         preview = "; ".join(
             f"{row.get('date')}: {row.get('category')} {row.get('amount')}"
-            for row in rows[:5]
+            for row in rows
         )
-        return f"Found {len(rows)} matching recorded transaction(s): {preview}."
+        if total > len(rows):
+            return (
+                f"Found {total} matching recorded transaction(s) {scope}; showing the "
+                f"most recent {len(rows)}: {preview}."
+            )
+        return f"Found {total} matching recorded transaction(s) {scope}: {preview}."
     if tool_name == "get_budget_status":
         selected = result.get("selected_category") or {}
         if selected:
@@ -428,6 +552,81 @@ def _format_fast_verified_read(tool_name: str, result: dict[str, Any]) -> str:
             f"{result.get('recorded_spending') or 'permission required'}. Remaining: "
             f"{result.get('remaining') or 'not available'}."
         )
+    if tool_name == "get_category_budget_recommendation":
+        status = result.get("recommendation_status")
+        if status == "not_expense_category":
+            return str(result.get("message") or "Category budgets are only for expense categories.")
+        if status == "no_eligible_categories":
+            return str(
+                result.get("message")
+                or "No eligible expense category with recorded spending is available for a new limit."
+            )
+
+        candidate = result.get("candidate") or {}
+        name = candidate.get("name") or "That category"
+        month = _month_label(result.get("month"))
+        if status == "already_budgeted":
+            return (
+                f"{name} already has a category limit for {month}: "
+                f"{result.get('existing_category_limit', 'an existing amount')}."
+            )
+        amount = result.get("suggested_starting_amount")
+        current = result.get("target_month_category_spending", "not available")
+        capacity = result.get("unallocated_budget_capacity", "not available")
+        if status == "overall_budget_required":
+            if amount:
+                history_month = _month_label(result.get("historical_month"))
+                evidence = (
+                    f"For {month}, {name} recorded {result.get('historical_amount', amount)} "
+                    f"in {history_month}. Treat {amount} only as a historical starting amount; "
+                    "the records may be incomplete and this does not guarantee affordability."
+                )
+            else:
+                evidence = (
+                    f"{name} is the available category candidate for {month}; current "
+                    f"recorded category spending is {current}, but there is no completed-month "
+                    "evidence for a historical starting amount."
+                )
+            return evidence + " An overall monthly limit is required before adding a category limit."
+        if status == "no_completed_month_evidence":
+            return (
+                f"{name} is the strongest available candidate for {month} based on "
+                f"target-month recorded spending of {current}. There is no completed-month "
+                f"evidence for a historical starting amount, so I can't suggest a limit amount. "
+                f"Unallocated budget capacity is {capacity}."
+            )
+        if not amount:
+            return (
+                f"No historical starting amount is available for {name} in {month}. "
+                "Recorded transactions may be incomplete, so an amount cannot be inferred."
+            )
+        history_month = _month_label(result.get("historical_month"))
+        evidence = (
+            f"For {month}, {name} recorded {result.get('historical_amount', amount)} "
+            f"in {history_month}. Treat {amount} only as a historical starting amount; "
+            "the records may be incomplete and this does not guarantee affordability."
+        )
+        feasibility = result.get("feasibility") or "unavailable"
+        if feasibility == "fits":
+            return (
+                evidence
+                + f" Current {month} recorded {name} spending is {current}; unallocated "
+                f"budget capacity is {capacity}, so the starting amount fits the saved allocation."
+            )
+
+        constraints = []
+        feasibility_issues = set(feasibility.split("_and_"))
+        if "already_exceeded" in feasibility_issues:
+            constraints.append(f"current {month} {name} spending ({current}) already exceeds it")
+        if "overall_budget_already_exceeded" in feasibility_issues:
+            constraints.append(
+                f"current {month} total recorded spending ({result.get('target_month_total_spending')}) "
+                f"already exceeds the overall limit ({result.get('monthly_limit')})"
+            )
+        if "insufficient_allocation" in feasibility_issues:
+            constraints.append(f"unallocated capacity is only {capacity}")
+        detail = "; ".join(constraints) or "the saved allocation could not be confirmed"
+        return evidence + f" It is not ready to add: {detail}."
     if tool_name == "get_savings_goals":
         goals = result.get("goals") or []
         if not goals:
@@ -1438,6 +1637,18 @@ def fetch_financial_context(
     )
 
 
+def unique_source_rows(rows: list[dict]) -> list[dict]:
+    from app.rag.public_source_store import canonical_url
+    result, seen = [], set()
+    for row in rows:
+        key = canonical_url(row["url"]) if row.get("source_type") == "web" and row.get("url") else None
+        if key is None or key not in seen:
+            result.append(row)
+            if key is not None:
+                seen.add(key)
+    return result
+
+
 def source_rows(chunks: list[RetrievedChunk]) -> list[dict]:
     return [
         {
@@ -1451,9 +1662,129 @@ def source_rows(chunks: list[RetrievedChunk]) -> list[dict]:
             "source_type": chunk.source_type,
             "tier": chunk.tier,
             "confidence": chunk.confidence,
+            "published_date": chunk.published_date,
+            "checked_at": chunk.checked_at,
         }
         for index, chunk in enumerate(chunks, start=1)
     ]
+
+
+# Research decision failures that mean the search itself could not run, as
+# opposed to a search that ran but did not establish the answer. Mirrors the
+# guidance split at the prompt layer and the no-chunks research-policy branch.
+_SEARCH_FAILURE_REASONS = frozenset({
+    "no_api_key", "sdk_unavailable", "search_failed",
+    "search_disabled", "search_deadline", "interpretation_unavailable",
+    "assessment_failed", "assessment_unavailable", "retrieval_failed",
+    "assessment_invalid_json", "assessment_invalid_schema", "assessment_timeout",
+    "auth_error", "quota", "rate_limited", "network_error", "timeout",
+})
+_SOURCES_UNESTABLISHED_MESSAGE = (
+    "The available sources did not establish an answer to this question."
+)
+
+
+def _format_research_excerpt(quote: str) -> str:
+    """Format already-verified text without summarizing or dropping conditions.
+
+    Source extraction often puts lists on one line. Recover only consecutive
+    numbered runs, so rates, currency amounts and isolated numbers stay intact.
+    The mobile renderer already supports bold labels and literal line breaks.
+    """
+    text = quote.replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = re.sub(r"[ \t]+", " ", text)
+    # Separate flattened source bullets; leave **bold** spans intact.
+    text = re.sub(r"(?<=\S)[ \t]+([*•])[ \t]+(?=\S)", "\n• ", text)
+    text = re.sub(r"(?m)^[ \t]*[-*•][ \t]+", "• ", text)
+    # Extracted excerpts may splice a heading after a sentence/ellipsis.
+    text = re.sub(r"(?<=\S)[ \t]+(?=#{1,6}[ \t]+)", "\n\n", text)
+    text = re.sub(r"(?m)^#{1,6}[ \t]+([^\n]+)",
+                  lambda match: "**" + match[1].strip().strip("*") + "**", text)
+
+    markers = list(re.finditer(r"(?<![\w.])(\d{1,2})[.)][ \t]+(?=\S)", text))
+    starts: set[int] = set()
+    for index, marker in enumerate(markers):
+        if marker[1] != "1":
+            continue
+        run = [marker]
+        for next_marker in markers[index + 1:]:
+            if int(next_marker[1]) != len(run) + 1:
+                break
+            run.append(next_marker)
+        if len(run) >= 2:
+            starts.update(item.start() for item in run)
+    if starts:
+        text = re.sub(r"(?<![\w.])(\d{1,2})[.)][ \t]+(?=\S)",
+                      lambda match: ("\n" if match.start() in starts
+                                     and match.start() and text[match.start() - 1] != "\n"
+                                     else "") + match[0], text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    # Short source labels become readable headings instead of outer bullets.
+    text = re.sub(r"(?m)^([^\n]{1,120}?)[ \t]*:[ \t]*\n+(?=(?:1[.)]|•) )",
+                  lambda match: "**" + match[1].strip().strip("*") + "**\n\n", text)
+    text = re.sub(r"(?m)^(\*\*[^\n]+\*\*)\n(?=• )", r"\1\n\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _compose_research_answer(
+    *,
+    quotes: list[str],
+    personal_facts: str = "",
+    conflicting: bool = False,
+    failure: str | None = None,
+    plan: QuestionPlan | None = None,
+    missing: tuple[str, ...] = (),
+) -> str:
+    """Clean user-facing content when the generated explanation fails the
+    research verification gate.
+
+    Verified source quotes, when present, keep readable headings and lists so the
+    user still sees what the sources actually established. Citation markers,
+    verification-log lines ("I could not verify…") and raw URLs are omitted on
+    purpose: sources render only through the structured "View sources" card
+    (``ui_payload.source_snapshot``); diagnostics live in ``research_outcome``.
+    """
+    parts: list[str] = []
+    if personal_facts:
+        parts.append(personal_facts)
+    clean_quotes = [
+        _format_research_excerpt(passage) for quote in quotes if quote
+        for passage in complete_evidence_passages(quote)
+    ]
+    if clean_quotes:
+        if conflicting and len(clean_quotes) > 1:
+            lead = "The sources I found disagree, so here is what each one reports:"
+        else:
+            lead = "Here is what I could confirm from the sources I found:"
+        parts.append(lead + "\n\n" + "\n\n".join(dict.fromkeys(clean_quotes)))
+    else:
+        parts.append(_SOURCES_UNESTABLISHED_MESSAGE)
+    # The topic supplies a practical next step, never an invented policy/URL.
+    # Public gaps are usable only after a valid assessment; technical labels
+    # such as "web verification" are not presented as missing application facts.
+    institutions = ", ".join(plan.entities[:2]) if plan and plan.interpreted else ""
+    authority = f"{institutions}'s" if institutions else "the institution's"
+    gaps = [gap for gap in missing[:3] if gap not in {
+        "web verification", "current dated source", "current or requested web evidence",
+        "question interpretation",
+    }]
+    if gaps:
+        parts.append("**Still to check**\n\n" + "\n".join(f"• {gap}" for gap in gaps))
+    if not clean_quotes or gaps:
+        detail = "the details above" if gaps else "the requested information"
+        topic = f" on {plan.topic}" if plan and plan.interpreted and not clean_quotes else ""
+        parts.append(f"Check {authority} official guidance{topic} for {detail} before proceeding.")
+    return "\n\n".join(parts)
+
+
+def _strip_source_markers(text: str) -> str:
+    """Remove ``[S1]``-style citation markers from user-facing prose.
+
+    The corpus-grounded explanation keeps its wording and structure; sources ride
+    the "View sources" card (``ui_payload.source_snapshot``), never inline markers.
+    """
+    cleaned = re.sub(r"\s*\[S\d+\]", "", str(text or ""))
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 class CoachingService:
@@ -1578,24 +1909,22 @@ class CoachingService:
         if user_message:
             reply = self.repository.find_reply(message_id)
             if reply:
-                if user_message.get("status") == "failed":
-                    user_message = (
-                        self.repository.claim_failed_user_message(message_id)
-                        or user_message
-                    )
                 return {
                     "user_message": user_message,
                     "assistant_message": reply,
-                    "sources": self.repository.list_retrievals(reply["id"]),
+                    "sources": (
+                        (reply.get("ui_payload") or {}).get("source_snapshot")
+                        or self.repository.list_retrievals(reply["id"])
+                    ),
                 }
-            if user_message.get("status") != "failed":
-                raise CoachingConflict("Message is already being processed.")
             user_message = self.repository.claim_failed_user_message(message_id)
             if not user_message:
                 raise CoachingConflict("Message is already being processed.")
         else:
             self.repository.enforce_usage_limits(COACH_RATE_LIMIT_MINUTE, COACH_RATE_LIMIT_DAY)
             user_message = self.repository.insert_user_message(session_id, message_id, content)
+            if not user_message:
+                raise CoachingConflict("Message is already being processed.")
 
         try:
             request_budget = CoachRequestBudget.start()
@@ -1604,10 +1933,17 @@ class CoachingService:
             grounding_fallback = False
             read_context_inherited = False
             facts_block = None
+            research_plan: QuestionPlan | None = None
+            evidence_assessment: EvidenceAssessment | None = None
+            research_failure: str | None = None
+            research_quotes: tuple[str, ...] = ()
+            research_diagnostics: dict = {}
+            research_explanation_owned = False
             # A reply may resume a saved read clarification. Resolve it before the
             # write-enabled check so a read continuation never depends on write
             # actions and always re-runs the validated read path below.
             resumed_read = None
+            choice_query = None
             if interaction_reply and interaction_reply.get("assistant_message_id"):
                 interaction_message = self.repository.require_interaction_message(
                     interaction_reply["assistant_message_id"]
@@ -1616,18 +1952,33 @@ class CoachingService:
                     raise CoachingConflict(
                         "Clarification does not belong to this conversation."
                     )
-                if (interaction_message.get("ui_payload") or {}).get("type") == READ_CLARIFICATION_TYPE:
+                selected_payload = interaction_message.get("ui_payload") or {}
+                if selected_payload.get("type") == READ_CLARIFICATION_TYPE:
                     resumed_read = resume_read_clarification(
-                        interaction_message.get("ui_payload") or {},
+                        selected_payload,
                         interaction_reply.get("value", ""),
                         now=datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date(),
                     )
+                elif (
+                    COACH_LLM_CHOICES_ENABLED
+                    and selected_payload.get("type") == COACH_CHOICES_TYPE
+                ):
+                    # A tapped LLM suggestion runs its server-saved query as a
+                    # brand-new request through the normal read/routing +
+                    # authorization path. The client sends only an option id; the
+                    # query text is resolved from the saved, validated payload —
+                    # never trusted from the client, and never a resume of state.
+                    choice_query = resolve_choice_query(
+                        selected_payload, interaction_reply.get("value", "")
+                    )
+                    if choice_query:
+                        content = choice_query
             response_mode = (
                 "interaction"
-                if (interaction_reply and resumed_read is None)
+                if (interaction_reply and resumed_read is None and choice_query is None)
                 else "standard"
             )
-            if interaction_reply and resumed_read is None:
+            if interaction_reply and resumed_read is None and choice_query is None:
                 route = CoachingRoute.PERSONAL_FINANCE
                 context_ms = 0.0
                 retrieval_ms = 0.0
@@ -1712,6 +2063,121 @@ class CoachingService:
                             route=route,
                             clarification=None,
                         )
+                # A clear, ready personal read makes ZERO model calls even when
+                # research is on. "Clear" requires an explicitly named category:
+                # the user pinned a real category, so this is a spending/budget
+                # lookup, not a paraphrase the interpreter must re-map (e.g. to a
+                # budget recommendation).
+                clear_personal_read = (
+                    route == CoachingRoute.PERSONAL_FINANCE
+                    and resolved_read.tool_name not in (None, "get_financial_overview")
+                    and resolved_read.readiness == ReadReadiness.READY
+                    and not resolved_read.clarification
+                    and resolved_read.parameter_sources.get("category_name") == "explicit"
+                    and not required_agent_tool_names(content)
+                )
+                if (
+                    COACH_RESEARCH_POLICY_ENABLED
+                    and resumed_read is None
+                    and not clear_personal_read
+                ):
+                    research_plan = interpret_question(
+                        content,
+                        history,
+                        base_personal=route in (
+                            CoachingRoute.PERSONAL_FINANCE, CoachingRoute.COMBINED
+                        ),
+                        base_external=route in (
+                            CoachingRoute.FINANCIAL_EDUCATION, CoachingRoute.COMBINED
+                        ),
+                        generate=generate_structured_result,
+                        budget=request_budget,
+                    )
+                    if (
+                        research_plan.personal_read
+                        and (resolved_read.tool_name in (None, "get_financial_overview")
+                             or research_plan.needs_external
+                             or (resolved_read.tool_name in {
+                                 "get_spending_summary", "get_budget_status",
+                                 "get_category_budget_recommendation", "search_transactions",
+                             } and research_plan.personal_read in {
+                                 "get_spending_summary", "get_budget_status",
+                                 "get_category_budget_recommendation", "search_transactions",
+                             }))
+                        and resolved_read.readiness != ReadReadiness.UNSUPPORTED
+                        and (
+                            resolved_read.readiness == ReadReadiness.READY
+                            or resolved_read.missing_required == ("read_intent",)
+                        )
+                        and not required_agent_tool_names(content)
+                    ):
+                        try:
+                            read_arguments = required_read_agent_tool_arguments(
+                                content, research_plan.personal_read
+                            )
+                        except ValueError:
+                            read_arguments = None
+                        if read_arguments is not None:
+                            if research_plan.needs_external:
+                                # The legacy category parser can mistake a public
+                                # topic before "my budget" for a category name.
+                                # Only the model's explicit category proposal is
+                                # passed on, where the executor checks ownership
+                                # and an exact catalog match.
+                                read_arguments.pop("category_name", None)
+                                if research_plan.personal_category:
+                                    read_arguments["category_name"] = research_plan.personal_category
+                            route = (
+                                CoachingRoute.COMBINED if research_plan.needs_external
+                                else CoachingRoute.PERSONAL_FINANCE
+                            )
+                            resolved_read = replace(
+                                resolved_read,
+                                route=route,
+                                tool_name=research_plan.personal_read,
+                                arguments=read_arguments,
+                                clarification=None,
+                                readiness=ReadReadiness.READY,
+                                missing_required=(),
+                                intent="semantic_personal_read",
+                            )
+                    if (
+                        research_plan.interpreted
+                        and research_plan.needs_external
+                        and not research_plan.needs_personal
+                        and not required_agent_tool_names(content)
+                    ):
+                        route = CoachingRoute.FINANCIAL_EDUCATION
+                        resolved_read = replace(
+                            resolved_read, route=route, tool_name=None, arguments={},
+                            clarification=None, readiness=ReadReadiness.READY,
+                            missing_required=(),
+                        )
+                    if research_plan.needs_external:
+                        if route == CoachingRoute.PERSONAL_FINANCE:
+                            route = CoachingRoute.COMBINED
+                            if resolved_read.tool_name is None:
+                                resolved_read = replace(
+                                    resolved_read, route=route, clarification=None
+                                )
+                        elif route == CoachingRoute.CASUAL:
+                            route = CoachingRoute.FINANCIAL_EDUCATION
+                            # The existing personal-read resolver may ask for
+                            # records on a short follow-up. The structured
+                            # interpretation resolves it as external research.
+                            resolved_read = replace(
+                                resolved_read, route=route, clarification=None
+                            )
+                    if research_plan.needs_external and research_plan.topic:
+                        knowledge_analysis = analyze_knowledge_query(
+                            research_plan.topic,
+                            history=history,
+                            current_message_id=message_id,
+                        )
+                        if research_plan.interpreted and research_plan.clarification and not requires_full_clarification(research_plan):
+                            # The typed public plan identifies an independent clear part.
+                            # This does not change private-read permission or clarification.
+                            knowledge_analysis = replace(knowledge_analysis, clarification=None)
                 read_context_inherited = resolved_read.inherited
                 financial_triage = is_financial_triage_query(content)
                 required_write_tool_names = required_agent_tool_names(content)
@@ -1746,11 +2212,18 @@ class CoachingService:
                     CoachingRoute.FINANCIAL_EDUCATION,
                     CoachingRoute.COMBINED,
                 )
-                chunks = (
-                    retrieve(content, analysis=knowledge_analysis)
-                    if is_knowledge_route
-                    else []
-                )
+                chunks = []
+                if is_knowledge_route and not (research_plan and requires_full_clarification(research_plan)):
+                    try:
+                        chunks = retrieve(
+                            research_plan.topic if research_plan else content,
+                            analysis=knowledge_analysis,
+                        )
+                    except Exception:
+                        if not COACH_RESEARCH_POLICY_ENABLED:
+                            raise
+                        research_failure = "retrieval_failed"
+                        logger.warning("coach_internal_retrieval_failed")
                 # Synthetic grounding for planning/vague queries. A hypothetical
                 # allocation ("if I have RM6000, how to allocate my budget") gets a
                 # Python-computed 50/30/20 split injected as evidence; a vague
@@ -1760,7 +2233,10 @@ class CoachingService:
                 # the web. Deterministic figures never drift and never fabricate.
                 allocation_injected = False
                 allocation_guidance = ""
-                if is_knowledge_route and not knowledge_analysis.clarification:
+                if (is_knowledge_route and not knowledge_analysis.clarification
+                    and not (research_plan and (research_plan.clarification
+                             or research_plan.time_scope != "stable"
+                             or research_plan.explicit_search))):
                     amount = parse_amount(content)
                     # Gross-pay check FIRST: a split of pre-deduction income would
                     # budget money the user never receives. Suppress the numeric
@@ -1787,7 +2263,34 @@ class CoachingService:
                     chunks[0].similarity < WEB_FALLBACK_SIM_THRESHOLD
                 )
                 if (
-                    is_knowledge_route
+                    COACH_RESEARCH_POLICY_ENABLED
+                    and is_knowledge_route
+                    and research_plan is not None
+                    and not allocation_injected
+                    and not knowledge_analysis.clarification
+                    and not requires_full_clarification(research_plan)
+                ):
+                    decision = run_research_policy(
+                        research_plan, chunks,
+                        generate=generate_structured_result,
+                        budget=research_work_budget(request_budget),
+                        api_key=TAVILY_API_KEY,
+                        web_enabled=WEB_FALLBACK_ENABLED,
+                        max_results=WEB_FALLBACK_MAX_RESULTS,
+                        timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
+                    )
+                    chunks = decision.chunks
+                    evidence_assessment = decision.assessment
+                    research_failure = (
+                        research_failure if research_failure == "retrieval_failed"
+                        and not chunks else decision.failure
+                    )
+                    research_quotes = decision.source_quotes
+                    research_diagnostics = decision.diagnostics
+                    web_fallback_used = decision.web_used
+                elif (
+                    not COACH_RESEARCH_POLICY_ENABLED
+                    and is_knowledge_route
                     and WEB_FALLBACK_ENABLED
                     and corpus_inadequate
                     and not allocation_injected
@@ -1808,7 +2311,61 @@ class CoachingService:
                         chunks = merge_evidence(chunks, web_chunks)
                         web_fallback_used = True
                 retrieval_ms = round((perf_counter() - retrieval_started) * 1000, 1)
+                # Corpus and web research have one explanation/check/recovery
+                # owner. Retrieval alone cannot approve a definition or bypass
+                # the public claim/source contract. A corpus-only, sufficient
+                # decision with no bindable approved quotations has nothing for
+                # the web citation contract to verify: nothing left FinCoach, so
+                # it ships through the regular corpus-grounded generation path
+                # (the same shape the legacy corpus-only branch below ships).
+                corpus_only_sufficient_evidence = (
+                    evidence_assessment is not None
+                    and evidence_assessment.status == "sufficient"
+                    and not web_fallback_used
+                    and bool(chunks)
+                    and all(chunk.source_type == "corpus" for chunk in chunks)
+                )
+                research_explanation_owned = (
+                    evidence_assessment is not None and research_plan is not None
+                    and not (corpus_only_sufficient_evidence
+                             and not evidence_assessment.supported_quotes)
+                )
 
+                def explain_public(personal_facts=""):
+                    outcome = _research_explanation_result(
+                        plan=research_plan,
+                        decision=ResearchDecision(chunks, evidence_assessment, web_fallback_used,
+                                                  research_failure, research_quotes, research_diagnostics),
+                        budget=request_budget, question=content, personal_facts=personal_facts,
+                    )
+                    research_diagnostics["explanation"] = outcome.diagnostics
+                    return replace(outcome.result, content=_strip_source_markers(outcome.result.content)), outcome.mode
+
+                coach_guidance = allocation_guidance
+                if evidence_assessment is not None:
+                    coach_guidance += (
+                        "\nExplain the supported answer using complete sentences and complete lists. "
+                        "Source excerpts may contain navigation labels, button text, or cut-off "
+                        "list introductions. Omit those fragments. Every application instruction "
+                        "must name what to apply for; every document list must include the actual "
+                        "documents. Preserve all eligibility qualifications."
+                    )
+                if evidence_assessment and evidence_assessment.status != "sufficient":
+                    gaps = "; ".join(evidence_assessment.missing[:3]) or "the requested fact"
+                    search_failed = research_failure in _SEARCH_FAILURE_REASONS
+                    coach_guidance += (
+                        "\nResearch evidence is partial or insufficient. "
+                        + ("Web search failed or could not run. " if search_failed else
+                           "Available sources did not establish the full answer. ")
+                        + f"Missing: {gaps}. Answer only supported parts and state "
+                        "the gap. Do not assert an unverified current or historical fact. "
+                        "Do not describe internal checker/provider errors to the user; "
+                        "offer an appropriate official next step for unresolved details."
+                    )
+                if COACH_LLM_CHOICES_ENABLED and route != CoachingRoute.CASUAL:
+                    coach_guidance = (
+                        f"{coach_guidance}\n\n{_CHOICE_EMISSION_GUIDANCE}".strip()
+                    )
                 prompt = (
                     build_casual_prompt(content, history, COACH_HISTORY_LIMIT)
                     if route == CoachingRoute.CASUAL
@@ -1819,7 +2376,7 @@ class CoachingService:
                         history,
                         COACH_HISTORY_LIMIT,
                         financial_triage=financial_triage,
-                        extra_guidance=allocation_guidance,
+                        extra_guidance=coach_guidance,
                     )
                 )
                 provider_started = perf_counter()
@@ -1842,6 +2399,15 @@ class CoachingService:
                             "AI write actions are disabled. "
                             f"No {target} was created. You can still use "
                             "Coaching for advice and read-only financial questions."
+                        ),
+                        model="fincoach-action-policy",
+                    )
+                    response_mode = "action_policy"
+                elif is_budget_save_command(content):
+                    result = AgentLLMResult(
+                        content=(
+                            "Budget limits aren't saved through Coach. Open the Budget "
+                            "tab to add or change an overall or category limit."
                         ),
                         model="fincoach-action-policy",
                     )
@@ -1888,6 +2454,16 @@ class CoachingService:
                         model="fincoach-product-policy",
                     )
                     response_mode = "product_policy"
+                elif (
+                    research_plan is not None
+                    and requires_full_clarification(research_plan)
+                    and not required_read_tool_name
+                ):
+                    result = AgentLLMResult(
+                        content=clarification_question(research_plan),
+                        model="fincoach-research-clarification",
+                    )
+                    response_mode = "clarification"
                 elif resolved_read.clarification:
                     # A read that cannot execute yet (ambiguous savings, an
                     # unresolved transaction reference, an invalid period) must
@@ -1961,7 +2537,11 @@ class CoachingService:
                         self.admin_client,
                         user_id=self.repository.user_id,
                         session_id=session_id,
-                        request_text=content,
+                        request_text=(
+                            None if resolved_read.intent == "semantic_personal_read"
+                            and research_plan and research_plan.needs_external
+                            else content
+                        ),
                     )
                     tool_arguments = resolved_read.arguments
                     tool_result = executor.execute(
@@ -1985,12 +2565,17 @@ class CoachingService:
                         response_mode = "permission_policy"
                     elif tool_result.get("status") != "ok":
                         result = AgentLLMResult(
-                            content=str(tool_result.get("message") or "FinCoach could not verify those records. Please clarify your request."),
+                            content=str(tool_result.get("message") or "FinCoach could not verify those records right now."),
                             model="fincoach-read-policy",
                             tool_names=(required_read_tool_name,),
                             tool_results=(tool_record,),
                         )
                         response_mode = "read_policy"
+                    elif research_explanation_owned:
+                        result, response_mode = explain_public(
+                            _format_fast_verified_read(required_read_tool_name, tool_result))
+                        result = replace(result, tool_names=(required_read_tool_name,),
+                                         tool_results=(tool_record,))
                     elif _is_fast_verified_read(
                         content,
                         required_read_tool_name,
@@ -2063,13 +2648,18 @@ class CoachingService:
                             tool_results=(tool_record,),
                         )
                         response_mode = "llm_synthesis"
+                elif route == CoachingRoute.FINANCIAL_EDUCATION and research_explanation_owned:
+                    result, response_mode = explain_public()
                 elif route == CoachingRoute.FINANCIAL_EDUCATION:
-                    result = generate_result(
-                        prompt,
-                        reasoning_effort=reasoning_effort,
-                        budget=request_budget,
-                    )
-                    response_mode = "llm"
+                    try:
+                        result = generate_result(
+                            prompt, reasoning_effort=reasoning_effort, budget=request_budget,
+                        )
+                        response_mode = "llm"
+                    except Exception:
+                        if not COACH_RESEARCH_POLICY_ENABLED or evidence_assessment is None:
+                            raise
+                        result, response_mode = explain_public()
                 else:
                     executor = AgentToolExecutor(
                         self.admin_client,
@@ -2092,7 +2682,9 @@ class CoachingService:
                     )
                     response_mode = "agent_loop"
                 result = _ground_reminder_claim(result)
-                if route in (CoachingRoute.FINANCIAL_EDUCATION, CoachingRoute.COMBINED):
+                if (route in (CoachingRoute.FINANCIAL_EDUCATION, CoachingRoute.COMBINED)
+                    and response_mode not in _RESEARCH_EXPLANATION_MODES
+                    and response_mode not in {"research_policy", "clarification", "permission_policy", "read_policy", "product_policy"}):
                     # Rollback flag (invariant #9): "legacy" is byte-for-byte the
                     # prior path; "evidence" runs statement-level assessment +
                     # bounded recovery. Same return contract either way.
@@ -2110,11 +2702,62 @@ class CoachingService:
                         require_source_for_facts=True,
                         budget=request_budget,
                     )
-                # Guard #2: numeric claim validation. Controlled by the same
-                # COACH_ANSWER_VALIDATION kill switch as guard #1 in grounding.py.
-                # When validation is disabled, provider output ships without a
-                # post-hoc numeric check.
-                if grounding._VALIDATION_ENABLED:
+                # Compatibility checks for legacy/tool synthesis. Public policy
+                # definitions already passed the shared research coordinator and
+                # cannot enter these legacy response modes.
+                corpus_only_sufficient = corpus_only_sufficient_evidence
+                if (evidence_assessment is not None and not corpus_only_sufficient
+                        and response_mode in {"llm", "llm_synthesis", "agent_loop"}):
+                    # The web-research contract checks source markers and numeric
+                    # grounding, independently of the legacy rollout flag.
+                    validation = validate_coach_answer(
+                        result.content, [chunk.content for chunk in chunks],
+                        _verified_tool_context(result), force=True,
+                    )
+                    numeric = normalise_and_validate_numeric_claims(
+                        result.content,
+                        "\n".join([*(chunk.content for chunk in chunks), _verified_tool_context(result)]),
+                    )
+                    if not validation.is_valid or numeric is None:
+                        # The generated explanation failed the verification gate.
+                        # Surface any verified quotes as clean prose (states 2/3);
+                        # citation markers, verification-log lines and source URLs
+                        # stay out of `content` and ride ui_payload.research_outcome
+                        # / source_snapshot instead.
+                        tool_records = getattr(result, "tool_results", ()) or ()
+                        personal_facts = ""
+                        if tool_records:
+                            record = tool_records[0]
+                            if record.get("result", {}).get("status") == "ok":
+                                personal_facts = _format_fast_verified_read(
+                                    record["name"], record["result"]
+                                )
+                        recovered = recover_research_answer(
+                            plan=research_plan,
+                            decision=ResearchDecision(chunks, evidence_assessment, web_fallback_used,
+                                                      research_failure, research_quotes),
+                            draft=result, budget=request_budget,
+                            public_question=build_research_query(content) if personal_facts else content,
+                            personal_facts=personal_facts,
+                        )
+                        result = replace(recovered.result,
+                            content=_strip_source_markers(recovered.result.content),
+                            tool_names=getattr(result, "tool_names", ()), tool_results=tool_records)
+                        research_diagnostics["explanation"] = recovered.diagnostics
+                        response_mode = recovered.mode
+                    else:
+                        result = replace(result, content=numeric)
+                elif corpus_only_sufficient and response_mode in {"llm", "llm_synthesis", "agent_loop"}:
+                    # Ship the corpus-grounded explanation; strip [S] markers so the
+                    # prose stays clean (sources ride the View sources card).
+                    result = replace(result, content=_strip_source_markers(result.content))
+                # Partial coverage is not enumerated back to the user: the prompt
+                # guidance already tells the model to state gaps in prose, and the
+                # raw assessment labels (which leaked "eligibility"/"how to apply")
+                # stay in ui_payload.research_outcome for diagnostics only.
+                # Recorded financial values always require deterministic validation.
+                # The optional educational verifier flag must not disable this guard.
+                if (grounding._VALIDATION_ENABLED or route in {CoachingRoute.PERSONAL_FINANCE, CoachingRoute.COMBINED}) and response_mode not in _RESEARCH_EXPLANATION_MODES:
                     trusted_numeric_evidence = [
                         *(chunk.content for chunk in chunks),
                         _verified_tool_context(result),
@@ -2240,7 +2883,24 @@ class CoachingService:
                     separators=(",", ":"),
                 )
             )
+            assistant_id = str(uuid4())
             ui_payload = dict(getattr(result, "ui_payload", None) or {})
+            answer_text = result.content
+            # LLM-offered choice cards (opt-in): strip the tagged metadata block
+            # from the visible answer, validate it independently of answer
+            # validation, and attach a choice payload only when it is well-formed.
+            # Malformed or absent metadata leaves plain prose with no cards.
+            if (
+                COACH_LLM_CHOICES_ENABLED
+                and not interaction_reply
+                and not ui_payload.get("type")
+            ):
+                answer_text, raw_choices = extract_choice_block(answer_text)
+                choice_options = parse_choices(raw_choices)
+                if choice_options:
+                    ui_payload = build_choices_payload(
+                        choice_options, origin_message_id=assistant_id
+                    )
             # Attach deterministic next-step chips to a plain data answer only.
             # Clarification/action payloads carry their own `type` and drive their
             # own UI, and interaction turns have no `history` in scope.
@@ -2253,12 +2913,59 @@ class CoachingService:
                 )
                 if suggestions:
                     ui_payload["follow_ups"] = suggestions
+            sources = source_rows(chunks)
+            explanation = research_diagnostics.get("explanation", {})
+            if response_mode in _RESEARCH_EXPLANATION_MODES:
+                # Preserve original source ranks, but show cards only for claims
+                # that actually survived public explanation verification. An
+                # unavailable answer has no verified claims. Procedural
+                # candidate sources still belong in the snapshot as actionable
+                # links (URLs, never quote body); an unavailable definition
+                # hides them instead, because an unverified identity card
+                # would present the subject's defining facts as confirmed.
+                used_indices = set(explanation.get("used_source_indices", ()))
+                if (response_mode == "research_explanation_unavailable"
+                        and not (research_plan is not None and research_plan.definitional)):
+                    used_indices = {source["rank"] for source in sources}
+                sources = [source for source in sources if source["rank"] in used_indices]
+                sources = unique_source_rows(sources)
+            # Sources are not inlined into `content`: the raw "[S#] … URL …" block
+            # wrapped ugly and duplicated the "View sources" card. Sources ride the
+            # source_snapshot below and the message `sources` array, which are what
+            # drive that card.
+            if research_plan is not None and research_plan.interpreted and research_plan.needs_external:
+                ui_payload["research_context"] = {
+                    "topic": research_plan.topic, "entities": list(research_plan.entities),
+                    "scope": research_plan.scope,
+                    "period": research_plan.period, "time_scope": research_plan.time_scope,
+                    "jurisdiction": research_plan.jurisdiction,
+                    "required_facts": list(research_plan.required_facts),
+                    "clarification_facts": list(research_plan.clarification_facts),
+                    "clarification": clarification_question(research_plan),
+                    "subject_kind": research_plan.subject_kind,
+                    "application_subject": research_plan.application_subject,
+                }
+            if evidence_assessment is not None:
+                ui_payload["research_outcome"] = {
+                    "status": evidence_assessment.status,
+                    "missing": list(evidence_assessment.missing),
+                    "conflicting": evidence_assessment.conflicting,
+                    "part_coverage": [part.__dict__ for part in evidence_assessment.parts],
+                    "failure": research_failure or evidence_assessment.failure,
+                    "recovery": research_diagnostics,
+                }
+            if (any(source["source_type"] == "web" for source in sources)
+                    or response_mode in _RESEARCH_EXPLANATION_MODES and sources):
+                # ui_payload is already persisted atomically with the message.
+                # A bounded snapshot preserves web URLs and source order on
+                # history reload without a new table or mobile response shape.
+                ui_payload["source_snapshot"] = sources[:10]
             assistant_payload = {
-                "id": str(uuid4()),
+                "id": assistant_id,
                 "session_id": session_id,
                 "user_id": self.repository.user_id,
                 "role": "assistant",
-                "content": result.content,
+                "content": answer_text,
                 "reply_to_message_id": message_id,
                 "status": "completed",
                 "model": result.model,
@@ -2266,11 +2973,9 @@ class CoachingService:
                 "completion_tokens": result.completion_tokens,
                 "ui_payload": ui_payload,
             }
-            sources = source_rows(chunks)
             # Only corpus chunks are logged to coaching_retrievals: they reference
             # a real knowledge_document_id. Web-research sources are returned on the
-            # live turn but not yet persisted (the retrievals table has no web
-            # provenance columns), so they do not rehydrate on history reload.
+            # live turn and persisted in source_snapshot for history reload.
             retrieval_rows = [
                 {
                     "user_id": self.repository.user_id,
@@ -2281,7 +2986,10 @@ class CoachingService:
                     "title": chunk.title,
                     "source": chunk.source,
                 }
-                for chunk, source in zip(chunks, sources)
+                # Filtering/deduplication preserves original one-based ranks.
+                # Positional zip would attribute S2's card to S1's document.
+                for source in sources
+                for chunk in [chunks[source["rank"] - 1]]
                 # Real corpus documents only: web (negative id) and synthetic
                 # framework chunks (also negative id) are not knowledge_documents,
                 # so they must not be written to coaching_retrievals.

@@ -49,22 +49,58 @@ class PureResolverTests(unittest.TestCase):
             "Compare July, August and September",
             "Compare the last three months",
             "How am I doing this month?",
+            "am i over budget",
+            "am i under budget",
+            "am i within budget",
         ):
             res = resolve_category_phrase(message, NAMES)
             self.assertEqual(res.status, "none", message)
 
-    def test_unknown_category_asks_with_suggestion(self):
+    def test_unknown_unmarked_phrase_needs_interpretation_with_suggestion(self):
+        # An unfamiliar phrase in a bare category slot is "might be a category":
+        # it goes to interpretation (which clarifies when disabled), and still
+        # carries a close-match suggestion.
         res = resolve_category_phrase("Foood spending July and August", NAMES)
+        self.assertEqual(res.status, "needs_interpretation")
+        self.assertEqual(res.suggestion, "Food")
+
+    def test_unknown_unmarked_phrase_without_close_match(self):
+        res = resolve_category_phrase("spending on Yachts in July", NAMES)
+        self.assertEqual(res.status, "needs_interpretation")
+        self.assertIsNone(res.suggestion)
+
+    def test_explicit_unknown_category_is_unresolved(self):
+        # An EXPLICIT marker names a category deliberately, so an unknown one is
+        # unresolved (clarify), never interpreted.
+        res = resolve_category_phrase("spending for category Foood", NAMES)
         self.assertEqual(res.status, "unresolved")
         self.assertEqual(res.suggestion, "Food")
 
-    def test_unknown_category_without_close_match(self):
-        res = resolve_category_phrase("spending on Yachts in July", NAMES)
-        self.assertEqual(res.status, "unresolved")
-        self.assertIsNone(res.suggestion)
-
     def test_empty_available_names(self):
-        self.assertEqual(resolve_category_phrase("Food spending", []).status, "unresolved")
+        self.assertEqual(
+            resolve_category_phrase("Food spending", []).status, "needs_interpretation"
+        )
+
+    def test_ranking_queries_bypass_slot_extraction(self):
+        for message in (
+            "Which category am I spending the most on?",
+            "What category do I spend the most on?",
+            "Top spending category",
+            "Which category has the highest spending?",
+        ):
+            res = resolve_category_phrase(message, NAMES)
+            self.assertEqual(res.status, "none", f"Failed for {message}: status={res.status}, requested={res.requested}")
+
+    def test_hyphenated_category_name_resolves(self):
+        names = ["Take-away", "Fast-food", "Groceries"]
+        res = resolve_category_phrase("Take-away spending", names)
+        self.assertEqual(res.status, "resolved")
+        self.assertEqual(res.category, "Take-away")
+
+    def test_iso_date_preserves_category_resolution(self):
+        res = resolve_category_phrase("spending from 2026-07-01 to 2026-07-15 on Food", NAMES)
+        self.assertEqual(res.status, "resolved")
+        self.assertEqual(res.category, "Food")
 
 
 class DateAwareQuery:
@@ -148,6 +184,28 @@ def _expense(day, amount, category):
 
 
 class ExecutorCategoryIntegrationTests(unittest.TestCase):
+    def test_shorthand_and_ranking_reach_correct_verified_totals(self):
+        from datetime import date
+        from app.rag.routing import resolve_read_request
+
+        rows = [
+            _expense("2026-09-05", 100, "Food"),
+            _expense("2026-09-06", 250, "Public Transport"),
+        ]
+        for question, total, highest in (
+            ("show me food spend", "RM100.00", "Food"),
+            ("Which category am I spending the most on?", "RM350.00", "Public Transport"),
+            ("Which category costs most?", "RM350.00", "Public Transport"),
+            ("monthly spending", "RM350.00", "Public Transport"),
+        ):
+            with self.subTest(question=question):
+                request = resolve_read_request(question, [], now=date(2026, 9, 22))
+                executor = self.make_executor(question, rows)
+                result = executor.execute(request.tool_name, request.arguments)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["expense_total"], total)
+                self.assertEqual(result["categories"][0]["name"], highest)
+
     def make_executor(self, request_text, transactions):
         from app.agent_tools import AgentToolExecutor
 
@@ -241,6 +299,23 @@ class ExecutorCategoryIntegrationTests(unittest.TestCase):
         )
         result = executor.execute("get_budget_status", {"month": "2026-07"})
         self.assertEqual(result["status"], "ok")
+
+    def test_over_budget_status_question_is_not_clarified(self):
+        # "am i over budget" is a budget-status question with no category. The
+        # word "over" must not be read as an unknown category name.
+        from datetime import date
+        from app.rag.routing import resolve_read_request
+
+        for question in ("am i over budget", "am i under budget", "am i within budget"):
+            with self.subTest(question=question):
+                request = resolve_read_request(question, [], now=date(2026, 9, 22))
+                self.assertEqual(request.tool_name, "get_budget_status")
+                self.assertNotIn("category_name", request.arguments)
+                executor = self.make_executor(
+                    question, [_expense("2026-09-05", 300, "Food")]
+                )
+                result = executor.execute(request.tool_name, request.arguments)
+                self.assertEqual(result["status"], "ok")
 
 
 if __name__ == "__main__":

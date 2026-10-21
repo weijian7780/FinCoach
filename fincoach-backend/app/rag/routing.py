@@ -30,6 +30,19 @@ class ReadReadiness(str, Enum):
 class UnsupportedTransactionFilter(ValueError):
     """A requested search constraint has no faithful executor representation."""
 
+    def __init__(self, message: str, *, reason: str = "transaction_filter", preserved: dict | None = None):
+        super().__init__(message)
+        self.reason = reason
+        self.preserved = dict(preserved or {})
+
+
+class MalformedAmountFilter(ValueError):
+    """An RM amount token that cannot be honoured as an exact-match filter."""
+
+    def __init__(self, message: str, *, preserved: dict | None = None):
+        super().__init__(message)
+        self.preserved = dict(preserved or {})
+
 
 # Stable read-intent labels, kept separate from the coarse CoachingRoute and from
 # the tool name so the contract can name an intent even before a tool is chosen
@@ -78,6 +91,7 @@ class ResolvedReadRequest:
     missing_required: tuple[str, ...] = ()
     invalid_fields: tuple[str, ...] = ()
     parameter_sources: dict[str, str] = field(default_factory=dict)
+    clarify_reason: str | None = None
 
 
 _MONTH_NUMBERS = {
@@ -380,9 +394,15 @@ _BUDGET_ALLOCATION_QUERY = re.compile(
 # framing, NOT a reference to the user's recorded figures — so it must not force
 # the personal-records path.
 _HYPOTHETICAL_AMOUNT = re.compile(
-    r"\b(?:if|say|suppose|assuming|imagine|let'?s\s+say|katakan|andai(?:kan)?|"
+    r"\b(?:if|say|suppose|assuming|imagine|let'?s\s+say|for\s+example|contoh(?:nya)?|katakan|andai(?:kan)?|"
     r"jika|kalau)\b.{0,20}"
     r"(?:\bi\s+(?:have|had|get|got|make|earn|receive)\b|\brm?\s*\d|\b\d{3,})",
+    re.IGNORECASE,
+)
+_EXPLICIT_RECORDED_CONTEXT = re.compile(
+    r"\b(?:my|our)\s+(?:saved|recorded|actual|current)\b|"
+    r"\b(?:saved|recorded)\s+(?:expenses?|spending|transactions?|budget|income|records?)\b|"
+    r"\b(?:based\s+on|using)\s+my\b",
     re.IGNORECASE,
 )
 
@@ -602,12 +622,12 @@ _MONTH_RANGE_SEPARATOR = re.compile(
     re.IGNORECASE,
 )
 _LAST_N_MONTHS_QUERY = re.compile(
-    r"\b(?:last|past|previous|recent)\s+(?P<n>\d{1,2}|two|three|four|five|six|"
+    r"\b(?:last|past|previous|recent)\s+(?P<n>\d+|two|three|four|five|six|"
     r"seven|eight|nine|ten|eleven|twelve)\s+months?\b",
     re.IGNORECASE,
 )
 _PREVIOUS_N_QUERY = re.compile(
-    r"\bprevious\s+(?P<n>\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|"
+    r"\bprevious\s+(?P<n>\d+|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve)\b",
     re.IGNORECASE,
 )
@@ -648,16 +668,28 @@ def _named_comparison_months(message: str, current_day: date) -> list[date]:
     """Resolve every explicitly named calendar month, expanding a 'X to Y' range."""
     cleaned = re.sub(r"\bmay\s+(?:i|we|you)\b", "", message, flags=re.I)
     matches = list(_MONTH_NAME_QUERY.finditer(cleaned))
+    explicit_years = {match.group("year") for match in matches if match.group("year")}
+    # A year stated once belongs to the month list ("July and September 2025").
+    # Do not mix it with the current year merely because earlier names omit it.
+    shared_year = next(iter(explicit_years)) if len(explicit_years) == 1 else None
     resolved: list[tuple[int, int, date]] = []  # (start, end, month-start)
     for match in matches:
         month = _MONTH_NUMBERS[match.group("month").casefold()]
-        year = _infer_comparison_year(month, match.group("year"), current_day)
+        year = _infer_comparison_year(month, match.group("year") or shared_year, current_day)
         resolved.append((match.start("month"), match.end(), date(year, month, 1)))
 
     if len(resolved) == 2:
         between = cleaned[resolved[0][1]:resolved[1][0]]
         if _MONTH_RANGE_SEPARATOR.match(between):
-            start, end = sorted((resolved[0][2], resolved[1][2]))
+            # An unqualified endpoint inherits the adjacent year across December:
+            # "November to February 2025" starts in November 2024.
+            first, last = resolved[0][2], resolved[1][2]
+            if first.month > last.month:
+                if matches[1].group("year") and not matches[0].group("year"):
+                    first = first.replace(year=last.year - 1)
+                elif matches[0].group("year") and not matches[1].group("year"):
+                    last = last.replace(year=first.year + 1)
+            start, end = sorted((first, last))
             months, cursor = [], start
             while cursor <= end and len(months) <= _MAX_COMPARISON_MONTHS:
                 months.append(cursor)
@@ -696,6 +728,8 @@ def parse_comparison_request(
         last_n = _LAST_N_MONTHS_QUERY.search(message)
         if last_n:
             count = _word_or_int(last_n.group("n")) or 0
+            if count > _MAX_COMPARISON_MONTHS:
+                raise ValueError("Please compare at most 12 calendar months at a time.")
             if count >= 2:
                 includes_current = bool(_THIS_MONTH_QUERY.search(message))
                 # "last six months" means six completed months; "including this
@@ -709,6 +743,8 @@ def parse_comparison_request(
         previous_n = _PREVIOUS_N_QUERY.search(message)
         if previous_n and _THIS_MONTH_QUERY.search(message):
             count = _word_or_int(previous_n.group("n")) or 0
+            if count + 1 > _MAX_COMPARISON_MONTHS:
+                raise ValueError("Please compare at most 12 calendar months at a time.")
             if count >= 1:
                 months = sorted(
                     [current_start, *(_shift_month(current_start, -(i + 1)) for i in range(count))]
@@ -717,7 +753,9 @@ def parse_comparison_request(
     if not months:
         return None
 
-    months = sorted(set(months))[:_MAX_COMPARISON_MONTHS]
+    months = sorted(set(months))
+    if len(months) > _MAX_COMPARISON_MONTHS:
+        raise ValueError("Please compare at most 12 calendar months at a time.")
 
     # A single resolvable month is an ordinary month lookup, not a comparison —
     # unless the user clearly asked to compare, in which case ask for the months.
@@ -828,6 +866,18 @@ def route_coach_message(content: str) -> CoachingRoute:
             and (is_weekly_savings_plan_request(message) or _SAVINGS_GOAL_QUERY.search(message))
             and not re.search(r"\b(?:my|me|i|saya|aku)\b", message, re.I)):
         return CoachingRoute.FINANCIAL_EDUCATION
+
+    # User-supplied scenario numbers must not be replaced by saved income or
+    # spending. Resolve this before the affordability/triage shortcut. An
+    # explicit request to apply the scenario to actual records remains combined;
+    # confirmation-gated actions retain their existing tool path.
+    if _HYPOTHETICAL_AMOUNT.search(message) and not required_agent_tool_name(message) and (
+        _BUDGET_QUERY.search(message) or _PREDICTION_QUERY.search(message)
+        or _SAVINGS_GOAL_QUERY.search(message) or _FINANCIAL_EDUCATION.search(message)
+        or re.search(r"\brm\s*\d", message, re.I)
+    ):
+        return (CoachingRoute.COMBINED if _EXPLICIT_RECORDED_CONTEXT.search(message)
+                else CoachingRoute.FINANCIAL_EDUCATION)
 
     # The mobile Coach exposes these without finance keywords. They are still
     # personal-finance questions because a useful answer requires live records.
@@ -1102,33 +1152,14 @@ def required_read_agent_tool_arguments(
         elif _NEXT_MONTH_RANGE_QUERY.search(message):
             arguments["range"] = "next_month"
     if tool_name == "search_transactions":
-        # Amount-ranked lists ("top 5 transactions") are not supported yet.
-        if _TXN_TOP_QUERY.search(message):
-            raise ValueError(
-                "Please tell me which transactions you mean — ranking transactions "
-                "by value isn't supported yet, but I can show your recent "
-                "transactions or search by merchant."
-            )
-        if _TXN_OLDEST_QUERY.search(message):
-            raise UnsupportedTransactionFilter(
-                "Please ask for recent transactions; earliest-first ordering is not supported yet."
-            )
-        if _TXN_EXCLUSION_QUERY.search(message):
-            raise UnsupportedTransactionFilter(
-                "Please choose a category to include; excluding a category is not supported yet."
-            )
-        merchants = _transaction_merchant_texts(message)
-        if _TXN_MERCHANT_JOIN.search(message) or len(merchants) > 1:
-            raise UnsupportedTransactionFilter(
-                "Please search one merchant at a time; combining merchants is not supported yet."
-            )
+        # Independent filters first, so an unsupported-constraint clarification can
+        # preserve them and clear only the offending one.
         if type_match:
             arguments["transaction_type"] = type_match.group("type").casefold()
         if _TXN_COUNT_QUERY.search(message):
             arguments["result_mode"] = "count"
         elif _TXN_MERCHANT_TOTAL.search(message):
             arguments["result_mode"] = "expense_total"
-        # "last 5 [transactions]" / "5 transactions" -> newest N (list mode only).
         count = (
             re.search(r"\b(?:last|latest|recent)\s+(\d{1,2})\b", message, re.I)
             or re.search(r"\b(\d{1,2})\s+(?:transactions?|purchases?|records?)\b", message, re.I)
@@ -1137,30 +1168,66 @@ def required_read_agent_tool_arguments(
             value = int(count.group(1))
             if 1 <= value <= 50:
                 arguments["limit"] = value
-        # Match the complete money token before validating it. A prefix match on
-        # RM1,000 or RM25.999 would query the wrong amount; a magnitude suffix
-        # (RM25k) or a sign (RM-25) must also reach validation, not be truncated
-        # to RM25 or dropped so the token leaks into the category filter.
+        # Amount-ranked lists ("top 5 transactions") are not supported yet.
+        if _TXN_TOP_QUERY.search(message):
+            raise ValueError(
+                "Please tell me which transactions you mean — ranking transactions "
+                "by value isn't supported yet, but I can show your recent "
+                "transactions or search by merchant."
+            )
+        # Validate the money token before the merchant/order/exclusion checks so a
+        # clarification for any of those preserves the amount too.
         amounts = re.findall(r"\brm\s*(-?[\w.,]+)", message, re.I)
         if amounts:
             if len(amounts) != 1 or not re.fullmatch(
                 r"(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?",
                 amounts[0].rstrip("."),
             ):
-                raise ValueError("Please provide one exact amount, with at most two decimal places.")
+                raise MalformedAmountFilter(
+                    "Please provide one exact amount, with at most two decimal places.",
+                    preserved=dict(arguments),
+                )
             if re.search(
                 r"\b(?:over|under|above|below|more\s+than|less\s+than|at\s+least|"
                 r"at\s+most|greater\s+than|fewer\s+than|between|min|max|minimum|"
                 r"maximum|around|about|approximately)\b",
                 message, re.I,
             ):
-                raise ValueError(
+                raise MalformedAmountFilter(
                     "I can match an exact amount like RM25 for now. Which exact "
-                    "amount should I search for?"
+                    "amount should I search for?",
+                    preserved=dict(arguments),
                 )
             arguments["amount"] = f"{Decimal(amounts[0].rstrip('.').replace(',', '')):.2f}"
+        if _TXN_OLDEST_QUERY.search(message):
+            raise UnsupportedTransactionFilter(
+                "Please ask for recent transactions; earliest-first ordering is not supported yet.",
+                reason="unsupported_order",
+                preserved={k: v for k, v in arguments.items() if k != "limit"},
+            )
+        if _TXN_EXCLUSION_QUERY.search(message):
+            raise UnsupportedTransactionFilter(
+                "Please choose a category to include; excluding a category is not supported yet.",
+                reason="excluded_category",
+                preserved={k: v for k, v in arguments.items() if k != "category_name"},
+            )
+        merchants = _transaction_merchant_texts(message)
+        if _TXN_MERCHANT_JOIN.search(message) or len(merchants) > 1:
+            raise UnsupportedTransactionFilter(
+                "Please search one merchant at a time; combining merchants is not supported yet.",
+                reason="multiple_merchants",
+                preserved=dict(arguments),
+            )
         if merchants:
             arguments["text"] = merchants[0]
+        # A specific-record LIST lookup (merchant/amount) with no stated period
+        # searches all recorded dates rather than silently defaulting to this month.
+        if (
+            arguments.get("result_mode", "list") == "list"
+            and ("text" in arguments or "amount" in arguments)
+            and not ("start_date" in arguments and "end_date" in arguments)
+        ):
+            arguments["all_dates"] = True
     return arguments
 
 
@@ -1217,6 +1284,7 @@ def resolve_read_request(
         readiness = ReadReadiness.READY
         missing_required: tuple[str, ...] = ()
         invalid_fields: tuple[str, ...] = ()
+        clarify_reason: str | None = None
         intent = _TOOL_INTENT.get(tool) if tool else None
 
         if unsupported:
@@ -1240,6 +1308,7 @@ def resolve_read_request(
             intent = "transaction_reference"
             readiness = ReadReadiness.NEEDS_CLARIFICATION
             missing_required = ("transaction_filter",)
+            clarify_reason = "unresolved_reference"
             clarification = (
                 "Which transaction do you mean? Share its date, the merchant, or "
                 "a short description and I'll find it."
@@ -1253,6 +1322,13 @@ def resolve_read_request(
                 if re.search(r"\b(?:all\s+categories|semua\s+kategori)\b", text, re.I):
                     arguments.pop("category_name", None)
                     parameter_sources.pop("category_name", None)
+                # all_dates is a deterministic default, never user-explicit, and must
+                # never coexist with a concrete period (explicit or inherited).
+                if arguments.get("start_date") and arguments.get("end_date"):
+                    arguments.pop("all_dates", None)
+                    parameter_sources.pop("all_dates", None)
+                elif "all_dates" in arguments:
+                    parameter_sources["all_dates"] = "default"
                 if tool in _MONTH_PERIOD_TOOLS:
                     start, end = _explicit_period(text, tool, _malaysia_date(now))
                     if start and end and (start.day != 1 or end != _month_end(start)):
@@ -1260,20 +1336,25 @@ def resolve_read_request(
                         raise ValueError(f"{subject} use calendar months. Please specify a month and year.")
                 # Materialise the default period with provenance so the answer can
                 # state it; the executor keeps its own default for bare callers.
-                for key, value in _default_period_arguments(tool, now).items():
-                    if key not in arguments:
-                        arguments[key] = value
-                        parameter_sources[key] = "default"
+                if not arguments.get("all_dates"):
+                    for key, value in _default_period_arguments(tool, now).items():
+                        if key not in arguments:
+                            arguments[key] = value
+                            parameter_sources[key] = "default"
             except ValueError as error:
-                arguments, parameter_sources = {}, {}
+                preserved = dict(getattr(error, "preserved", {}) or {})
+                arguments = preserved
+                parameter_sources = {key: "explicit" for key in preserved}
                 readiness = ReadReadiness.NEEDS_CLARIFICATION
                 message_text = str(error)
                 if isinstance(error, UnsupportedTransactionFilter):
                     invalid_fields = ("transaction_filter",)
                     clarification = message_text
+                    clarify_reason = error.reason
                 elif "amount" in message_text.lower():
                     invalid_fields = ("amount",)
                     clarification = message_text
+                    clarify_reason = "amount"
                 elif "ranking" in message_text.lower():
                     invalid_fields = ()
                     clarification = message_text
@@ -1290,7 +1371,7 @@ def resolve_read_request(
             tool_name=tool, arguments=arguments, inherited=inherited,
             clarification=clarification, intent=intent, readiness=readiness,
             missing_required=missing_required, invalid_fields=invalid_fields,
-            parameter_sources=parameter_sources,
+            parameter_sources=parameter_sources, clarify_reason=clarify_reason,
         )
         context = (
             resolved
@@ -1473,6 +1554,10 @@ def _period_invalid_fields(tool_name: str) -> tuple[str, ...]:
 
 def _category_filter(message: str) -> str | None:
     # Separate trailing period modifiers from category text before parsing.
+    # "spending for the last three months" specifies a period, not a category.
+    relative_period = _LAST_N_MONTHS_QUERY.search(message)
+    if relative_period:
+        message = re.sub(r"\s+(?:for\s+)?(?:the\s+)?$", "", message[:relative_period.start()], flags=re.I)
     text = re.split(
         r"\b(?:this\s+month|last\s+month|next\s+month|today|yesterday|tomorrow|"
         r"bulan\s+(?:ini|lepas|depan)|hari\s+ini|semalam|esok|from\s+\d|"

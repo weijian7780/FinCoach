@@ -9,10 +9,39 @@ figure.
 
 import unittest
 
-from app.rag.routing import CoachingRoute, route_coach_message
+from app.rag.routing import (
+    CoachingRoute,
+    required_read_agent_tool_name,
+    route_coach_message,
+    select_financial_context_scope,
+)
 
 
 class BudgetAllocationRoutingTests(unittest.TestCase):
+    def test_hypothetical_affordability_and_saving_do_not_read_saved_records(self):
+        from app.rag.routing import resolve_read_request
+
+        for message in (
+            "If I have RM6000, can I afford RM1000 rent?",
+            "If I earn RM3000, how much can I save?",
+            "Suppose my income is RM3000, suggest a budget",
+            "For example RM6000 allowance, suggest a budget",
+            "If I earn RM3000, how much should I save each week?",
+        ):
+            with self.subTest(message=message):
+                self.assertEqual(route_coach_message(message), CoachingRoute.FINANCIAL_EDUCATION)
+                self.assertIsNone(required_read_agent_tool_name(message))
+                self.assertIsNone(resolve_read_request(message, []).tool_name)
+
+    def test_hypothetical_applied_to_explicit_recorded_data_still_reads_records(self):
+        message = "If I earn RM3000, how much could I save based on my recorded spending?"
+        self.assertEqual(route_coach_message(message), CoachingRoute.COMBINED)
+        self.assertIsNotNone(required_read_agent_tool_name(message))
+
+    def test_hypothetical_action_request_keeps_confirmation_tool_path(self):
+        message = "If I have RM6000, create a reminder to pay rent tomorrow"
+        self.assertEqual(route_coach_message(message), CoachingRoute.PERSONAL_FINANCE)
+
     def test_hypothetical_amount_allocation_is_educational_not_personal(self):
         for message in (
             "if i have 6000, how to allocate my monthly budget",
@@ -45,6 +74,13 @@ class BudgetAllocationRoutingTests(unittest.TestCase):
                 self.assertEqual(
                     route_coach_message(message), CoachingRoute.FINANCIAL_EDUCATION
                 )
+
+    def test_normative_budget_question_does_not_request_personal_budget_data(self):
+        message = "people normally set what budget"
+
+        self.assertEqual(route_coach_message(message), CoachingRoute.FINANCIAL_EDUCATION)
+        self.assertIsNone(required_read_agent_tool_name(message))
+        self.assertIsNone(select_financial_context_scope(message))
 
     def test_recorded_status_questions_stay_personal(self):
         # These must NOT be pulled into the education path by the new rules.

@@ -33,11 +33,18 @@ before any network call.
 from __future__ import annotations
 
 import re
+from time import monotonic
 from dataclasses import dataclass, field
-from typing import Any
-from urllib.parse import urlparse
+from datetime import datetime, timezone
+from typing import Any, Literal, TYPE_CHECKING
+from urllib.parse import urlparse, urljoin, parse_qsl, unquote
+from ipaddress import ip_address
+from math import isfinite
 
 from app.rag.retrieval import RetrievedChunk
+
+if TYPE_CHECKING:
+    from app.rag.public_source_store import PublicSourcePage
 
 
 # ---- Domain -> tier tables ---------------------------------------------------
@@ -173,6 +180,108 @@ def _host(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+def is_public_guidance_url(url: str) -> bool:
+    """Shared eligibility for public guidance URLs; no credentials/identifiers."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if parsed.scheme not in {"http", "https"} or not host or parsed.username or parsed.password:
+            return False
+        if host == "localhost" or "." not in host or host.endswith((".local", ".internal", ".localhost")):
+            return False
+        if re.fullmatch(r"(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*", unquote(host), re.I):
+            return False
+        try:
+            ip_address(host)
+        except ValueError:
+            pass
+        else:
+            return False
+        items = parse_qsl(parsed.query, keep_blank_values=True)
+        if parsed.query and not _public_query_allowed(parsed, items):
+            return False
+        return not bool(re.search(r"(?:login|signin|logout|submit|callback|oauth)", parsed.path, re.I))
+    except (ValueError, TypeError):
+        return False
+
+
+def _public_query_allowed(parsed: Any, items: list[tuple[str, str]]) -> bool:
+    """Allow public CMS selectors without opening arbitrary identifier URLs.
+
+    Official portals commonly use PHP navigation/document selectors. Only
+    bounded observed public routes qualify; account IDs, credentials and
+    unknown parameters remain excluded, including on official domains.
+    """
+    ordinary = {"lang", "language", "page", "year"}
+    if items and all(k.casefold() in ordinary and re.fullmatch(r'[a-zA-Z0-9-]{1,12}', v)
+                     for k, v in items):
+        return True
+    # Tier 2 includes commercial banks: reputation is not permission to send
+    # account/document identifiers. This exception is for government CMS only.
+    government_host = (parsed.hostname or '').casefold().endswith('.gov.my')
+    if not items or not government_host:
+        return False
+    values = {k.casefold(): v for k, v in items}
+    if len(values) != len(items):
+        return False
+    if parsed.path.casefold().endswith(('/get_dl.php', '/get_url.php')):
+        # Public government CMS document/link selectors are numeric only;
+        # arbitrary URLs, credentials and additional parameters stay forbidden.
+        return set(values) == {'id'} and bool(re.fullmatch(r'[0-9]{1,8}', values['id']))
+    public_navigation = (parsed.path in {'', '/'} or parsed.path.casefold().endswith('/main.php'))
+    public_sections = {'profil', 'profile', 'info', 'fungsi', 'function', 'functions',
+                       'cawang', 'bahagian', 'division', 'perkhidmatan', 'services',
+                       'dokumen', 'documents', 'faq', 'soalan', 'berita', 'news', 'galeri'}
+    return bool(public_navigation and values.get('pg', '').casefold() in public_sections
+        and set(values) <= ordinary | {'pg', 'list', 'type', 'id'}
+        and all(re.fullmatch(r'[0-9]{1,8}' if k == 'id' else r'[a-zA-Z0-9_-]{1,32}', v)
+                for k, v in values.items()))
+
+
+def linked_guidance_urls(page_url: str, markdown: str, *, subject_query: str,
+                         part_label: str, visited: frozenset[str]) -> tuple[str, ...]:
+    """Rank only observed public links; links never inherit a parent's trust."""
+    stop = {"the", "and", "for", "how", "what", "required", "malaysia", "application", "programme"}
+    words = lambda text: set(re.findall(r"[^\W_]+", text.casefold())) - stop
+    subject, gap = words(subject_query), words(part_label)
+    if gap & {"documents", "document"}:
+        gap.update({"dokumen", "sokongan"})
+    if gap & {"eligibility", "qualifies", "eligible"}:
+        gap.update({"syarat", "kelayakan"})
+    candidates = {}
+    for label, target in re.findall(r"\[([^\]\n]{1,250})\]\(([^\s)]+)(?:\s+\"[^\"]*\")?\)", markdown[:100_000]):
+        url = urljoin(page_url, target).split("#", 1)[0]
+        if not is_public_guidance_url(url):
+            continue
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if parsed.scheme not in {"http", "https"} or not host or parsed.username or parsed.password:
+            continue
+        if host == "localhost" or "." not in host or host.endswith((".local", ".internal", ".localhost")):
+            continue
+        if re.fullmatch(r"(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*", unquote(host), re.I):
+            continue  # Shortened/octal/hex numeric addresses are not DNS hosts.
+        try:
+            ip_address(host)
+        except ValueError:
+            pass
+        else:
+            continue  # No literal addresses, including numeric public targets.
+        query_items = parse_qsl(parsed.query, keep_blank_values=True)
+        if parsed.query and not _public_query_allowed(parsed, query_items):
+            continue
+        if re.search(r"(?:login|signin|logout|submit|callback|oauth)", parsed.path, re.I) or url in visited:
+            continue
+        terms = words(label + " " + unquote(parsed.path))
+        gap_score, subject_score = len(gap & terms), len(subject & terms)
+        same_host = host == (urlparse(page_url).hostname or "")
+        # A same-institution document can inherit subject relevance, never its
+        # factual authority. Cross-host links must name the actual subject.
+        if gap_score and (subject_score or same_host):
+            candidates[url] = (gap_score, subject_score)
+    return tuple(sorted(candidates, key=lambda url: candidates[url], reverse=True)[:4])
+
+
 def _host_or_suffix_in(host: str, hosts: frozenset[str]) -> bool:
     """Match an exact host or any of its parent domains against ``hosts``."""
     parts = host.split(".")
@@ -278,6 +387,7 @@ class WebResult:
     url: str
     content: str
     score: float
+    published_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -287,6 +397,49 @@ class ResearchOutcome:
     chunks: list[RetrievedChunk] = field(default_factory=list)
     web_ran: bool = False
     reason: str = "not_attempted"
+    extraction_reason: str | None = None
+
+
+@dataclass
+class WebResearchCache:
+    """Request-local public evidence only; bounded by the policy's three rounds."""
+
+    searches: dict[tuple, tuple[WebResult, ...]] = field(default_factory=dict)
+    passages: dict[tuple[str, str, str, bool, str], str] = field(default_factory=dict)
+    full_pages: dict[str, str] = field(default_factory=dict)
+    fetched_pages: dict[str, PublicSourcePage] = field(default_factory=dict)
+    public_source_diagnostics: dict[str, Any] = field(default_factory=dict)
+    search_calls: int = 0
+    extract_calls: int = 0
+    # Guarded official-page fetches after a failed/clipped Tavily extraction.
+    # Free of Tavily credit, so counted separately but capped per request.
+    direct_fetches: int = 0
+    cache_hits: int = 0
+    credits: float | None = None
+    last_error: str | None = None
+
+    def note_usage(self, response: Any) -> None:
+        usage = response.get("usage") if isinstance(response, dict) else None
+        credits = usage.get("credits") if isinstance(usage, dict) else None
+        if type(credits) in (int, float) and isfinite(credits) and credits >= 0:
+            self.credits = (self.credits or 0) + credits
+
+
+def _safe_error(error: Exception) -> str:
+    """Classify failures without retaining credentials or provider response text."""
+    status = getattr(error, "status_code", None)
+    if status in (401, 403):
+        return "auth_error"
+    if status in (432, 433):
+        return "quota"
+    if status == 429:
+        return "rate_limited"
+    name = type(error).__name__.lower()
+    if "timeout" in name:
+        return "timeout"
+    if "connection" in name or "network" in name:
+        return "network_error"
+    return "search_failed"
 
 
 def _parse_results(response: Any) -> list[WebResult]:
@@ -303,12 +456,17 @@ def _parse_results(response: Any) -> list[WebResult]:
                 url=url,
                 content=content,
                 score=float(item.get("score") or 0.0),
+                published_date=str(item.get("published_date") or "")[:10] or None,
             )
         )
     return results
 
 
-def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, timeout: float) -> list[WebResult]:
+def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, timeout: float,
+                 errors: list[str] | None = None, public_policy: bool = False,
+                 official_domains: tuple[str, ...] = (),
+                 cache: WebResearchCache | None = None,
+                 discovery_mode: Literal["institution", "broader"] = "institution") -> list[WebResult]:
     """Run one Tavily search pass, returning ``[]`` on any error.
 
     Pass 1 (``caged=True``): ``topic="finance"`` + ``include_domains`` restricted
@@ -318,8 +476,43 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
     data), so this is where breaking news / new platforms surface. Scrapers are
     excluded. Each pass fails closed to ``[]`` so one bad call can't break a turn.
     """
+    key = (query, caged, max_results, public_policy, official_domains, discovery_mode)
+    if cache is not None and key in cache.searches:
+        cache.cache_hits += 1
+        return list(cache.searches[key])
+    if cache is not None and cache.search_calls >= 3:
+        cache.last_error = "search_call_limit"
+        if errors is not None:
+            errors.append(cache.last_error)
+        return []
     try:
-        if caged:
+        if cache is not None:
+            cache.search_calls += 1
+        if public_policy:
+            # Broad Malaysian official guidance, rather than a finance/news bias.
+            # Domain preference is discovery, not proof of authority. Restrict
+            # only to hosts already classified as an official institution.
+            domains = [host for host in official_domains if discovery_mode == "institution"
+                       if classify_tier("https://" + host) in {1, 2}]
+            response = client.search(
+                query=query, max_results=min(4, max(1, int(max_results))),
+                search_depth="basic", topic="general",
+                # Without an identified institution host, discover broadly.
+                # A long finance-domain preference displaces unrelated public
+                # agencies. Trust is still checked on every returned URL.
+                # Country reranking can displace the institution's substantive
+                # pages with short regional/news snippets. Identified official
+                # domains already establish the search boundary; keep the
+                # Malaysian boost only for open discovery.
+                **({"include_domains": domains, "include_domains_mode": "restrict"}
+                   if domains else {"country": "malaysia"}),
+                # Public factual policy rejects anecdotal/community evidence.
+                # Do not spend its bounded discovery slots on social snippets
+                # that cannot authorize the requested facts in the first place.
+                exclude_domains=[*_EXCLUDED_DOMAINS, 'facebook.com', 'instagram.com', 'tiktok.com'],
+                include_published_date=True, include_usage=True, timeout=timeout,
+            )
+        elif caged:
             response = client.search(
                 query=query,
                 max_results=max(1, int(max_results)),
@@ -339,9 +532,18 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                 exclude_domains=list(_EXCLUDED_DOMAINS),
                 timeout=timeout,
             )
-    except Exception:
+    except Exception as error:
+        reason = _safe_error(error)
+        if errors is not None:
+            errors.append(reason)
+        if cache is not None:
+            cache.last_error = reason
         return []
-    return _parse_results(response)
+    results = _parse_results(response)
+    if cache is not None:
+        cache.note_usage(response)
+        cache.searches[key] = tuple(results)
+    return results
 
 
 def search_web(
@@ -350,6 +552,13 @@ def search_web(
     api_key: str,
     max_results: int = 4,
     timeout: float = 8.0,
+    errors: list[str] | None = None,
+    single_search: bool = False,
+    unrestricted: bool = False,
+    public_policy: bool = False,
+    official_domains: tuple[str, ...] = (),
+    cache: WebResearchCache | None = None,
+    discovery_mode: Literal["institution", "broader"] = "institution",
 ) -> list[WebResult]:
     """Two-pass Tavily search. Degrades to ``[]`` on any failure.
 
@@ -370,17 +579,22 @@ def search_web(
     try:
         from tavily import TavilyClient  # lazy: optional dependency
     except ImportError:
+        if errors is not None:
+            errors.append("sdk_unavailable")
         return []
     client = TavilyClient(api_key=api_key)
 
-    caged = _search_pass(client, query, caged=True, max_results=max_results, timeout=timeout)
-    if len(caged) >= _MIN_CAGED_RESULTS:
+    caged = _search_pass(client, query, caged=not unrestricted, max_results=max_results,
+                         timeout=timeout, errors=errors, public_policy=public_policy,
+                         official_domains=official_domains, cache=cache, discovery_mode=discovery_mode)
+    if single_search or public_policy or len(caged) >= _MIN_CAGED_RESULTS:
         return caged[:max_results]
 
     # Pass 1 was thin (edge case): fill remaining slots with the regional search.
     seen = {result.url for result in caged}
     merged = list(caged)
-    for result in _search_pass(client, query, caged=False, max_results=max_results, timeout=timeout):
+    for result in _search_pass(client, query, caged=False, max_results=max_results,
+                               timeout=timeout, errors=errors):
         if result.url in seen:
             continue
         seen.add(result.url)
@@ -390,6 +604,153 @@ def search_web(
     return merged
 
 
+def _complete_page_window(raw: str, query: str, *, subject_query: str = "") -> str:
+    """Choose a bounded, contiguous section from a full page, locally.
+
+    Tavily's query mode returns <=500-character snippets. Recovery instead
+    fetches page context and ranks paragraph windows here, preserving list items
+    after their heading. No new search call or source text is manufactured.
+    """
+    from collections import Counter
+    words = lambda text: re.findall(r"\b[^\W\d_]{3,}\b", text.casefold())
+    terms = set(words(query)) - {"the", "and", "for", "from", "with", "what", "how", "are"}
+    # These are retrieval vocabulary, never policy facts. Malaysian official
+    # pages often use Malay headings while the user asks in English. Rank the
+    # requested section without translating or modifying its source text.
+    equivalents = {
+        "documents": {"dokumen", "sokongan"}, "document": {"dokumen"},
+        "eligibility": {"eligible", "kelayakan", "syarat"}, "eligible": {"eligibility", "kelayakan", "syarat"},
+        "qualifies": {"eligibility", "eligible", "kelayakan", "syarat"}, "application": {"apply", "permohonan", "memohon"},
+        "apply": {"application", "permohonan", "memohon"}, "deadline": {"tarikh", "tempoh"},
+        "process": {"kaedah", "langkah"}, "steps": {"langkah", "kaedah"},
+        "exemption": {"pengecualian"}, "waiver": {"pengecualian"},
+        "married": {"berkahwin", "perkahwinan"}, "role": {"peranan", "fungsi"},
+        "functions": {"fungsi", "tugas"},
+        "fungsi": {"functions", "role", "tugas", "peranan"},
+        "duties": {"fungsi", "tugas", "peranan", "responsibilities"},
+    }
+    for term in tuple(terms):
+        terms.update(equivalents.get(term, ()))
+    # The programme/withdrawal subject must outrank a generic introduction that
+    # happens to mention every procedural query word and the institution's name.
+    subject_terms = set(words(subject_query)) - {
+        "the", "and", "for", "from", "with", "what", "how", "are", "current", "latest",
+        "application", "apply", "applying", "process", "procedure", "procedures", "steps",
+        "eligibility", "eligible", "criteria", "qualifies", "qualifications", "required",
+        "supporting", "document", "documents", "details", "information", "official",
+    }
+    subject_is_explicit = bool(subject_terms) and subject_terms <= terms
+    for term in tuple(subject_terms):
+        subject_terms.update(equivalents.get(term, ()))
+    def subject_window(window: str) -> str:
+        # A candidate can start at the last paragraph of another programme. If
+        # the requested subject heading is present, drop that unrelated prefix;
+        # never splice its conditions into the requested section.
+        for heading in re.finditer(r"(?m)^#{1,6}\s+([^\n]+)", window):
+            if subject_terms and subject_terms <= set(words(heading.group(1))):
+                return window[heading.start():]
+        return window
+    # The assessor receives at most 1800 characters. Select within that bound
+    # here instead of finding a useful section then cutting off its last items.
+    window_limit = min(_MAX_PASSAGE_CHARS, 1800)
+    if len(raw) <= window_limit:
+        return subject_window(raw)
+    frequencies = Counter(words(raw))
+    starts = [0, *(match.end() for match in re.finditer(r"\n\s*\n", raw))]
+    # PDF extraction can flatten an entire document into one paragraph. Add
+    # literal sentence/question boundaries within those long spans; return a
+    # contiguous source slice so quotation validation remains unchanged.
+    flat_spans = [(start, end) for start, end in zip(starts, [*starts[1:], len(raw)])
+                  if end - start > window_limit]
+    document_is_flat = len(starts) <= 2 and not re.search(r"(?m)^#{1,6}\s", raw)
+    for start, end in flat_spans:
+        starts.extend(start + match.end() for match in re.finditer(r"[.!?]\s+", raw[start:end]))
+        starts.extend(start + match.start() for match in re.finditer(
+            r"(?<!\w)(?:\d{1,3}\.\s*[SQ]\s*:|[IVX]{1,6}\.\s+[A-Z])", raw[start:end]))
+        # Some PDF lists contain no punctuation. Bounded overlapping windows
+        # still make their later sections reachable, without changing text.
+        for position in range(start + window_limit // 2, end, window_limit // 2):
+            boundary = raw.find(" ", position, min(end, position + 100))
+            if boundary >= 0:
+                starts.append(boundary + 1)
+    starts = sorted(set(starts))
+    focus_terms = terms - subject_terms
+    if terms & {"document", "documents", "documentation", "dokumen"}:
+        focus_terms = terms & {"document", "documents", "documentation", "dokumen", "sokongan",
+                               "married", "berkahwin", "perkahwinan"}
+    windows = []
+    for start in starts:
+        end = min(len(raw), start + window_limit)
+        if end < len(raw):
+            # Prefer a paragraph boundary to cutting off the next instruction.
+            boundaries = list(re.finditer(r"\n\s*\n", raw[start:end]))
+            if boundaries:
+                end = start + boundaries[-1].start()
+        window = subject_window(raw[start:end].strip())
+        if not window:
+            continue
+        tokens = set(words(window))
+        # Rare requested words carry more weight than repeated menu labels.
+        # Window boundaries can expose a partial token absent from the full
+        # page. It must neither crash ranking nor count as a requested match.
+        score = sum(1 / frequencies[term] ** .5 for term in terms & tokens if frequencies[term])
+        subject_score = sum(1 / frequencies[term] ** .5 for term in subject_terms & tokens if frequencies[term])
+        focus_score = sum(1 / frequencies[term] ** .5 for term in focus_terms & tokens if frequencies[term])
+        focus_distance = next((match.start() for match in re.finditer(r"\b[^\W\d_]{3,}\b", window.casefold())
+                               if match.group() in focus_terms), len(window))
+        # General FAQ questions/section titles describe the requested list;
+        # an exception answer can repeat more query words but omits its scope.
+        heading = re.match(r"(?:(?:\d{1,3}\.\s*)?[SQ]\s*:\s*(?:which|what|who|how|apakah|bagaimanakah|adakah|siapakah)\b"
+                           r"([^?]{0,180})\?|[IVX]{1,6}\.\s*([^()]{1,80})\s+[a-z]\))", window, re.I)
+        heading_focus = bool(heading and focus_terms & set(words(next(
+            value for value in heading.groups() if value is not None))))
+        # HTML often exposes short unmarked section labels rather than Markdown
+        # headings. A requested procedural section must beat menus/footers that
+        # repeat the programme name. Its statements still require assessment.
+        first_line = window.splitlines()[0].strip("#* ")
+        section_terms = set(words(first_line))
+        # Rank the question/section's purpose, not repeated words in its answer.
+        # Checking an existing application's status and purchasing goods are
+        # different workflows from applying or determining who qualifies.
+        label = heading.group() if heading else first_line if len(first_line) <= 100 else ""
+        status_heading = bool(re.search(r"\b(?:check|status|semak|semakan)\b", label, re.I))
+        intent_rank = 0
+        if terms & {"documents", "document", "documentation", "dokumen"}:
+            intent_rank = int(bool(re.search(r"\b(?:what you need|documents?|dokumen)\b", label, re.I)))
+        elif terms & {"eligibility", "eligible", "qualifies", "kelayakan", "syarat"}:
+            intent_rank = int(not status_heading and bool(re.search(
+                r"\b(?:who can apply|who is eligible|eligibility|eligible|criteria|qualif\w*|siapakah|layak|syarat)\b", label, re.I)))
+        elif terms & {"application", "apply", "permohonan", "memohon"}:
+            intent_rank = int(not status_heading and bool(re.search(
+                r"\b(?:applications?|apply|applying|permohonan|memohon)\b", label, re.I)))
+        # Standalone labels retain the section title above the relevant facts.
+        # A sentence mentioning documents is evidence, not a competing heading.
+        if not heading and (len(section_terms) > 8 or re.search(r"[.!?:]", label)):
+            intent_rank = 0
+        section_focus = bool(not document_is_flat and len(first_line) <= 100
+            and len(section_terms) <= 8 and focus_terms & section_terms
+            and (not subject_terms or subject_terms & tokens))
+        # An agency-role heading identifies the actual section. Its body must
+        # outrank a footer that repeats the agency and every intent word.
+        role_terms = {'role', 'roles', 'duties', 'functions', 'fungsi', 'tugas', 'peranan', 'responsibilities'}
+        preceding_headings = list(re.finditer(r'(?m)^#{1,6}\s+([^\n]+)', raw[:start]))
+        owner_terms = set(words(preceding_headings[-1].group(1))) if preceding_headings else set()
+        role_section = bool(terms & role_terms and (
+            bool(re.match(r'^#{1,6}\s', window)) and section_terms & role_terms
+            or owner_terms & role_terms)
+            and (not subject_terms or subject_terms & tokens))
+        # A programme heading alone cannot outrank the explicitly requested
+        # document/eligibility section elsewhere on the same page. Subject
+        # terms still contribute, and the assessor checks actual applicability.
+        # On flattened documents, the programme name often occurs only on the
+        # cover page. It must not defeat the actual requested document section.
+        windows.append((int(role_section), intent_rank,
+                        int(heading_focus) if document_is_flat else int(section_focus),
+                        focus_score if document_is_flat else subject_score if subject_is_explicit else subject_score + score,
+                        score, -focus_distance if document_is_flat else 0, -len(window), window))
+    return max(windows, key=lambda item: item[:-1])[-1] if windows else raw[:window_limit]
+
+
 def extract_passages(
     urls: list[str],
     *,
@@ -397,6 +758,9 @@ def extract_passages(
     query: str = "",
     timeout: float = 8.0,
     extract_depth: str = "basic",
+    cache: WebResearchCache | None = None,
+    complete_context: bool = False,
+    subject_query: str = "",
 ) -> dict[str, str]:
     """Pull real page text via Tavily's extract endpoint, keyed by URL.
 
@@ -406,35 +770,136 @@ def extract_passages(
     is supplied, Tavily reranks and returns the topic-relevant chunks joined by
     ``[...]`` — still genuine page text, just focused. Each passage is capped at
     ``_MAX_PASSAGE_CHARS`` so one page cannot dominate the verifier budget.
+    ``complete_context`` omits Tavily's query parameter to avoid its short snippet
+    cutoffs, then selects one bounded section from full page text locally.
     """
     clean_urls = [str(u or "").strip() for u in urls if str(u or "").strip()]
-    if not api_key or not clean_urls:
+    if not api_key or not clean_urls or timeout < 1:
         return {}
-    try:
-        from tavily import TavilyClient  # lazy: optional dependency
-    except ImportError:
-        return {}
-    try:
-        client = TavilyClient(api_key=api_key)
-        kwargs: dict[str, Any] = {
-            "urls": clean_urls[:20],  # Tavily extract accepts up to 20 URLs
-            "extract_depth": extract_depth,
-            "timeout": timeout,
-        }
-        if str(query or "").strip():
-            kwargs["query"] = query  # rerank extracted chunks to the topic
-        response: Any = client.extract(**kwargs)
-    except Exception:
-        return {}
-    passages: dict[str, str] = {}
-    # Even on HTTP 200, failures surface in failed_results and results may be
-    # empty; we simply take whatever succeeded.
-    for item in (response or {}).get("results", []) or []:
-        url = str(item.get("url") or "").strip()
-        raw = str(item.get("raw_content") or "").strip()
-        if url and raw:
-            passages[url] = raw[:_MAX_PASSAGE_CHARS]
+    # A different public gap can need a different passage from the same URL.
+    cached = {url: cache.passages[(url, query, extract_depth, complete_context, subject_query)] for url in clean_urls
+              if cache is not None and (url, query, extract_depth, complete_context, subject_query) in cache.passages}
+    if cache is not None and complete_context:
+        for url in clean_urls:
+            if url not in cached and url in cache.full_pages:
+                cached[url] = _complete_page_window(cache.full_pages[url], query, subject_query=subject_query)
+                cache.passages[(url, query, extract_depth, complete_context, subject_query)] = cached[url]
+    clean_urls = [url for url in clean_urls if url not in cached]
+    if cache is not None:
+        cache.cache_hits += len(cached)
+    if not clean_urls:
+        return cached
+    started = monotonic()
+    raw_pages: dict[str, tuple[str, str]] = {}  # url -> (title, raw page text)
+    if cache is not None and cache.extract_calls >= 4:
+        cache.last_error = "extract_call_limit"
+    else:
+        try:
+            from tavily import TavilyClient  # lazy: optional dependency
+        except ImportError:
+            TavilyClient = None
+        response: Any = None
+        if TavilyClient is not None:
+            try:
+                client = TavilyClient(api_key=api_key)
+                kwargs: dict[str, Any] = {
+                    "urls": clean_urls[:20],  # Tavily extract accepts up to 20 URLs
+                    "extract_depth": extract_depth,
+                    "timeout": timeout,
+                }
+                if str(query or "").strip() and not complete_context:
+                    kwargs["query"] = query  # rerank extracted chunks to the topic
+                    kwargs["chunks_per_source"] = 3
+                if cache is not None:
+                    kwargs["include_usage"] = True
+                    cache.extract_calls += 1
+                response = client.extract(**kwargs)
+            except Exception as error:
+                if cache is not None:
+                    cache.last_error = _safe_error(error)
+                response = None
+        if response is not None and cache is not None:
+            cache.note_usage(response)
+            if response.get("failed_results"):
+                cache.last_error = "extraction_failed"
+        # Even on HTTP 200, failures surface in failed_results and results may be
+        # empty; we simply take whatever succeeded.
+        for item in (response or {}).get("results", []) or []:
+            url = str(item.get("url") or "").strip()
+            raw = str(item.get("raw_content") or "").strip()
+            if url in clean_urls and raw:
+                raw_pages[url] = (str(item.get("title") or raw[:180]), raw)
+    if cache is not None and complete_context:
+        _direct_fetch_fallback(clean_urls, raw_pages, cache=cache,
+                               remaining=timeout - (monotonic() - started))
+    passages: dict[str, str] = dict(cached)
+    for url, (title, raw) in raw_pages.items():
+        passages[url] = (_complete_page_window(raw, query, subject_query=subject_query) if complete_context
+                         else raw[:_MAX_PASSAGE_CHARS])
+        if cache is not None:
+            if complete_context and len(raw) <= 100_000 and len(cache.full_pages) < 6:
+                cache.full_pages[url] = raw
+                if is_public_guidance_url(url) and classify_tier(url) in {1, 2, 3, 4}:
+                    from datetime import datetime, timezone
+                    from hashlib import sha256
+                    from app.rag.public_source_store import PublicSourcePage
+                    cache.fetched_pages[url] = PublicSourcePage(url,
+                        title[:500], raw,
+                        datetime.now(timezone.utc), sha256(raw.encode()).hexdigest())
+            cache.passages[(url, query, extract_depth, complete_context, subject_query)] = passages[url]
     return passages
+
+
+# Tavily text shorter than this for an official page is treated as clipped.
+_CLIPPED_RAW_CHARS = 400
+_DIRECT_FETCH_CAP = 3
+_DIRECT_FETCH_TIMEOUT = 6.0
+
+
+def _direct_fetch_fallback(urls: list[str], raw_pages: dict[str, tuple[str, str]], *,
+                           cache: WebResearchCache, remaining: float) -> None:
+    """Retry failed/clipped official URLs with the guarded direct fetcher.
+
+    Only tier-1/2 hosts qualify (``fetch_official_page`` re-checks every guard).
+    Fetches run in parallel within the caller's remaining operation time, so
+    this never extends the shared request deadline. Fetched text is an
+    evidence candidate only; the assessor and verifier still decide.
+    """
+    from app import config
+    if not getattr(config, "COACH_DIRECT_FETCH_ENABLED", False):
+        return
+    retry = [url for url in urls
+             if classify_tier(url) in {1, 2}
+             and len(raw_pages.get(url, ("", ""))[1]) < _CLIPPED_RAW_CHARS]
+    retry = retry[:max(0, _DIRECT_FETCH_CAP - cache.direct_fetches)]
+    if not retry or remaining < 1.5:
+        return
+    from concurrent.futures import ThreadPoolExecutor, wait
+    from app.rag.public_fetch import fetch_official_page
+    cache.direct_fetches += len(retry)
+    allowance = min(_DIRECT_FETCH_TIMEOUT, remaining - 0.5)
+    pool = ThreadPoolExecutor(max_workers=len(retry), thread_name_prefix="official-fetch")
+    try:
+        futures = {pool.submit(fetch_official_page, url, timeout=allowance): url for url in retry}
+        done, _ = wait(futures, timeout=allowance + 0.5)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    recovered = 0
+    for future in done:
+        url = futures[future]
+        try:
+            raw = future.result()
+        except Exception:
+            raw = None
+        if raw and len(raw) > len(raw_pages.get(url, ("", ""))[1]):
+            heading = re.search(r"(?m)^#{1,6}\s+(.{3,180})$", raw)
+            raw_pages[url] = (heading.group(1) if heading else raw[:180], raw)
+            recovered += 1
+    diagnostics = cache.public_source_diagnostics
+    diagnostics["direct_fetch_attempts"] = diagnostics.get("direct_fetch_attempts", 0) + len(retry)
+    diagnostics["direct_fetch_pages"] = diagnostics.get("direct_fetch_pages", 0) + recovered
+    if recovered and cache.last_error == "extraction_failed":
+        cache.last_error = None
 
 
 def to_retrieved_chunks(
@@ -469,6 +934,8 @@ def to_retrieved_chunks(
                 source_type="web",
                 tier=tier,
                 confidence=tier_to_confidence(tier),
+                published_date=result.published_date,
+                checked_at=datetime.now(timezone.utc).date().isoformat(),
             )
         )
     return chunks
@@ -505,6 +972,13 @@ def research_evidence(
     api_key: str,
     max_results: int = 4,
     timeout: float = 8.0,
+    single_search: bool = False,
+    unrestricted: bool = False,
+    public_policy: bool = False,
+    official_domains: tuple[str, ...] = (),
+    cache: WebResearchCache | None = None,
+    subject_query: str = "",
+    discovery_mode: Literal["institution", "broader"] = "institution",
 ) -> ResearchOutcome:
     """Search then extract: tier-ranked web chunks with real passage text.
 
@@ -518,26 +992,62 @@ def research_evidence(
         return ResearchOutcome([], False, "no_api_key")
     if not str(query or "").strip():
         return ResearchOutcome([], False, "no_query")
-    results = search_web(query, api_key=api_key, max_results=max_results, timeout=timeout)
+    errors: list[str] = []
+    if cache is not None:
+        cache.last_error = None
+    # Search can make two calls and extraction one; divide the caller's shared
+    # research allowance so those calls do not each consume the full cap.
+    started = monotonic()
+    operation_timeout = max(0.1, timeout / (2 if single_search else 3))
+    search_options = ({"single_search": True, "unrestricted": unrestricted}
+                      if single_search else {})
+    if public_policy:
+        search_options.update(public_policy=True, official_domains=official_domains, cache=cache,
+                              discovery_mode=discovery_mode)
+    results = search_web(query, api_key=api_key, max_results=max_results,
+                         timeout=operation_timeout, errors=errors, **search_options)
     if not results:
-        return ResearchOutcome([], True, "no_results")
+        return ResearchOutcome([], True, errors[0] if errors else "no_results")
+    extract_options = {"cache": cache} if cache is not None else {}
+    if public_policy:
+        # Application rules and document lists need their surrounding section.
+        # Fetch page context on the same extraction call, rather than waiting
+        # for a later round to discover that reranked short snippets were cut off.
+        extract_options["complete_context"] = True
+        extract_options["subject_query"] = subject_query
     passages = extract_passages(
         [result.url for result in results],
         api_key=api_key,
         query=query,
-        timeout=timeout,
-    )
+        timeout=timeout - (monotonic() - started),
+        **extract_options,
+    ) if timeout - (monotonic() - started) >= 1 else {}
+    def evidence_text(result: WebResult) -> str:
+        extracted = passages.get(result.url)
+        if not extracted:
+            return result.content
+        if not public_policy or result.content in extracted:
+            return extracted
+        # A nominally successful extraction may contain just navigation/footer.
+        # Retain independently retrieved public text from the SAME URL, selecting
+        # a bounded literal window. The explicit gap forbids joining snippets
+        # into a fabricated sentence; the assessor still checks applicability.
+        search_text = _complete_page_window(result.content, query, subject_query=subject_query)
+        return search_text + '\n\n[...]\n\n' + extracted
+
     enriched = [
         WebResult(
             title=result.title,
             url=result.url,
             # Prefer the fuller extracted passage; fall back to the snippet.
-            content=passages.get(result.url, result.content),
+            content=evidence_text(result),
             score=result.score,
+            published_date=result.published_date,
         )
         for result in results
     ]
-    return ResearchOutcome(to_retrieved_chunks(enriched), True, "ok")
+    return ResearchOutcome(to_retrieved_chunks(enriched), True, "ok",
+                           cache.last_error if cache is not None else None)
 
 
 def research(

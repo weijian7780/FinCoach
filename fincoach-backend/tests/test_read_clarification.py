@@ -104,3 +104,62 @@ def test_malformed_state_is_unavailable_not_a_broad_read():
         resumed = resume_read_clarification(payload, "July", now=NOW)
         assert resumed.tool_name is None
         assert resumed.readiness == ReadReadiness.NEEDS_CLARIFICATION
+
+
+def test_multi_merchant_reply_searches_all_dates():
+    pending = _pending("Show transactions at Grab and Foodpanda")
+    assert pending.readiness == ReadReadiness.NEEDS_CLARIFICATION
+    payload = build_read_clarification(pending, origin_message_id="u1", anchor_date=NOW)
+    assert payload["field"] == "transaction_filter"
+    resumed = resume_read_clarification(payload, "IPOH KOPI KIA", now=NOW)
+    assert resumed.tool_name == "search_transactions"
+    assert resumed.readiness == ReadReadiness.READY
+    assert resumed.arguments == {"text": "IPOH KOPI KIA", "all_dates": True}
+
+
+def test_multi_merchant_date_only_reply_saves_date_and_reasks():
+    pending = _pending("Show transactions at Grab and Foodpanda")
+    payload = build_read_clarification(pending, origin_message_id="u1", anchor_date=NOW)
+    resumed = resume_read_clarification(payload, "in July 2026", now=NOW)
+    assert resumed.readiness == ReadReadiness.NEEDS_CLARIFICATION
+    assert resumed.arguments.get("start_date") == "2026-07-01"
+    assert resumed.arguments.get("end_date") == "2026-07-31"
+    assert "text" not in resumed.arguments
+    assert "all_dates" not in resumed.arguments
+
+
+def test_merchant_count_clarification_keeps_current_month():
+    pending = _pending("how many transactions at Grab and Foodpanda")
+    payload = build_read_clarification(pending, origin_message_id="u1", anchor_date=NOW)
+    resumed = resume_read_clarification(payload, "IPOH KOPI KIA", now=NOW)
+    assert resumed.readiness == ReadReadiness.READY
+    assert resumed.arguments.get("result_mode") == "count"
+    assert resumed.arguments.get("text") == "IPOH KOPI KIA"
+    assert "all_dates" not in resumed.arguments
+
+
+def test_clarification_preserves_valid_filters_changing_only_merchant():
+    pending = _pending(
+        "Show my last 5 Food transactions at Grab and Foodpanda for RM25 in July 2026"
+    )
+    payload = build_read_clarification(pending, origin_message_id="u1", anchor_date=NOW)
+    resumed = resume_read_clarification(payload, "IPOH KOPI KIA", now=NOW)
+    assert resumed.readiness == ReadReadiness.READY
+    assert resumed.arguments.get("start_date") == "2026-07-01"
+    assert resumed.arguments.get("end_date") == "2026-07-31"
+    assert resumed.arguments.get("category_name") == "Food"
+    assert resumed.arguments.get("amount") == "25.00"
+    assert resumed.arguments.get("limit") == 5
+    assert resumed.arguments.get("text") == "IPOH KOPI KIA"
+    assert "all_dates" not in resumed.arguments
+
+
+def test_amount_clarification_then_corrected_amount_searches_all_dates():
+    pending = _pending("Show transactions for RM25k")
+    assert pending.readiness == ReadReadiness.NEEDS_CLARIFICATION
+    payload = build_read_clarification(pending, origin_message_id="u1", anchor_date=NOW)
+    assert payload["field"] == "amount"
+    resumed = resume_read_clarification(payload, "RM25", now=NOW)
+    assert resumed.readiness == ReadReadiness.READY
+    assert resumed.arguments.get("amount") == "25.00"
+    assert resumed.arguments.get("all_dates") is True

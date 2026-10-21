@@ -288,7 +288,7 @@ def test_extract_passages_returns_empty_without_key():
 
 
 def test_research_evidence_prefers_extracted_passage_over_snippet():
-    def fake_search(query, *, api_key, max_results, timeout):
+    def fake_search(query, *, api_key, max_results, timeout, errors=None):
         return [WebResult("BNM", "https://www.bnm.gov.my/a", "short snippet", 0.5)]
 
     with (

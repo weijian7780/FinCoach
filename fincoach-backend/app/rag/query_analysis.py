@@ -286,14 +286,26 @@ def analyze_knowledge_query(
 
 
 def _previous_user_topics(history: list[dict], current_message_id: str | None) -> tuple[TopicMatch, ...]:
+    # Routing imports the topic detector, so import only when resolving history.
+    # Reuse its intent rules rather than creating another finance-keyword list.
+    from app.rag.routing import CoachingRoute, route_coach_message
+
     for message in reversed(history):
-        if message.get("role") != "user" or (
+        if message.get("role") != "user" or message.get("status") == "failed" or (
             current_message_id and message.get("id") == current_message_id
         ):
             continue
-        matches = detect_knowledge_topics(str(message.get("content") or ""))
+        content = str(message.get("content") or "")
+        matches = detect_knowledge_topics(content)
         if matches:
             return matches
+        # Only a contiguous chain of follow-ups can inherit an older topic.
+        # A later independent personal/casual question resets the topic, so
+        # "last month?" cannot resurrect PTPTN from before a spending question.
+        if not _is_follow_up(content) or route_coach_message(content) in (
+            CoachingRoute.PERSONAL_FINANCE, CoachingRoute.COMBINED,
+        ):
+            return ()
     return ()
 
 

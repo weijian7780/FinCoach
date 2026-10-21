@@ -45,7 +45,9 @@ _EXAMPLE_CUE = re.compile(
     r"\b(?:for\s+example|for\s+instance|as\s+an\s+example|let'?s\s+say|"
     r"let\s+us\s+say|suppose|imagine|hypothetical(?:ly)?|say|such\s+as|"
     r"contoh(?:nya)?|sebagai\s+contoh|misal(?:nya)?|umpama(?:nya)?|"
-    r"katakan(?:lah)?|andai(?:kan)?)\b|(?:e\.?g\.?|i\.?e\.?)",
+    # Abbreviations must stand alone: "Begin" and "convenient" are not
+    # hypothetical labels and must never whitelist an unsupported amount.
+    r"katakan(?:lah)?|andai(?:kan)?)\b|(?<!\w)(?:e\.?g\.?|i\.?e\.?)(?!\w)",
     re.IGNORECASE,
 )
 _EXAMPLE_SENTENCE_BOUNDARY = re.compile(r"[.!?](?:\s|$)|\n")
@@ -290,7 +292,7 @@ def recorded_money_claims_match_tools(content: str, tool_records: tuple | list) 
             (r"\b(?:spent|spending|expenses?|belanja|perbelanjaan)\b", ("expense_total", "recorded_spending", "recorded_expenses", "spent", "amount", "projected_month_spending")),
             (r"\b(?:limit|had)\b", ("monthly_limit", "limit")),
             (r"\b(?:income|pendapatan)\b", ("income", "monthly_allowance")),
-            (r"\b(?:target)\b", ("target_amount",)),
+            (r"\b(?:target|sasaran|matlamat)\b", ("target_amount",)),
             (r"\b(?:saved|savings|save|saveable|simpan)\b", ("current_amount", "projected_saveable", "projected_remaining")),
             (r"\b(?:projected|estimated|predicted|forecast|anggaran)\b", ("projected_remaining", "projected_saveable", "projected_month_spending", "estimated_available_by_month_end")),
             (r"\b(?:daily|per\s+day|sehari)\b", ("daily_spending_rate",)),
@@ -344,18 +346,30 @@ def _normalise_word(word: str) -> str:
 
 
 def _citation_supports_claim(line: str, source_texts: list[str]) -> bool:
-    """Check a claim against cited evidence while preserving negation polarity."""
+    """Accept only a locally supported claim; otherwise request semantic review.
+
+    Tokens from unrelated sentences cannot jointly establish one policy rule.
+    Explicit leading conditions must also survive this lexical shortcut.
+    """
     claim_tokens = _support_tokens(line)
     if not claim_tokens:
         return True
     claim_is_negative = bool(_NEGATION.search(line))
-    evidence_tokens: set[str] = set()
     for source_text in source_texts:
         for passage in _PASSAGE_BOUNDARY.split(source_text):
-            if claim_is_negative == bool(_NEGATION.search(passage)):
-                evidence_tokens.update(_support_tokens(passage))
-    matched = claim_tokens.intersection(evidence_tokens)
-    return len(matched) >= ceil(len(claim_tokens) * 0.8)
+            if claim_is_negative != bool(_NEGATION.search(passage)):
+                continue
+            qualifier = re.match(
+                r"\s*(?:(?:only\s+)?for|if|when|unless|except|provided\s+that|"
+                r"bagi|untuk|jika|apabila|kecuali)\b([^,;:\n]+)[,;:]",
+                passage, re.I,
+            )
+            if qualifier and not _support_tokens(qualifier.group()).issubset(claim_tokens):
+                continue
+            matched = claim_tokens.intersection(_support_tokens(passage))
+            if len(matched) >= ceil(len(claim_tokens) * 0.8):
+                return True
+    return False
 
 
 def _has_same_negation_polarity(line: str, source_texts: list[str]) -> bool:
@@ -396,11 +410,12 @@ def validate_coach_answer(
     *,
     allow_uncited_numbers: bool = False,
     require_source_for_facts: bool = True,
+    force: bool = False,
 ) -> GroundingValidation:
     """Validate format and prevent unsupported financial claims from shipping."""
     # Kill switch: when validation is disabled, accept every draft as-is. The
     # provider output ships with no grounding guard. See _VALIDATION_ENABLED.
-    if not _VALIDATION_ENABLED:
+    if not (_VALIDATION_ENABLED or force):
         return GroundingValidation(True)
     text = str(content or "").strip()
     hard_errors: list[str] = []

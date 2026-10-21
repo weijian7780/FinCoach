@@ -1,9 +1,28 @@
 """Single shared Supabase client (service-role)."""
 from functools import lru_cache
+from typing import Callable, TypeVar
+
+import httpx
 
 from supabase import Client, ClientOptions, create_client
 
 from app.config import SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+
+
+ReadResult = TypeVar('ReadResult')
+
+
+def retry_supabase_read(operation: Callable[[], ReadResult]) -> ReadResult:
+    """Retry a side-effect-free Auth GET or table SELECT once on transport failure.
+
+    The SDK retries certain HTTP responses, but a disconnected connection raises
+    before there is a response. Never use this helper for writes or mutating RPCs:
+    a lost response cannot tell us whether a database change already committed.
+    """
+    try:
+        return operation()
+    except httpx.TransportError:
+        return operation()
 
 
 @lru_cache

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from calendar import monthrange
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -19,7 +20,8 @@ from pydantic import (
     model_validator,
 )
 
-from app.category_resolution import resolve_category_phrase
+from app.category_resolution import CategoryResolution, resolve_category_phrase
+from app.config import COACH_CATEGORY_INTERPRETATION_ENABLED
 
 
 _DAY_OF_MONTH_HINT = re.compile(
@@ -53,7 +55,7 @@ def _reminder_arguments_with_user_hints(
     due_day = _DAY_OF_MONTH_HINT.search(request_text)
     if due_day:
         value = int(due_day.group("day"))
-        if 1 <= value <= 28:
+        if 1 <= value <= 31:
             adjusted["day_of_month"] = value
 
     lead_days = _LEAD_DAYS_HINT.search(request_text)
@@ -129,6 +131,28 @@ def _category_clarification(suggestion: str | None = None) -> dict:
         "message": "That category was not found. Please use an exact category name from FinCoach.",
     }
 
+
+def _category_clarification_ambiguous(requested: str | None = None) -> dict:
+    detail = f' named "{requested}"' if requested else ""
+    return {
+        "status": "needs_clarification",
+        "message": (
+            f"More than one category{detail} matches, or you named several at once. "
+            "Please choose one exact category name from FinCoach."
+        ),
+    }
+
+
+def _category_or_text_clarification(requested: str, suggestion: str) -> dict:
+    return {
+        "status": "needs_clarification",
+        "message": (
+            f'Did you mean the category "{suggestion}", or a text search for '
+            f'"{requested}" in your transaction descriptions? Tell me which and '
+            "I'll pull it up."
+        ),
+    }
+
 AGENT_TOOL_DEFINITIONS = [
     _function(
         "get_financial_overview",
@@ -185,6 +209,11 @@ AGENT_TOOL_DEFINITIONS = [
         {"month": DATE, "category_name": OPTIONAL_CATEGORY},
     ),
     _function(
+        "get_category_budget_recommendation",
+        "Recommend an unbudgeted expense category and a historical starting amount from completed recorded spending. Use for questions such as 'what category can I budget for?' or 'which category needs a limit?'. This is read-only; it never saves a budget.",
+        {"month": DATE, "category_name": OPTIONAL_CATEGORY},
+    ),
+    _function(
         "get_savings_goals",
         "Read the authenticated user's savings goals and progress.",
         {"name": {"type": "string", "description": "Optional goal name to match."}},
@@ -224,7 +253,17 @@ AGENT_TOOL_DEFINITIONS = [
             "category_name": OPTIONAL_CATEGORY,
             "text": {"type": "string", "description": "Words to match in the recorded description or source."},
             "transaction_type": {"type": "string", "enum": ["expense", "income"]},
+            "amount": {"type": "number", "exclusiveMinimum": 0, "description": "Match transactions with exactly this amount, e.g. 25 for RM25."},
+            "result_mode": {
+                "type": "string",
+                "enum": ["list", "count", "expense_total"],
+                "description": "list returns matching records; count returns how many match; expense_total sums matching expense amounts.",
+            },
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            "all_dates": {
+                "type": "boolean",
+                "description": "Search the entire transaction history, ignoring start_date/end_date. Use for a merchant or amount list lookup when no period was given. Never combine with start_date or end_date.",
+            },
         },
     ),
     _function(
@@ -250,7 +289,7 @@ AGENT_TOOL_DEFINITIONS = [
         "Prepare, but never directly create, a reminder. Call even when details are missing so FinCoach can ask a focused follow-up.",
         {
             "title": {"type": "string"},
-            "amount": {"type": "number", "exclusiveMinimum": 0},
+            "amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 9999999999.99, "multipleOf": 0.01},
             "due_at": {
                 "type": "string",
                 "description": "ISO 8601 date-time with timezone. Omit when unknown.",
@@ -263,7 +302,7 @@ AGENT_TOOL_DEFINITIONS = [
             "day_of_month": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 28,
+                "maximum": 31,
                 "description": "For monthly reminders such as 'on the 15th'.",
             },
             "time_of_day": {
@@ -345,7 +384,17 @@ class _TransactionSearchArgs(_Args):
     category_name: str | None = Field(default=None, max_length=80)
     text: str | None = Field(default=None, max_length=120)
     transaction_type: str | None = None
+    amount: Decimal | None = Field(default=None, gt=0)
+    result_mode: str = "list"
     limit: int = Field(default=20, ge=1, le=50)
+    all_dates: bool = False
+
+    @field_validator("result_mode")
+    @classmethod
+    def validate_result_mode(cls, value: str) -> str:
+        if value not in {"list", "count", "expense_total"}:
+            raise ValueError("Unsupported result mode.")
+        return value
 
     @field_validator("transaction_type")
     @classmethod
@@ -362,6 +411,16 @@ def _normalise_month(value: Any) -> Any:
 
 
 class _BudgetArgs(_Args):
+    month: date | None = None
+    category_name: str | None = Field(default=None, max_length=80)
+
+    @field_validator("month", mode="before")
+    @classmethod
+    def accept_month_key(cls, value: Any) -> Any:
+        return _normalise_month(value)
+
+
+class _CategoryBudgetRecommendationArgs(_Args):
     month: date | None = None
     category_name: str | None = Field(default=None, max_length=80)
 
@@ -406,10 +465,12 @@ class _ReminderRangeArgs(_Args):
 
 class _ReminderDraft(_Args):
     title: str = Field(min_length=1, max_length=100)
-    amount: Decimal | None = Field(default=None, gt=0)
+    # Match reminders.amount numeric(12,2): the confirmed amount must never
+    # round to a different payment or overflow when it reaches PostgreSQL.
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
     due_at: datetime | None = None
     due_date: date | None = None
-    day_of_month: int | None = Field(default=None, ge=1, le=28)
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
     time_of_day: time | None = None
     lead_days: int = Field(default=0, ge=0, le=30)
     recurrence: str = "none"
@@ -448,6 +509,23 @@ def _previous_month(value: date) -> date:
     return date(value.year - (value.month == 1), 12 if value.month == 1 else value.month - 1, 1)
 
 
+def _month_key(value: date) -> str:
+    return value.strftime("%Y-%m")
+
+
+def _completed_months_before(target: date, today: date, count: int = 3) -> list[date]:
+    """Return the latest completed calendar months strictly before target."""
+    months: list[date] = []
+    cursor = _previous_month(target)
+    while len(months) < count:
+        _start, next_month = _month_bounds(cursor)
+        # A month ending today has not ended yet in Malaysia time.
+        if next_month - timedelta(days=1) < today:
+            months.append(cursor)
+        cursor = _previous_month(cursor)
+    return months
+
+
 def _normalise_row(data: Any) -> dict:
     if isinstance(data, dict):
         return data
@@ -481,6 +559,7 @@ class AgentToolExecutor:
             "get_spending_summary": self._spending_summary,
             "get_period_comparison": self._period_comparison,
             "get_budget_status": self._budget_status,
+            "get_category_budget_recommendation": self._category_budget_recommendation,
             "get_savings_goals": self._savings_goals,
             "get_weekly_savings_plan": self._weekly_savings_plan,
             "get_upcoming_reminders": self._upcoming_reminders,
@@ -524,17 +603,40 @@ class AgentToolExecutor:
         try:
             arguments = dict(arguments or {})
             if name in _CATEGORY_FILTER_TOOLS:
-                # Resolve the category against the user's real names from the
-                # original message: this fixes a partial or date-contaminated
-                # phrase the router extracted ("Public Transport", "Food across
-                # July to September") and never silently drops an unknown one.
+                # One catalog-validated category decision for the whole read. An
+                # unknown, ambiguous, or duplicate reference clarifies BEFORE any
+                # record is read; a status or period question ("am I over budget",
+                # "this week") carries no category, so any speculative router
+                # filter is dropped rather than turned into a false lookup.
                 if self.request_text:
                     resolution = resolve_category_phrase(
                         self.request_text, self._available_category_names()
                     )
                     if resolution.status == "resolved":
                         arguments["category_name"] = resolution.category
-                    elif resolution.status == "unresolved":
+                    elif resolution.status == "none":
+                        arguments.pop("category_name", None)
+                    elif resolution.status == "ambiguous":
+                        return _category_clarification_ambiguous(resolution.requested)
+                    elif resolution.status == "needs_interpretation":
+                        if name == "search_transactions":
+                            # A bare name in a transaction search: an exact match
+                            # is a category (handled above); a close catalog match
+                            # is a possible typo to clarify; otherwise it becomes
+                            # free-text description/source search.
+                            if resolution.suggestion:
+                                return _category_or_text_clarification(
+                                    str(resolution.requested), resolution.suggestion
+                                )
+                            arguments.pop("category_name", None)
+                            if not arguments.get("text") and resolution.requested:
+                                arguments["text"] = resolution.requested
+                        else:
+                            interpreted = self._interpret_category(resolution)
+                            if interpreted is None:
+                                return _category_clarification(resolution.suggestion)
+                            arguments["category_name"] = interpreted
+                    else:  # unresolved
                         return _category_clarification(resolution.suggestion)
                 if arguments.get("category_name"):
                     category = self._resolve_category(str(arguments["category_name"]))
@@ -551,6 +653,17 @@ class AgentToolExecutor:
                     for issue in error.errors()
                 ],
             }
+        except Exception:
+            if name == "get_category_budget_recommendation":
+                return {
+                    "status": "read_failed",
+                    "recommendation_status": "read_failed",
+                    "message": (
+                        "FinCoach could not verify the category, budget, or transaction "
+                        "records for this recommendation. Please try again."
+                    ),
+                }
+            raise
 
     def _available_category_names(self) -> list[str]:
         # Two explicit scopes avoid exposing another owner's custom categories
@@ -558,15 +671,43 @@ class AgentToolExecutor:
         cached = getattr(self, "_category_names_cache", None)
         if cached is not None:
             return cached
-        own = self._execute(self.admin_client.table("categories").select("name").eq("user_id", self.user_id)) or []
-        shared = self._execute(self.admin_client.table("categories").select("name").is_("user_id", "null")) or []
-        names = [
-            str(row.get("name"))
-            for row in [*own, *shared]
-            if row.get("name")
-        ]
+        own = self._execute(self.admin_client.table("categories").select("id,name").eq("user_id", self.user_id)) or []
+        shared = self._execute(self.admin_client.table("categories").select("id,name").is_("user_id", "null")) or []
+        # Dedup by category ID: a shared row can surface through both scopes, but
+        # two genuinely distinct categories that share a name MUST both survive so
+        # the resolver flags the ambiguity instead of silently picking one. When a
+        # row has no ID (older fixtures), fall back to name-based dedup.
+        seen: set = set()
+        names: list[str] = []
+        for row in [*own, *shared]:
+            name = row.get("name")
+            if not name:
+                continue
+            row_id = row.get("id")
+            key = row_id if row_id is not None else str(name).casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            names.append(str(name))
         self._category_names_cache = names
-        return names
+        return self._category_names_cache
+
+    def _interpret_category(self, resolution: Any) -> str | None:
+        """Bounded AI fallback for an unfamiliar category phrase.
+
+        Disabled by default (COACH_CATEGORY_INTERPRETATION_ENABLED). When enabled,
+        the service supplies a bounded interpreter as `category_interpreter`; its
+        proposal is still validated against the real catalog here, so the model can
+        never authorize an unknown name, change dates, or supply amounts. Returns a
+        canonical category name, or None to clarify.
+        """
+        if not COACH_CATEGORY_INTERPRETATION_ENABLED:
+            return None
+        interpreter = getattr(self, "category_interpreter", None)
+        if interpreter is None:
+            return None
+        proposed = interpreter(resolution.requested, self._available_category_names())
+        return self._resolve_category(str(proposed)) if proposed else None
 
     def _resolve_category(self, requested: str) -> str | None:
         # No fuzzy auto-selection of money: only an exact (case/space-insensitive)
@@ -604,8 +745,8 @@ class AgentToolExecutor:
 
     def _transaction_rows(
         self,
-        start: date,
-        end: date,
+        start: date | None,
+        end: date | None,
         category_name: str | None = None,
     ) -> list[dict]:
         # Read every page before aggregating/filtering. A display/search limit
@@ -617,10 +758,15 @@ class AgentToolExecutor:
         while True:
             query = (
                 self.admin_client.table("transactions")
-                .select("id,amount,source,description,transaction_date,category:categories(name,type)")
+                .select("id,category_id,amount,source,description,transaction_date,category:categories(name,type)")
                 .eq("user_id", self.user_id)
-                .gte("transaction_date", start.isoformat())
-                .lte("transaction_date", end.isoformat())
+            )
+            if start is not None:
+                query = query.gte("transaction_date", start.isoformat())
+            if end is not None:
+                query = query.lte("transaction_date", end.isoformat())
+            query = (
+                query
                 .order("transaction_date", desc=True)
                 .order("id", desc=False)
                 .range(offset, offset + page_size - 1)
@@ -644,15 +790,28 @@ class AgentToolExecutor:
         blocked = self._require_spending_consent()
         if blocked:
             return blocked
+        # An all-dates search cannot coexist with a bounded date; reject the
+        # contradiction instead of silently ignoring the dates.
+        if args.all_dates and (args.start_date is not None or args.end_date is not None):
+            return {"status": "invalid_arguments", "message": "Use either all_dates or a start and end date, not both."}
         today = self._malaysia_now().date()
         default_start, next_month = _month_bounds(today)
-        start = args.start_date or default_start
-        end = args.end_date or next_month - timedelta(days=1)
-        if start > end:
+        if args.all_dates:
+            start, end = None, None
+        else:
+            start = args.start_date or default_start
+            end = args.end_date or next_month - timedelta(days=1)
+        if start is not None and end is not None and start > end:
             return {"status": "invalid_arguments", "message": "The start date must not be after the end date."}
         rows = self._transaction_rows(start, end, args.category_name)
         needle = (args.text or "").casefold().strip()
-        matches = []
+        period = {
+            "start": start.isoformat() if start is not None else None,
+            "end": end.isoformat() if end is not None else None,
+        }
+        # Apply every filter across all pages first; count/total must not be
+        # capped by the display limit.
+        filtered = []
         for row in rows:
             category = row.get("category") or {}
             if args.transaction_type and category.get("type") != args.transaction_type:
@@ -662,23 +821,37 @@ class AgentToolExecutor:
             ).casefold()
             if needle and needle not in searchable:
                 continue
-            matches.append(
-                {
-                    "id": row.get("id"),
-                    "date": row.get("transaction_date"),
-                    "amount": _money(row.get("amount")),
-                    "category": category.get("name") or "Uncategorised",
-                    "type": category.get("type"),
-                    "source": row.get("source"),
-                    "description": row.get("description"),
-                }
-            )
-            if len(matches) >= args.limit:
-                break
+            if args.amount is not None and Decimal(str(row.get("amount") or 0)) != args.amount:
+                continue
+            filtered.append(row)
+        if args.result_mode == "count":
+            return {
+                "status": "ok", "result_mode": "count", "period": period,
+                "all_dates": bool(args.all_dates), "count": len(filtered),
+            }
+        if args.result_mode == "expense_total":
+            expenses = [r for r in filtered if (r.get("category") or {}).get("type") == "expense"]
+            total = sum((Decimal(str(r.get("amount") or 0)) for r in expenses), Decimal("0"))
+            return {
+                "status": "ok", "result_mode": "expense_total", "period": period,
+                "all_dates": bool(args.all_dates),
+                "expense_total": _money(total), "expense_count": len(expenses),
+            }
+        matches = [
+            {
+                "id": row.get("id"),
+                "date": row.get("transaction_date"),
+                "amount": _money(row.get("amount")),
+                "category": (row.get("category") or {}).get("name") or "Uncategorised",
+                "type": (row.get("category") or {}).get("type"),
+                "source": row.get("source"),
+                "description": row.get("description"),
+            }
+            for row in filtered[: args.limit]
+        ]
         return {
-            "status": "ok",
-            "period": {"start": start.isoformat(), "end": end.isoformat()},
-            "transactions": matches,
+            "status": "ok", "period": period, "all_dates": bool(args.all_dates),
+            "transactions": matches, "total_matched": len(filtered),
         }
 
     def _financial_profile(self, raw: dict) -> dict:
@@ -1105,6 +1278,325 @@ class AgentToolExecutor:
             "periods": periods,
         }
 
+    def _category_budget_recommendation(self, raw: dict) -> dict:
+        """Recommend an unbudgeted category from owner-consented recorded spending."""
+        args = _CategoryBudgetRecommendationArgs.model_validate(raw)
+        blocked = self._require_spending_consent()
+        if blocked:
+            return blocked
+
+        today = self._malaysia_now().date()
+        month_start, next_month = _month_bounds(args.month or today)
+        target_month = _month_key(month_start)
+
+        # The service-role connection must still use explicit shared and owner
+        # scopes when it reads the category catalog.
+        own_categories = self._execute(
+            self.admin_client.table("categories")
+            .select("id,name,type,user_id")
+            .eq("user_id", self.user_id)
+        ) or []
+        shared_categories = self._execute(
+            self.admin_client.table("categories")
+            .select("id,name,type,user_id")
+            .is_("user_id", "null")
+        ) or []
+        categories_by_id: dict[int, dict[str, Any]] = {}
+        for row in [*own_categories, *shared_categories]:
+            try:
+                category_id = int(row.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if row.get("name"):
+                categories_by_id[category_id] = {
+                    "id": category_id,
+                    "name": str(row["name"]),
+                    "type": str(row.get("type") or "expense"),
+                }
+        categories = list(categories_by_id.values())
+        category_names = [row["name"] for row in categories]
+
+        requested_category: dict[str, Any] | None = None
+        if self.request_text:
+            resolution = resolve_category_phrase(self.request_text, category_names)
+            if resolution.status == "ambiguous":
+                requested = resolution.requested or "that name"
+                return {
+                    "status": "needs_clarification",
+                    "message": (
+                        f"More than one category is named {requested}. Please choose "
+                        "the exact category shown in your category list."
+                    ),
+                }
+            if resolution.status == "unresolved":
+                return _category_clarification(resolution.suggestion)
+            if resolution.status == "needs_interpretation":
+                # An unfamiliar category-like phrase is clarified before a
+                # recommendation, never resolved to an arbitrary catalog match.
+                interpreted = self._interpret_category(resolution)
+                if interpreted is None:
+                    return _category_clarification(resolution.suggestion)
+                resolution = CategoryResolution("resolved", category=interpreted)
+            if resolution.status == "resolved":
+                matches = [
+                    row for row in categories
+                    if row["name"].casefold() == str(resolution.category).casefold()
+                ]
+                if len(matches) > 1:
+                    return {
+                        "status": "needs_clarification",
+                        "message": (
+                            f"More than one category is named {resolution.category}. "
+                            "Please choose the exact category shown in your category list."
+                        ),
+                    }
+                requested_category = matches[0] if matches else None
+        if requested_category is None and args.category_name:
+            exact = " ".join(args.category_name.split()).casefold()
+            matches = [row for row in categories if row["name"].casefold() == exact]
+            if not matches:
+                return _category_clarification()
+            if len(matches) > 1:
+                return {
+                    "status": "needs_clarification",
+                    "message": (
+                        f"More than one category is named {args.category_name}. Please "
+                        "choose the exact category shown in your category list."
+                    ),
+                }
+            requested_category = matches[0]
+
+        expense_categories = {
+            category_id: row
+            for category_id, row in categories_by_id.items()
+            if row["type"].casefold() == "expense"
+        }
+        if requested_category and requested_category["type"].casefold() != "expense":
+            return {
+                "status": "ok",
+                "recommendation_status": "not_expense_category",
+                "message": "Category budgets can only be recommended for expense categories.",
+                "month": target_month,
+                "candidate": {
+                    "id": requested_category["id"],
+                    "name": requested_category["name"],
+                },
+            }
+        if not expense_categories:
+            return {
+                "status": "ok",
+                "recommendation_status": "no_eligible_categories",
+                "message": "No expense categories are available for a category budget.",
+                "month": target_month,
+                "candidate": None,
+            }
+
+        monthly = _normalise_row(
+            self._execute(
+                self.admin_client.table("monthly_budgets")
+                .select("limit_amount")
+                .eq("user_id", self.user_id)
+                .eq("month", month_start.isoformat())
+                .maybe_single()
+            )
+        )
+        monthly_limit = (
+            Decimal(str(monthly["limit_amount"]))
+            if monthly.get("limit_amount") is not None
+            else None
+        )
+        category_limits = self._execute(
+            self.admin_client.table("budgets")
+            .select("category_id,amount")
+            .eq("user_id", self.user_id)
+            .eq("month", month_start.isoformat())
+        ) or []
+        limits_by_category_id: dict[int, Decimal] = defaultdict(Decimal)
+        for row in category_limits:
+            try:
+                category_id = int(row.get("category_id"))
+            except (TypeError, ValueError):
+                continue
+            limits_by_category_id[category_id] += Decimal(str(row.get("amount") or 0))
+
+        if requested_category and requested_category["id"] in limits_by_category_id:
+            amount = limits_by_category_id[requested_category["id"]]
+            return {
+                "status": "ok",
+                "recommendation_status": "already_budgeted",
+                "month": target_month,
+                "candidate": {
+                    "id": requested_category["id"],
+                    "name": requested_category["name"],
+                },
+                "existing_category_limit": _money(amount),
+            }
+
+        eligible = {
+            category_id: category
+            for category_id, category in expense_categories.items()
+            if category_id not in limits_by_category_id
+        }
+        if requested_category:
+            eligible = (
+                {requested_category["id"]: requested_category}
+                if requested_category["id"] in eligible
+                else {}
+            )
+        if not eligible:
+            return {
+                "status": "ok",
+                "recommendation_status": "no_eligible_categories",
+                "message": "Every expense category with a recorded limit is already budgeted for this month.",
+                "month": target_month,
+                "candidate": None,
+            }
+
+        completed_months = _completed_months_before(month_start, today)
+        history_rows: list[dict] = []
+        if completed_months:
+            first_month = min(completed_months)
+            last_month = max(completed_months)
+            history_rows = self._transaction_rows(
+                first_month,
+                _month_bounds(last_month)[1] - timedelta(days=1),
+            )
+        selected_month_keys = {_month_key(value) for value in completed_months}
+        history_spending: dict[str, dict[int, Decimal]] = defaultdict(
+            lambda: defaultdict(Decimal)
+        )
+        for row in history_rows:
+            try:
+                category_id = int(row.get("category_id"))
+                transaction_day = date.fromisoformat(str(row.get("transaction_date"))[:10])
+            except (TypeError, ValueError):
+                continue
+            key = _month_key(transaction_day)
+            if key not in selected_month_keys or category_id not in expense_categories:
+                continue
+            history_spending[key][category_id] += Decimal(str(row.get("amount") or 0))
+
+        target_rows = self._transaction_rows(
+            month_start, next_month - timedelta(days=1)
+        )
+        target_spending: dict[int, Decimal] = defaultdict(Decimal)
+        target_total = Decimal("0")
+        for row in target_rows:
+            try:
+                category_id = int(row.get("category_id"))
+            except (TypeError, ValueError):
+                continue
+            if category_id not in expense_categories:
+                continue
+            amount = Decimal(str(row.get("amount") or 0))
+            target_spending[category_id] += amount
+            target_total += amount
+
+        historical_month: str | None = None
+        historical_amount: Decimal | None = None
+        candidate: dict[str, Any] | None = None
+        if requested_category:
+            # An explicitly named category uses its latest completed month with
+            # recorded expenses, even if other categories have a newer total.
+            for key in sorted(history_spending, reverse=True):
+                amount = history_spending[key].get(requested_category["id"], Decimal("0"))
+                if amount > 0:
+                    historical_month = key
+                    historical_amount = amount
+                    candidate = requested_category
+                    break
+        else:
+            populated_months = [
+                key for key, spending in history_spending.items()
+                if any(amount > 0 for amount in spending.values())
+            ]
+            if populated_months:
+                historical_month = max(populated_months)
+                options = [
+                    (history_spending[historical_month].get(category_id, Decimal("0")), category_id)
+                    for category_id in eligible
+                    if history_spending[historical_month].get(category_id, Decimal("0")) > 0
+                ]
+                if options:
+                    historical_amount, category_id = min(
+                        options, key=lambda item: (-item[0], item[1])
+                    )
+                    candidate = eligible[category_id]
+
+        has_completed_expense_evidence = any(
+            amount > 0
+            for spending in history_spending.values()
+            for amount in spending.values()
+        )
+        if candidate is None and (requested_category or not has_completed_expense_evidence):
+            current_options = [
+                (target_spending.get(category_id, Decimal("0")), category_id)
+                for category_id in eligible
+                if target_spending.get(category_id, Decimal("0")) > 0
+            ]
+            if requested_category:
+                current_options = [
+                    option for option in current_options
+                    if option[1] == requested_category["id"]
+                ]
+            if current_options:
+                _current_amount, category_id = min(
+                    current_options, key=lambda item: (-item[0], item[1])
+                )
+                candidate = eligible[category_id]
+
+        if candidate is None and requested_category:
+            # Still answer an explicit category question, but leave the amount
+            # unavailable when no recorded expense evidence exists.
+            candidate = requested_category
+        if candidate is None:
+            return {
+                "status": "ok",
+                "recommendation_status": "no_eligible_categories",
+                "message": (
+                    "No unbudgeted expense category has recorded spending in the "
+                    "available completed months or target month."
+                ),
+                "month": target_month,
+                "candidate": None,
+            }
+
+        candidate_id = candidate["id"]
+        allocated = sum(limits_by_category_id.values(), Decimal("0"))
+        unallocated = monthly_limit - allocated if monthly_limit is not None else None
+        if monthly_limit is None:
+            recommendation_status = "overall_budget_required"
+            feasibility = "overall_budget_required"
+        elif historical_amount is None:
+            recommendation_status = "no_completed_month_evidence"
+            feasibility = "unavailable"
+        else:
+            recommendation_status = "recommended"
+            issues: list[str] = []
+            if target_spending.get(candidate_id, Decimal("0")) > historical_amount:
+                issues.append("already_exceeded")
+            if target_total > monthly_limit:
+                issues.append("overall_budget_already_exceeded")
+            if unallocated is not None and unallocated < historical_amount:
+                issues.append("insufficient_allocation")
+            feasibility = "_and_".join(issues) if issues else "fits"
+
+        return {
+            "status": "ok",
+            "recommendation_status": recommendation_status,
+            "month": target_month,
+            "candidate": {"id": candidate_id, "name": candidate["name"]},
+            "historical_month": historical_month,
+            "historical_amount": _money(historical_amount) if historical_amount is not None else None,
+            "suggested_starting_amount": _money(historical_amount) if historical_amount is not None else None,
+            "target_month_category_spending": _money(target_spending.get(candidate_id, Decimal("0"))),
+            "target_month_total_spending": _money(target_total),
+            "monthly_limit": _money(monthly_limit) if monthly_limit is not None else None,
+            "allocated_category_limits": _money(allocated),
+            "unallocated_budget_capacity": _money(unallocated) if unallocated is not None else None,
+            "feasibility": feasibility,
+        }
+
     def _budget_status(self, raw: dict) -> dict:
         args = _BudgetArgs.model_validate(raw)
         month_start, next_month = _month_bounds(
@@ -1369,7 +1861,7 @@ class AgentToolExecutor:
             candidate = datetime(
                 year,
                 month,
-                args.day_of_month,
+                min(args.day_of_month, monthrange(year, month)[1]),
                 args.time_of_day.hour,
                 args.time_of_day.minute,
                 tzinfo=malaysia,
@@ -1380,14 +1872,14 @@ class AgentToolExecutor:
                 candidate = datetime(
                     year,
                     month,
-                    args.day_of_month,
+                    min(args.day_of_month, monthrange(year, month)[1]),
                     args.time_of_day.hour,
                     args.time_of_day.minute,
                     tzinfo=malaysia,
                 )
             due_at = candidate
         if not due_at and not args.due_date:
-            today = self.now().date()
+            today = self._malaysia_now().date()
             return self._clarification(
                 action_type="create_reminder",
                 question=f"When should I remind you about “{args.title}”?",
@@ -1416,6 +1908,8 @@ class AgentToolExecutor:
             )
         if due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=malaysia)
+        # Persist the same local date that the confirmation card displays.
+        due_at = due_at.astimezone(malaysia)
         current = self.now()
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
@@ -1430,6 +1924,10 @@ class AgentToolExecutor:
             "due_at": due_at.isoformat(),
             "lead_days": args.lead_days,
             "recurrence": args.recurrence,
+            "recurrence_anchor_day": (
+                args.day_of_month if args.recurrence == "monthly" and args.day_of_month
+                else due_at.day
+            ),
         }
         local_due = due_at.astimezone(malaysia)
         local_time = local_due.strftime("%I:%M %p").lstrip("0")
@@ -1443,7 +1941,10 @@ class AgentToolExecutor:
         if args.amount is not None:
             fields.insert(1, {"label": "Amount", "value": _money(args.amount)})
         if args.recurrence != "none":
-            fields.append({"label": "Repeats", "value": args.recurrence.title()})
+            recurrence_label = args.recurrence.title()
+            if args.recurrence == "monthly" and arguments["recurrence_anchor_day"] > 28:
+                recurrence_label += f" (day {arguments['recurrence_anchor_day']}; last day in shorter months)"
+            fields.append({"label": "Repeats", "value": recurrence_label})
         if args.lead_days > 0:
             fields.append({
                 "label": "Notify",
@@ -1479,7 +1980,7 @@ class AgentToolExecutor:
                 ],
                 draft=args.model_dump(mode="json", exclude_none=True),
             )
-        today = self.now().date()
+        today = self._malaysia_now().date()
         current_start, current_next = _month_bounds(today)
         if args.period == "current_month":
             start, end = current_start, current_next - timedelta(days=1)

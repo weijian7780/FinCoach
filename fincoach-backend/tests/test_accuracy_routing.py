@@ -70,6 +70,34 @@ class AccuracyRoutingTests(unittest.TestCase):
                 self.assertEqual(result.invalid_fields, ("amount",))
                 self.assertNotIn("amount", result.arguments)
 
+    def test_specific_list_lookup_without_period_searches_all_dates(self):
+        for query in ["Show transactions at Grab", "Show transactions for RM25"]:
+            with self.subTest(query=query):
+                result = self.resolve(query)
+                self.assertEqual(result.tool_name, "search_transactions")
+                self.assertEqual(result.readiness.value, "ready")
+                self.assertTrue(result.arguments.get("all_dates"))
+                self.assertNotIn("start_date", result.arguments)
+                self.assertNotIn("end_date", result.arguments)
+                self.assertEqual(result.parameter_sources.get("all_dates"), "default")
+
+    def test_explicit_period_overrides_all_dates(self):
+        result = self.resolve("Show transactions at Grab in July 2026")
+        self.assertEqual(result.arguments["start_date"], "2026-07-01")
+        self.assertEqual(result.arguments["end_date"], "2026-07-31")
+        self.assertEqual(result.arguments.get("text"), "Grab")
+        self.assertNotIn("all_dates", result.arguments)
+
+    def test_count_and_bare_list_keep_current_month_not_all_dates(self):
+        count = self.resolve("berapa banyak transaksi di Grab")
+        self.assertEqual(count.arguments["result_mode"], "count")
+        self.assertNotIn("all_dates", count.arguments)
+        self.assertEqual(count.arguments["start_date"], "2026-08-01")
+        recent = self.resolve("Show my last 5 transactions")
+        self.assertNotIn("all_dates", recent.arguments)
+        self.assertEqual(recent.arguments.get("limit"), 5)
+        self.assertEqual(recent.arguments["start_date"], "2026-08-01")
+
     def test_named_day_ranges_preserve_both_boundaries(self):
         for query, start, end in [
             ("Show spending from 1 July to 15 July 2026", "2026-07-01", "2026-07-15"),
