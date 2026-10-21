@@ -1,11 +1,12 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatBackupSize } from '@/components/export-backup/export-backup-components';
 import { AppText as Text } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { clearCurrentExport, getCurrentExport, shareExportFile } from '@/lib/export-files';
 
@@ -20,7 +21,7 @@ export default function ExportSuccessScreen() {
     try {
       await shareExportFile(file);
     } catch (error) {
-      Alert.alert('Could not share export', error instanceof Error ? error.message : 'Sharing failed.');
+      appDialog.open('Could not share export', error instanceof Error ? error.message : 'Sharing failed.');
     } finally {
       setSharing(false);
     }

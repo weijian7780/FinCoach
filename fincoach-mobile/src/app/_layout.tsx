@@ -11,6 +11,7 @@ import { useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { NotificationBootstrap } from '@/components/notifications/notification-bootstrap';
+import { AppDialogProvider } from '@/components/ui/app-dialog';
 import { AuthProvider } from '@/lib/auth-context';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -39,6 +40,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthProvider>
+          <AppDialogProvider>
           <NotificationBootstrap />
           <Stack
             screenOptions={{
@@ -73,6 +75,7 @@ export default function RootLayout() {
             <Stack.Screen name="coach/history" />
             <Stack.Screen name="(app)" />
           </Stack>
+          </AppDialogProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

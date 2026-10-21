@@ -1,12 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionCard, formatBackupDate, SectionHeading } from '@/components/export-backup/export-backup-components';
 import { ExportSheet } from '@/components/export-backup/export-sheet';
 import { AppText as Text } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { performCloudBackup } from '@/lib/backup-orchestrator';
 import {
@@ -19,7 +20,7 @@ import {
   updateDataExport,
 } from '@/lib/export-backup';
 import { buildExportCsv, buildExportHtml, createExportFileName, createExportPreset } from '@/lib/export-backup-domain';
-import { setCurrentExport, writeCsvExport, writePdfExport } from '@/lib/export-files';
+import { setCurrentExport, writeCsvExport, writeNamedPdfExport } from '@/lib/export-files';
 import { useAuth } from '@/lib/auth-context';
 import type { BackupRecord, ExportFormat, ExportSelection } from '@/lib/types';
 
@@ -63,7 +64,7 @@ export default function ExportBackupScreen() {
     format: sheetFormat ?? 'csv',
     startDate: preset.startDate,
     endDate: preset.endDate,
-    contents: ['transaction', 'budget', 'savings', 'report'],
+    contents: ['transaction', 'budget', 'savings'],
   }), [preset.endDate, preset.startDate, sheetFormat]);
   const lastBackup = backups.find((backup) => backup.status === 'completed');
 
@@ -80,7 +81,7 @@ export default function ExportBackupScreen() {
       const source = await fetchExportSourceData(userId, selection);
       const generated = selection.format === 'csv'
         ? writeCsvExport(fileName, buildExportCsv(source, selection))
-        : await writePdfExport(buildExportHtml(source, selection));
+        : await writeNamedPdfExport(fileName, buildExportHtml(source, selection));
       await updateDataExport(record.id, userId, {
         status: 'completed',
         file_size_bytes: generated.size,
@@ -91,7 +92,7 @@ export default function ExportBackupScreen() {
       router.push('/export-backup/success' as never);
     } catch (error) {
       if (exportId) await updateDataExport(exportId, userId, { status: 'failed' }).catch(() => undefined);
-      Alert.alert('Export failed', errorMessage(error));
+      appDialog.open('Export failed', errorMessage(error));
     } finally {
       setGenerating(false);
     }
@@ -103,9 +104,9 @@ export default function ExportBackupScreen() {
     try {
       await performCloudBackup(userId, 'manual');
       await load(true);
-      Alert.alert('Backup completed', 'Your private cloud backup is ready.');
+      appDialog.open('Backup completed', 'Your financial records and attached receipts, reports and category images were saved to your private cloud backup.');
     } catch (error) {
-      Alert.alert('Backup failed', errorMessage(error));
+      appDialog.open('Backup failed', errorMessage(error));
     } finally {
       setBackingUp(false);
     }
@@ -120,7 +121,7 @@ export default function ExportBackupScreen() {
       await refreshProfile();
     } catch (error) {
       setAutoBackup(previous);
-      Alert.alert('Could not update preference', errorMessage(error));
+      appDialog.open('Could not update preference', errorMessage(error));
     }
   }
 
@@ -137,15 +138,15 @@ export default function ExportBackupScreen() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 30, gap: 12 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={authColors.primary} />}
         showsVerticalScrollIndicator={false}>
-        <SectionHeading title="Export Data" description="Download your transactions and reports." />
+        <SectionHeading title="Export Data" description="Create PDF or CSV files from your financial records." />
         <ActionCard icon="table-view" title="Export as CSV" description="Open in spreadsheet apps or save to your device." onPress={() => setSheetFormat('csv')} />
-        <ActionCard icon="picture-as-pdf" title="Export as PDF report" description="Generate a formatted report for sharing or printing." onPress={() => setSheetFormat('pdf')} />
+        <ActionCard icon="picture-as-pdf" title="Export as PDF" description="Create a formatted document for sharing or printing." onPress={() => setSheetFormat('pdf')} />
         <SectionHeading title="Cloud Backup" description="Private backups are stored under your authenticated Supabase account." />
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceIcon}><MaterialIcons name="cloud-sync" size={23} color={authColors.primary} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>Auto-backup to cloud</Text>
-            <Text style={styles.cardDescription}>Creates at most one automatic backup every 24 hours.</Text>
+            <Text style={styles.cardDescription}>Checks for a daily backup when you sign in or reopen the app.</Text>
           </View>
           <Switch value={autoBackup} onValueChange={(enabled) => void changeAutoBackup(enabled)} trackColor={{ false: authColors.surfaceContainerHigh, true: authColors.primary }} thumbColor="#ffffff" />
         </View>

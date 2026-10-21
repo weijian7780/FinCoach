@@ -1,30 +1,25 @@
+import { fetchAllRows as allRows } from '@/lib/pagination';
 import { monthKeysForRange } from '@/lib/report-domain';
 import { supabase } from '@/lib/supabase';
 import type {
-  AlertRecord,
   BackupRecord,
   BackupSourceData,
   BackupType,
-  BillReminder,
-  Category,
-  CategoryLimit,
   DataExportRecord,
   ExportContentType,
   ExportSelection,
   ExportSourceData,
-  FinancialBackupDocumentV1,
+  FinancialBackupDocument,
+  FinancialBackupDocumentV2,
   MonthlyBudget,
-  NotificationPreferences,
   Profile,
   Report,
   RestoreFinancialBackupResult,
-  SavingsContribution,
   SavingsGoal,
-  Transaction,
   TransactionWithCategory,
 } from '@/lib/types';
 
-type QueryResult = { data: unknown; error: unknown };
+type QueryResult = { data: unknown; error: unknown; count?: number | null };
 
 type ExportBackupQuery = PromiseLike<QueryResult> & {
   delete: () => ExportBackupQuery;
@@ -37,6 +32,7 @@ type ExportBackupQuery = PromiseLike<QueryResult> & {
   lte: (column: string, value: unknown) => ExportBackupQuery;
   maybeSingle: () => Promise<QueryResult>;
   order: (column: string, options: Record<string, unknown>) => ExportBackupQuery;
+  range: (from: number, to: number) => ExportBackupQuery;
   select: (...args: unknown[]) => ExportBackupQuery;
   single: () => Promise<QueryResult>;
   update: (value: Record<string, unknown>) => ExportBackupQuery;
@@ -50,6 +46,7 @@ type StorageBucket = {
   ) => Promise<QueryResult>;
   download: (path: string) => Promise<QueryResult>;
   remove: (paths: string[]) => Promise<QueryResult>;
+  list: (prefix: string, options: { limit: number; offset: number }) => Promise<QueryResult>;
 };
 
 export type ExportBackupDataClient = {
@@ -59,6 +56,7 @@ export type ExportBackupDataClient = {
 };
 
 const defaultClient = supabase as unknown as ExportBackupDataClient;
+export { defaultClient as defaultExportBackupClient };
 const backupBucket = 'financial-backups';
 
 function throwIfError(error: unknown) {
@@ -68,12 +66,6 @@ function throwIfError(error: unknown) {
 function requireRow<T>(data: unknown, message: string) {
   if (!data) throw new Error(message);
   return data as T;
-}
-
-async function rows<T>(query: ExportBackupQuery) {
-  const { data, error } = await query;
-  throwIfError(error);
-  return (data ?? []) as T[];
 }
 
 export async function createDataExport(
@@ -137,52 +129,52 @@ export async function fetchExportSourceData(
   if (!months.length) throw new Error('The export period is invalid.');
   const firstMonth = months[0];
   const lastMonth = months[months.length - 1];
-  const endOfSelectedDay = `${selection.endDate}T23:59:59.999`;
+  const endOfSelectedDay = `${selection.endDate}T23:59:59.999+08:00`;
 
   const [transactions, monthlyBudgets, categoryLimits, savingsGoals, reports] =
     await Promise.all([
-      rows<TransactionWithCategory>(
+      allRows<TransactionWithCategory>(() =>
         client
           .from('transactions')
-          .select('*, category:categories(*)')
+          .select('*, category:categories(*)', { count: 'exact' })
           .eq('user_id', userId)
           .gte('transaction_date', selection.startDate)
           .lte('transaction_date', selection.endDate)
-          .order('transaction_date', { ascending: true }),
+          .order('transaction_date', { ascending: true }).order('id', { ascending: true }),
       ),
-      rows<MonthlyBudget>(
+      allRows<MonthlyBudget>(() =>
         client
           .from('monthly_budgets')
-          .select('*')
+          .select('*', { count: 'exact' })
           .eq('user_id', userId)
           .gte('month', firstMonth)
           .lte('month', lastMonth)
-          .order('month', { ascending: true }),
+          .order('month', { ascending: true }).order('id', { ascending: true }),
       ),
-      rows<CategoryLimit>(
+      allRows<ExportSourceData['categoryLimits'][number]>(() =>
         client
           .from('budgets')
-          .select('*')
+          .select('*, category:categories(name)', { count: 'exact' })
           .eq('user_id', userId)
           .gte('month', firstMonth)
           .lte('month', lastMonth)
-          .order('month', { ascending: true }),
+          .order('month', { ascending: true }).order('id', { ascending: true }),
       ),
-      rows<SavingsGoal>(
+      allRows<SavingsGoal>(() =>
         client
           .from('savings_goals')
-          .select('*')
+          .select('*', { count: 'exact' })
           .eq('user_id', userId)
-          .order('created_at', { ascending: true }),
+          .order('created_at', { ascending: true }).order('id', { ascending: true }),
       ),
-      rows<Report>(
+      allRows<Report>(() =>
         client
           .from('reports')
-          .select('*')
+          .select('*', { count: 'exact' })
           .eq('user_id', userId)
-          .gte('generated_at', `${selection.startDate}T00:00:00`)
+          .gte('generated_at', `${selection.startDate}T00:00:00+08:00`)
           .lte('generated_at', endOfSelectedDay)
-          .order('generated_at', { ascending: true }),
+          .order('generated_at', { ascending: true }).order('id', { ascending: true }),
       ),
     ]);
   return { transactions, monthlyBudgets, categoryLimits, savingsGoals, reports };
@@ -191,75 +183,26 @@ export async function fetchExportSourceData(
 export async function fetchBackupSourceData(
   userId: string,
   client: ExportBackupDataClient = defaultClient,
+  backupId?: string,
 ): Promise<BackupSourceData> {
-  const goals = await rows<SavingsGoal>(
-    client.from('savings_goals').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
-  );
-  const goalIds = goals.map((goal) => goal.id);
+  const { data, error } = await client.rpc('financial_backup_snapshot_v2', {
+    backup_record_id: backupId ?? null,
+  });
+  throwIfError(error);
+  const source = requireRow<BackupSourceData>(data, 'The complete backup snapshot was not returned.');
+  if (source.profile && source.profile.id !== userId) throw new Error('Backup snapshot owner mismatch.');
+  return source;
+}
 
-  const [
-    profileResult,
-    customCategories,
-    transactions,
-    monthlyBudgets,
-    categoryLimits,
-    savingsContributions,
-    reports,
-    preferencesResult,
-    reminders,
-    alerts,
-  ] = await Promise.all([
-    client.from('profiles').select('*').eq('id', userId).maybeSingle(),
-    rows<Category>(client.from('categories').select('*').eq('user_id', userId).order('id', { ascending: true })),
-    rows<Transaction>(
-      client.from('transactions').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
-    ),
-    rows<MonthlyBudget>(
-      client.from('monthly_budgets').select('*').eq('user_id', userId).order('month', { ascending: true }),
-    ),
-    rows<CategoryLimit>(
-      client.from('budgets').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
-    ),
-    goalIds.length
-      ? rows<SavingsContribution>(
-          client
-            .from('savings_contributions')
-            .select('*')
-            .in('goal_id', goalIds)
-            .order('created_at', { ascending: true }),
-        )
-      : Promise.resolve([]),
-    rows<Report>(
-      client.from('reports').select('*').eq('user_id', userId).order('generated_at', { ascending: true }),
-    ),
-    client
-      .from('notification_preferences')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle(),
-    rows<BillReminder>(
-      client.from('reminders').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
-    ),
-    rows<AlertRecord>(
-      client.from('alerts').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
-    ),
-  ]);
-
-  throwIfError(profileResult.error);
-  throwIfError(preferencesResult.error);
-  return {
-    profile: profileResult.data as Profile | null,
-    customCategories,
-    transactions,
-    monthlyBudgets,
-    categoryLimits,
-    savingsGoals: goals,
-    savingsContributions,
-    reports,
-    notificationPreferences: preferencesResult.data as NotificationPreferences | null,
-    reminders,
-    alerts,
-  };
+export async function completeFinancialBackup(
+  backupId: string, document: FinancialBackupDocumentV2, path: string,
+  size: number, checksum: string, client: ExportBackupDataClient = defaultClient,
+) {
+  const { data, error } = await client.rpc('complete_financial_backup_v2', {
+    backup_record_id: backupId, document, object_path: path, object_size: size, checksum,
+  });
+  throwIfError(error);
+  return requireRow<BackupRecord>(data, 'The completed backup record was not returned.');
 }
 
 export async function createBackupRecord(
@@ -302,16 +245,15 @@ export async function updateBackupRecord(
 
 export async function fetchBackups(
   userId: string,
-  limit = 50,
+  _limit = 50,
   client: ExportBackupDataClient = defaultClient,
 ) {
-  return rows<BackupRecord>(
+  return allRows<BackupRecord>(() =>
     client
       .from('backups')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(Math.max(1, Math.min(100, Math.trunc(limit) || 50))),
+      .order('created_at', { ascending: false }).order('id', { ascending: false }),
   );
 }
 
@@ -337,10 +279,21 @@ export async function downloadBackupObject(
   return requireRow<Blob>(data, 'The backup object could not be downloaded.');
 }
 
+export async function removeBackupObject(path: string, client: ExportBackupDataClient = defaultClient) {
+  const { error } = await client.storage.from(backupBucket).remove([path]);
+  throwIfError(error);
+}
+
 export async function deleteBackup(
   record: BackupRecord,
   client: ExportBackupDataClient = defaultClient,
 ) {
+  // A durable tombstone prevents restore from offering partially removed files.
+  const begun = await client.rpc('begin_financial_backup_delete_v2', { backup_record_id: record.id });
+  throwIfError(begun.error);
+  // Keep lifecycle code out of module initialization to avoid a circular import.
+  const { removeBackupAttachmentCopies } = await import('./backup-attachments');
+  await removeBackupAttachmentCopies(record.user_id, record.id, client);
   if (record.storage_path) {
     const { error: storageError } = await client.storage
       .from(backupBucket)
@@ -386,17 +339,54 @@ export async function updateAutoBackupEnabled(
   ).auto_backup_enabled;
 }
 
+export class RestoreOutcomeUnknownError extends Error {
+  constructor() {
+    super('The server response was lost. Refresh backup history to check the restore status before retrying.');
+    this.name = 'RestoreOutcomeUnknownError';
+  }
+}
+
 export async function restoreFinancialBackup(
   backupId: string,
-  document: FinancialBackupDocumentV1,
+  document: FinancialBackupDocument,
   client: ExportBackupDataClient = defaultClient,
 ) {
-  const { data, error } = await client.rpc('restore_financial_backup_v1', {
+  const { validateBackupDocument } = await import('./export-backup-domain');
+  validateBackupDocument(document, document.userId);
+  // Compare authoritative server history if a reply is lost after commit.
+  const before = await client.from('backups').select('last_restored_at').eq('id', backupId).eq('user_id', document.userId).maybeSingle();
+  throwIfError(before.error);
+  const prepared = document.schemaVersion === 2
+    ? await (await import('./backup-attachments')).prepareRestoreAttachments(backupId, document, client)
+    : null;
+  try {
+  const { data, error } = await client.rpc(document.schemaVersion === 2 ? 'restore_financial_backup_v2' : 'restore_financial_backup_v1', {
     payload: document,
     backup_record_id: backupId,
+    ...(prepared ? { restored_paths: prepared.paths } : {}),
   });
   throwIfError(error);
   return requireRow<RestoreFinancialBackupResult>(data, 'The restore result was not returned.');
+  } catch (error) {
+    // A network timeout has an unknown commit outcome. Do not delete files that
+    // may now be referenced by a committed restore; database errors roll back.
+    const { isDefinitiveDatabaseError } = await import('./export-backup-domain');
+    if (isDefinitiveDatabaseError(error)) {
+      if (prepared) await prepared.cleanup();
+      throw error;
+    }
+    try {
+      const after = await client.from('backups').select('last_restore_status,last_restored_at')
+        .eq('id', backupId).eq('user_id', document.userId).maybeSingle();
+      const current = after.data as Pick<BackupRecord, 'last_restore_status' | 'last_restored_at'> | null;
+      const previous = before.data as Pick<BackupRecord, 'last_restored_at'> | null;
+      if (!after.error && current?.last_restore_status === 'completed' && current.last_restored_at &&
+        current.last_restored_at !== previous?.last_restored_at) {
+        return (await import('./backup-v2-domain')).backupCounts(document.data);
+      }
+    } catch { /* An unreachable server cannot establish a commit outcome. */ }
+    throw new RestoreOutcomeUnknownError();
+  }
 }
 
 export async function reconcileStaleRecords(
@@ -411,11 +401,17 @@ export async function reconcileStaleRecords(
     .in('status', ['pending', 'processing'])
     .lte('created_at', cutoffIso);
   throwIfError(exportResult.error);
-  const backupResult = await client
+  // An unfinished backup past the cutoff can no longer complete. Delete it so
+  // its full server snapshot copy and any uploaded files do not accumulate.
+  const stale = await client
     .from('backups')
-    .update({ status: 'failed' })
+    .select('*')
     .eq('user_id', userId)
-    .in('status', ['pending', 'processing'])
-    .lte('created_at', cutoffIso);
-  throwIfError(backupResult.error);
+    .in('status', ['pending', 'processing', 'failed'])
+    .lte('created_at', cutoffIso)
+    .limit(50);
+  throwIfError(stale.error);
+  for (const record of (stale.data ?? []) as BackupRecord[]) {
+    await deleteBackup(record, client);
+  }
 }

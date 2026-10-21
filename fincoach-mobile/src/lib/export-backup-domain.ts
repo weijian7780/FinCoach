@@ -6,7 +6,10 @@ import type {
   ExportSelection,
   ExportSourceData,
   FinancialBackupDocumentV1,
+  FinancialBackupDocument,
+  FinancialBackupDocumentV2,
 } from './types';
+import { validateV2Document } from './backup-v2-domain';
 
 type ExportPreset = 'current_month' | 'previous_month';
 
@@ -48,7 +51,9 @@ export function validateExportSelection(selection: ExportSelection) {
 }
 
 export function escapeCsv(value: unknown) {
-  const text = String(value ?? '');
+  let text = String(value ?? '');
+  // Spreadsheet applications evaluate formula prefixes even after whitespace.
+  if (/^[\s\u0000-\u001f]*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -90,12 +95,12 @@ function csvTransactions(source: ExportSourceData, selection: ExportSelection) {
 }
 
 function csvBudgets(source: ExportSourceData) {
-  let output = heading('Budgets', ['Month', 'Scope', 'Category ID', 'Limit (RM)']);
+  let output = heading('Budgets', ['Month', 'Scope', 'Category', 'Limit (RM)']);
   for (const budget of source.monthlyBudgets) {
     output += [budget.month, 'Overall', '', money(budget.limit_amount)].join(',') + '\r\n';
   }
   for (const limit of source.categoryLimits) {
-    output += [limit.month, 'Category', limit.category_id, money(limit.amount)].join(',') + '\r\n';
+    output += [limit.month, 'Category', escapeCsv(limit.category?.name ?? `Category ${limit.category_id}`), money(limit.amount)].join(',') + '\r\n';
   }
   return output;
 }
@@ -122,11 +127,15 @@ function csvSavings(source: ExportSourceData) {
 function csvReports(source: ExportSourceData, selection: ExportSelection) {
   let output = heading('Generated Reports', ['Period', 'Type', 'Generated At']);
   for (const report of source.reports.filter((item) =>
-    inRange(item.generated_at.slice(0, 10), selection),
+    inRange(malaysiaReportDate(item.generated_at), selection),
   )) {
     output += [escapeCsv(report.period), report.type, report.generated_at].join(',') + '\r\n';
   }
   return output;
+}
+
+function malaysiaReportDate(value: string) {
+  return new Date(new Date(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export function buildExportCsv(source: ExportSourceData, selection: ExportSelection) {
@@ -161,7 +170,7 @@ export function buildExportHtml(source: ExportSourceData, selection: ExportSelec
   if (selection.contents.includes('transaction')) {
     sections.push(
       `<h2>Transactions</h2>${table(
-        ['Date', 'Description', 'Category', 'Type', 'Amount (RM)'],
+        ['Date', 'Description', 'Category', 'Type', 'Amount (RM)', 'Source'],
         source.transactions
           .filter((item) => inRange(item.transaction_date, selection))
           .map((item) => [
@@ -170,6 +179,7 @@ export function buildExportHtml(source: ExportSourceData, selection: ExportSelec
             item.category.name,
             item.category.type,
             money(item.amount),
+            item.source,
           ]),
       )}`,
     );
@@ -182,7 +192,7 @@ export function buildExportHtml(source: ExportSourceData, selection: ExportSelec
           ...source.monthlyBudgets.map((item) => [item.month, 'Overall', money(item.limit_amount)]),
           ...source.categoryLimits.map((item) => [
             item.month,
-            `Category ${item.category_id}`,
+            item.category?.name ?? `Category ${item.category_id}`,
             money(item.amount),
           ]),
         ],
@@ -191,7 +201,7 @@ export function buildExportHtml(source: ExportSourceData, selection: ExportSelec
   }
   if (selection.contents.includes('savings')) {
     sections.push(
-      `<h2>Savings Goals</h2>${table(
+      `<h2>Savings Goals</h2><p class="meta">Current goals and balances — not filtered by date.</p>${table(
         ['Goal', 'Current (RM)', 'Target (RM)', 'Deadline'],
         source.savingsGoals.map((item) => [
           item.name,
@@ -207,7 +217,7 @@ export function buildExportHtml(source: ExportSourceData, selection: ExportSelec
       `<h2>Generated Reports</h2>${table(
         ['Period', 'Type', 'Generated At'],
         source.reports
-          .filter((item) => inRange(item.generated_at.slice(0, 10), selection))
+          .filter((item) => inRange(malaysiaReportDate(item.generated_at), selection))
           .map((item) => [item.period, item.type, item.generated_at]),
       )}`,
     );
@@ -215,13 +225,13 @@ export function buildExportHtml(source: ExportSourceData, selection: ExportSelec
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 body{font-family:Arial,sans-serif;color:#1b1b23;padding:32px}h1{color:#4648d4}h2{margin-top:26px}
-table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere;white-space:pre-wrap}thead{display:table-header-group}tr{break-inside:avoid}th:first-child,td:first-child{min-width:65px}
 .meta{color:#666}.footer{margin-top:30px;font-size:10px;color:#777}
 </style></head><body><h1>FinCoach Financial Export</h1><p class="meta">${escapeHtml(
     selection.startDate,
   )} to ${escapeHtml(selection.endDate)}</p>${sections.join(
     '',
-  )}<p class="footer">User-generated personal financial report.</p></body></html>`;
+  )}<p class="footer">User-generated personal financial data export.</p></body></html>`;
 }
 
 export function createExportFileName(selection: ExportSelection) {
@@ -236,6 +246,10 @@ function canonicalBackupSource(source: BackupSourceData): BackupSourceData {
   return {
     profile: source.profile,
     customCategories: sortBy(source.customCategories, (item) => item.id),
+    // Keep absence distinct from [] so older backups retain current selections.
+    ...(source.userCategories === undefined ? {} : {
+      userCategories: sortBy(source.userCategories, (item) => item.category_id),
+    }),
     transactions: sortBy(source.transactions, (item) => item.id),
     monthlyBudgets: sortBy(source.monthlyBudgets, (item) => item.id),
     categoryLimits: sortBy(source.categoryLimits, (item) => item.id),
@@ -267,10 +281,10 @@ export function serializeBackupDocument(
 export function validateBackupDocument(
   value: unknown,
   expectedUserId: string,
-): FinancialBackupDocumentV1 {
+): FinancialBackupDocument {
   if (!value || typeof value !== 'object') throw new Error('Invalid backup file.');
-  const document = value as Partial<FinancialBackupDocumentV1> & { schemaVersion?: number };
-  if (document.schemaVersion !== 1) throw new Error('This backup version is not supported.');
+  const document = value as Omit<Partial<FinancialBackupDocumentV1>, 'schemaVersion'> & { schemaVersion?: number };
+  if (document.schemaVersion !== 1 && document.schemaVersion !== 2) throw new Error('This backup version is not supported.');
   if (document.userId !== expectedUserId) throw new Error('This backup belongs to another account.');
   if (
     typeof document.createdAt !== 'string' ||
@@ -288,7 +302,21 @@ export function validateBackupDocument(
   ) {
     throw new Error('Invalid backup file.');
   }
-  return document as FinancialBackupDocumentV1;
+  const selections = document.data.userCategories;
+  if (selections !== undefined && (!Array.isArray(selections) || selections.some((row) =>
+    !row || row.user_id !== expectedUserId || !Number.isSafeInteger(row.category_id) ||
+    row.category_id <= 0 || typeof row.created_at !== 'string' || Number.isNaN(Date.parse(row.created_at))
+  ))) {
+    throw new Error('Invalid backup file.');
+  }
+  return document.schemaVersion === 2 ? validateV2Document(document as unknown as FinancialBackupDocumentV2) : document as FinancialBackupDocumentV1;
+}
+
+/** A SQLSTATE (5 chars, letters allowed, e.g. 40P01) or PostgREST code means the
+ * server answered, so the call did not commit; anything else is an unknown outcome. */
+export function isDefinitiveDatabaseError(error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  return /^[0-9A-Z]{5}$|^PGRST\d{3}$/.test(code);
 }
 
 export function createBackupObjectPath(

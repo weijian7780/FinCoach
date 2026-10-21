@@ -89,6 +89,13 @@ const exportSource: ExportSourceData = {
       user_id: 'user-1',
       period: '2026-07',
       type: 'monthly',
+      title: null,
+      file_name: null,
+      storage_path: null,
+      report_key: null,
+      start_date: null,
+      end_date: null,
+      category_id: null,
       generated_at: '2026-07-16T02:00:00.000Z',
     },
   ],
@@ -199,6 +206,32 @@ describe('export generation', () => {
 });
 
 describe('backup documents', () => {
+  test('includes tracked categories in a stable order', () => {
+    const userCategories = [
+      { user_id: 'user-1', category_id: 2, created_at: '2026-10-01T00:00:00Z' },
+      { user_id: 'user-1', category_id: 1, created_at: '2026-10-01T00:00:00Z' },
+    ];
+    const document = JSON.parse(serializeBackupDocument('user-1', '1.0.0', { ...backupSource, userCategories }));
+    expect(document.data.userCategories).toEqual([...userCategories].reverse());
+    expect(validateBackupDocument(document, 'user-1')).toEqual(document);
+  });
+
+  test('distinguishes legacy omitted selections from an explicitly empty selection', () => {
+    const legacy = JSON.parse(serializeBackupDocument('user-1', '1.0.0', backupSource));
+    expect(validateBackupDocument(legacy, 'user-1').data.userCategories).toBeUndefined();
+    const current = JSON.parse(serializeBackupDocument('user-1', '1.0.0', { ...backupSource, userCategories: [] }));
+    expect(validateBackupDocument(current, 'user-1').data.userCategories).toEqual([]);
+  });
+
+  test.each([null, {}, [{ user_id: 'other-user', category_id: 1, created_at: '2026-10-01' }],
+    [{ user_id: 'user-1', category_id: 'wrong', created_at: '2026-10-01' }]].map((value) => [value]))(
+    'rejects malformed or foreign tracked categories: %j', (userCategories) => {
+      const document = JSON.parse(serializeBackupDocument('user-1', '1.0.0', backupSource));
+      document.data.userCategories = userCategories;
+      expect(() => validateBackupDocument(document, 'user-1')).toThrow('Invalid backup file.');
+    },
+  );
+
   test('serializes the same source deterministically', () => {
     const first = serializeBackupDocument('user-1', '1.0.0', backupSource, '2026-07-16T03:00:00.000Z');
     const second = serializeBackupDocument('user-1', '1.0.0', backupSource, '2026-07-16T03:00:00.000Z');
@@ -215,7 +248,7 @@ describe('backup documents', () => {
       'This backup belongs to another account.',
     );
     expect(() =>
-      validateBackupDocument({ ...document, schemaVersion: 2 } as unknown, 'user-1'),
+      validateBackupDocument({ ...document, schemaVersion: 999 } as unknown, 'user-1'),
     ).toThrow('This backup version is not supported.');
   });
 

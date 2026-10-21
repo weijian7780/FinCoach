@@ -1,4 +1,12 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+import { serializeBackupDocument } from './export-backup-domain';
+import {
+  downloadAndValidateBackup,
+  performCloudBackup,
+  runEligibleAutomaticBackup,
+  type BackupOrchestratorDependencies,
+} from './backup-orchestrator';
 
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '1.0.0' } } }));
 vi.mock('expo-crypto', () => ({
@@ -7,21 +15,46 @@ vi.mock('expo-crypto', () => ({
 }));
 vi.mock('./export-backup', () => ({
   createBackupRecord: vi.fn(),
+  completeFinancialBackup: vi.fn(),
+  defaultExportBackupClient: {},
+  removeBackupObject: vi.fn(),
   deleteBackup: vi.fn(),
   downloadBackupObject: vi.fn(),
   fetchAutoBackupEnabled: vi.fn(),
   fetchBackups: vi.fn(),
   fetchBackupSourceData: vi.fn(),
+  reconcileStaleRecords: vi.fn(),
   updateBackupRecord: vi.fn(),
   uploadBackupObject: vi.fn(),
 }));
 
-import {
-  downloadAndValidateBackup,
-  performCloudBackup,
-  runEligibleAutomaticBackup,
-  type BackupOrchestratorDependencies,
-} from './backup-orchestrator';
+afterEach(() => vi.unstubAllGlobals());
+
+// React Native's downloaded Blob has no text() method. FileReader reads its
+// native data instead; Node's Blob alone cannot reproduce this Android failure.
+function nativeDownloadedBlob(content: string, failure?: Error) {
+  const blob = { size: new TextEncoder().encode(content).byteLength, type: 'application/json' } as Blob;
+  const readAsText = vi.fn();
+  vi.stubGlobal('FileReader', class {
+    result: string | null = null;
+    error: Error | null = null;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    readAsText(value: Blob, encoding: string) {
+      readAsText(value, encoding);
+      queueMicrotask(() => {
+        if (failure) {
+          this.error = failure;
+          this.onerror?.();
+        } else {
+          this.result = content;
+          this.onload?.();
+        }
+      });
+    }
+  });
+  return { blob, readAsText };
+}
 
 function dependencies(): BackupOrchestratorDependencies {
   const completed = {
@@ -66,6 +99,50 @@ function dependencies(): BackupOrchestratorDependencies {
 }
 
 describe('cloud backup orchestration', () => {
+  test('preserves a completed backup when the completion response is lost', async () => {
+    const deps = dependencies();
+    const completed = { ...(await deps.createBackupRecord('user-1', 'manual', 'backup.json')), status: 'completed' as const, schema_version: 2 };
+    deps.completeBackup = async () => { throw new Error('Response lost after server commit'); };
+    vi.mocked(deps.fetchBackups).mockResolvedValue([completed]);
+    await expect(performCloudBackup('user-1', 'manual', deps)).resolves.toMatchObject({ status: 'completed', schema_version: 2 });
+    expect(deps.updateBackupRecord).not.toHaveBeenCalledWith('backup-1', 'user-1', { status: 'failed' });
+  });
+  test('validates a native downloaded Blob without Blob.text()', async () => {
+    const deps = dependencies();
+    const source = await deps.fetchBackupSourceData('user-1');
+    const json = serializeBackupDocument('user-1', '1.0.0', source, deps.now().toISOString());
+    const { blob, readAsText } = nativeDownloadedBlob(json);
+    const record = await deps.updateBackupRecord('backup-1', 'user-1', {});
+    await expect(downloadAndValidateBackup(
+      { ...record, file_size_bytes: blob.size }, 'user-1', deps, blob,
+    )).resolves.toEqual(JSON.parse(json));
+    expect(readAsText).toHaveBeenCalledWith(blob, 'UTF-8');
+    expect(deps.digest).toHaveBeenCalledWith(json);
+  });
+
+  test.each([
+    ['checksum mismatch', '{}', null, 'different', 'checksum does not match'],
+    ['size mismatch', '{}', 100, 'checksum', 'file size does not match'],
+    ['invalid JSON', '{broken', null, 'checksum', 'Invalid backup file'],
+  ])('still blocks a native Blob with %s', async (_name, json, size, checksum, message) => {
+    const deps = dependencies();
+    const record = await deps.updateBackupRecord('backup-1', 'user-1', {});
+    const { blob } = nativeDownloadedBlob(json);
+    await expect(downloadAndValidateBackup(
+      { ...record, file_size_bytes: size, checksum_sha256: checksum }, 'user-1', deps, blob,
+    )).rejects.toThrow(message);
+  });
+
+  test('rejects native file read failures before hashing the backup', async () => {
+    const deps = dependencies();
+    const record = await deps.updateBackupRecord('backup-1', 'user-1', {});
+    const { blob } = nativeDownloadedBlob('{}', new Error('Native read failed'));
+    await expect(downloadAndValidateBackup(
+      { ...record, file_size_bytes: null }, 'user-1', deps, blob,
+    )).rejects.toThrow('Native read failed');
+    expect(deps.digest).not.toHaveBeenCalled();
+  });
+
   test('creates and uploads an exact automatic backup document', async () => {
     const deps = dependencies();
     await performCloudBackup('user-1', 'automatic', deps);
@@ -76,7 +153,7 @@ describe('cloud backup orchestration', () => {
       expect.objectContaining({
         status: 'completed',
         checksum_sha256: 'checksum',
-        schema_version: 1,
+        schema_version: 2,
       }),
     );
   });
@@ -146,5 +223,38 @@ describe('cloud backup orchestration', () => {
         new Blob(['{}']),
       ),
     ).rejects.toThrow('checksum does not match');
+  });
+  test('deletes a definitively failed backup so its snapshot copy is not kept', async () => {
+    const deps = dependencies();
+    deps.completeBackup = async () => { throw Object.assign(new Error('deadlock'), { code: '40P01' }); };
+    await expect(performCloudBackup('user-1', 'manual', deps)).rejects.toThrow('deadlock');
+    expect(deps.deleteBackup).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'backup-1', storage_path: expect.stringContaining('user-1/manual/'),
+    }));
+    expect(deps.updateBackupRecord).not.toHaveBeenCalledWith('backup-1', 'user-1', { status: 'failed' });
+  });
+
+  test('marks the backup failed when it cannot be deleted', async () => {
+    const deps = dependencies();
+    vi.mocked(deps.fetchBackupSourceData).mockRejectedValue(Object.assign(new Error('denied'), { code: '42501' }));
+    vi.mocked(deps.deleteBackup).mockRejectedValue(new Error('offline'));
+    await expect(performCloudBackup('user-1', 'manual', deps)).rejects.toThrow('denied');
+    expect(deps.updateBackupRecord).toHaveBeenCalledWith('backup-1', 'user-1', { status: 'failed' });
+  });
+
+  test('waits six hours after a failed automatic backup and cleans stale records', async () => {
+    const deps = dependencies();
+    let clock = new Date('2026-07-16T12:00:00.000Z').getTime();
+    deps.now = () => new Date(clock);
+    deps.reconcileStale = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(deps.fetchBackupSourceData).mockRejectedValue(new Error('attachment missing'));
+    await expect(runEligibleAutomaticBackup('user-retry', deps)).rejects.toThrow('attachment missing');
+    expect(deps.reconcileStale).toHaveBeenCalledWith('user-retry', '2026-07-16T11:45:00.000Z');
+    clock += 60 * 60 * 1000;
+    await expect(runEligibleAutomaticBackup('user-retry', deps)).resolves.toBeNull();
+    expect(deps.createBackupRecord).toHaveBeenCalledOnce();
+    clock += 6 * 60 * 60 * 1000;
+    await expect(runEligibleAutomaticBackup('user-retry', deps)).rejects.toThrow('attachment missing');
+    expect(deps.createBackupRecord).toHaveBeenCalledTimes(2);
   });
 });

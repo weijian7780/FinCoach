@@ -1,16 +1,18 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BackupCard } from '@/components/export-backup/export-backup-components';
+import { BackupCard, formatBackupDate } from '@/components/export-backup/export-backup-components';
 import { AppText as Text } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { downloadAndValidateBackup } from '@/lib/backup-orchestrator';
-import { deleteBackup, downloadBackupObject, fetchBackups, restoreFinancialBackup, updateBackupRecord } from '@/lib/export-backup';
+import { deleteBackup, downloadBackupObject, fetchBackups, restoreFinancialBackup, RestoreOutcomeUnknownError, updateBackupRecord } from '@/lib/export-backup';
 import { useAuth } from '@/lib/auth-context';
-import type { BackupRecord } from '@/lib/types';
+import type { BackupRecord, FinancialBackupDocument } from '@/lib/types';
+import { backupCounts } from '@/lib/backup-v2-domain';
 
 export default function RestoreBackupScreen() {
   const insets = useSafeAreaInsets();
@@ -21,17 +23,23 @@ export default function RestoreBackupScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
 
   const load = useCallback(async (refresh = false) => {
     if (!userId) return;
     if (refresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const records = (await fetchBackups(userId, 100)).filter((record) => record.status === 'completed' && Boolean(record.storage_path));
+      const history = await fetchBackups(userId, 100);
+      // Retry interrupted deletion; tombstones never become restore candidates.
+      for (const record of history.filter(item => item.cleanup_warning === 'Deletion pending')) {
+        await deleteBackup(record).catch(() => undefined);
+      }
+      const records = history.filter((record) => record.status === 'completed' && Boolean(record.storage_path));
       setBackups(records);
       setSelectedId((current) => records.some((record) => record.id === current) ? current : records[0]?.id ?? null);
     } catch (error) {
-      Alert.alert('Could not load backups', error instanceof Error ? error.message : 'Check your connection and retry.');
+      appDialog.open('Could not load backups', error instanceof Error ? error.message : 'Check your connection and retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -40,42 +48,68 @@ export default function RestoreBackupScreen() {
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  function confirmRestore() {
+  async function confirmRestore() {
     const selected = backups.find((backup) => backup.id === selectedId);
-    if (!selected || !userId) return;
-    Alert.alert(
+    if (!selected || !userId || previewing || restoring || !selected.storage_path) return;
+    setPreviewing(true);
+    try {
+    const blob = await downloadBackupObject(selected.storage_path);
+    const document = await downloadAndValidateBackup(selected, userId, undefined, blob);
+    const counts = backupCounts(document.data);
+    const summary = `${formatBackupDate(document.createdAt)}\n` +
+      `${counts.transactions} transactions · ${counts.monthlyBudgets} monthly budgets · ${counts.categoryLimits} category limits\n` +
+      `${counts.savingsGoals} savings goals · ${counts.savingsContributions} contributions\n` +
+      `${counts.customCategories} custom categories · ${counts.userCategories} tracked categories\n` +
+      `${counts.reports} reports · ${counts.reminders} reminders · ${counts.alerts} alerts\n` +
+      `${counts.profile} profile · ${counts.notificationPreferences} notification settings\n` +
+      (document.schemaVersion === 2 ? `${document.attachments.length} saved attachments` :
+        'Legacy backup: record completeness cannot be verified; attachment files were not saved.') +
+      '\n\nRestoring will replace your current financial data with this backup. Records added afterward will be removed. Current privacy choices are preserved.';
+    appDialog.open(
       'Replace current financial data?',
-      'Restoring will replace your current data with the selected backup. This cannot be undone.',
+      summary,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Restore backup', style: 'destructive', onPress: () => void executeRestore(selected) },
+        { text: 'Restore backup', style: 'destructive', onPress: () => void executeRestore(selected, document) },
       ],
     );
+    } catch (error) {
+      appDialog.open('Backup preview unavailable', error instanceof Error ? error.message : 'Check your connection and retry.');
+    } finally {
+      setPreviewing(false);
+    }
   }
 
-  async function executeRestore(selected: BackupRecord) {
+  async function executeRestore(selected: BackupRecord, document: FinancialBackupDocument) {
     if (!userId || restoring || !selected.storage_path) return;
     setRestoring(true);
+    let committed = false;
     try {
-      const blob = await downloadBackupObject(selected.storage_path);
-      const document = await downloadAndValidateBackup(selected, userId, undefined, blob);
       await updateBackupRecord(selected.id, userId, { last_restore_status: 'processing' });
       await restoreFinancialBackup(selected.id, document);
+      committed = true;
       await refreshProfile();
       await load(true);
-      Alert.alert('Restore completed', 'Your FinCoach financial data was restored successfully.', [
+      appDialog.open('Restore completed', 'Your financial records were restored. Saved attachments are available from their restored records.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (error) {
-      await updateBackupRecord(selected.id, userId, { last_restore_status: 'failed' }).catch(() => undefined);
-      Alert.alert('Restore blocked', error instanceof Error ? error.message : 'The backup could not be restored.');
+      if (committed) {
+        appDialog.open('Restore completed', 'Your data was restored. Reopen this screen to refresh the displayed data.');
+      } else if (error instanceof RestoreOutcomeUnknownError) {
+        await load(true);
+        appDialog.open('Restore status unconfirmed', error.message);
+      } else {
+        await updateBackupRecord(selected.id, userId, { last_restore_status: 'failed' }).catch(() => undefined);
+        appDialog.open('Restore blocked', error instanceof Error ? error.message : 'The backup could not be restored.');
+      }
     } finally {
       setRestoring(false);
     }
   }
 
   function confirmDelete(record: BackupRecord) {
-    Alert.alert('Delete cloud backup?', 'This permanently deletes the selected backup file and its history record.', [
+    appDialog.open('Delete cloud backup?', 'This permanently deletes the selected backup file and its history record.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -85,7 +119,7 @@ export default function RestoreBackupScreen() {
             await deleteBackup(record);
             await load(true);
           } catch (error) {
-            Alert.alert('Delete failed', error instanceof Error ? error.message : 'The backup could not be deleted.');
+            appDialog.open('Delete failed', error instanceof Error ? error.message : 'The backup could not be deleted.');
           }
         },
       },
@@ -122,9 +156,9 @@ export default function RestoreBackupScreen() {
         ))}
       </ScrollView>
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 14 }]}>
-        <Pressable disabled={!selectedId || restoring} onPress={confirmRestore} style={[styles.restoreButton, (!selectedId || restoring) && styles.disabled]}>
-          {restoring ? <ActivityIndicator color={authColors.onPrimary} /> : <MaterialIcons name="restore" size={21} color={authColors.onPrimary} />}
-          <Text style={styles.restoreText}>{restoring ? 'Verifying and restoring…' : 'Restore selected backup'}</Text>
+        <Pressable disabled={!selectedId || restoring || previewing} onPress={() => void confirmRestore()} style={[styles.restoreButton, (!selectedId || restoring || previewing) && styles.disabled]}>
+          {restoring || previewing ? <ActivityIndicator color={authColors.onPrimary} /> : <MaterialIcons name="restore" size={21} color={authColors.onSurface} />}
+          <Text style={styles.restoreText}>{restoring ? 'Verifying and restoring…' : previewing ? 'Loading backup preview…' : 'Review selected backup'}</Text>
         </Pressable>
       </View>
     </View>

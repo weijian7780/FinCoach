@@ -31,16 +31,19 @@ describe('Financial Data Export and Backup UI', () => {
     const screen = read('src', 'app', 'export-backup', 'index.tsx');
     const sheet = read('src', 'components', 'export-backup', 'export-sheet.tsx');
     expect(screen).toContain('Export as CSV');
-    expect(screen).toContain('Export as PDF report');
+    expect(screen).toContain('Export as PDF');
+    expect(screen).toContain('Create PDF or CSV files from your financial records.');
     expect(screen).toContain('Auto-backup to cloud');
     expect(screen).toContain('Back up now');
     expect(screen).toContain('Restore from backup');
     expect(screen).toContain('createDataExport');
     expect(screen).toContain('performCloudBackup');
+    expect(sheet).toContain('CSV spreadsheet');
+    expect(sheet).toContain('PDF document');
     expect(sheet).toContain('Transactions');
     expect(sheet).toContain('Budgets');
     expect(sheet).toContain('Savings');
-    expect(sheet).toContain('Reports');
+    expect(sheet).not.toContain("label: 'Reports'");
   });
 
   test('warns before replacing current data and uses fetched backup metadata', () => {

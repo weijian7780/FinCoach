@@ -92,6 +92,8 @@ export function BackupCard({
           {formatBackupDate(backup.completed_at ?? backup.created_at)} · {formatBackupSize(backup.file_size_bytes)}
         </Text>
         <Text style={styles.typeLabel}>{backup.backup_type === 'automatic' ? 'Automatic' : 'Manual'} backup</Text>
+        <Text style={styles.cardDescription}>{backup.schema_version >= 2 ? `${backup.attachment_count ?? 0} saved attachments` : 'Legacy backup · files not included'}</Text>
+        {backup.cleanup_warning ? <Text style={styles.cardDescription}>{backup.cleanup_warning}</Text> : null}
       </View>
       {onDelete ? (
         <Pressable accessibilityLabel={`Delete ${backup.file_name}`} hitSlop={8} onPress={onDelete} style={styles.deleteButton}>
