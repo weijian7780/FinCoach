@@ -5,6 +5,7 @@ import {
   formatBudgetMoney,
   getLimitMetrics,
   getLimitStatus,
+  getUnbudgetedCategorySpending,
   monthKey,
   parseBudgetMoney,
   shiftMonth,
@@ -66,6 +67,18 @@ describe('limit metrics and status', () => {
     [100.01, 'Exceeded'],
   ] as const)('classifies %s%% usage as %s', (used, label) => {
     expect(getLimitStatus(used, 100).label).toBe(label);
+  });
+
+  it('finds spending categories that do not have a saved limit', () => {
+    const spending = new Map([
+      [1, 80],
+      [2, 240.555],
+      [3, 0],
+    ]);
+
+    expect(getUnbudgetedCategorySpending(spending, [1])).toEqual([
+      { categoryId: 2, amount: 240.56 },
+    ]);
   });
 });
 

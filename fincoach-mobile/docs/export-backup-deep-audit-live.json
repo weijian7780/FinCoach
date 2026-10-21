@@ -1,0 +1,512 @@
+{
+  "runId": "219089f2-e777-4daa-a447-f0b41ad4f070",
+  "testedAt": "2026-10-10T10:09:39.539Z",
+  "project": "yqsyrzdpvtasldkthhfg.supabase.co",
+  "environment": "Node runner, real Supabase Auth/REST/Storage/RPC; no Android device",
+  "checks": [
+    {
+      "name": "representative fixture populated",
+      "passed": true
+    },
+    {
+      "name": "manual backup marked completed",
+      "passed": true
+    },
+    {
+      "name": "downloaded backup matches source records",
+      "passed": true,
+      "detail": {
+        "bytes": 4559
+      }
+    },
+    {
+      "name": "another account cannot read backup metadata",
+      "passed": true
+    },
+    {
+      "name": "another account cannot download private backup",
+      "passed": true
+    },
+    {
+      "name": "corrupt checksum rejected before restore",
+      "passed": true
+    },
+    {
+      "name": "another account cannot restore owner backup",
+      "passed": true
+    },
+    {
+      "name": "test data actually differs before restore",
+      "passed": true
+    },
+    {
+      "name": "database rejects invalid transaction in restore",
+      "passed": true
+    },
+    {
+      "name": "invalid restore rolls back all financial changes",
+      "passed": true
+    },
+    {
+      "name": "restore RPC succeeds",
+      "passed": true,
+      "detail": {
+        "alerts": 1,
+        "profile": 1,
+        "reports": 1,
+        "reminders": 1,
+        "savingsGoals": 1,
+        "transactions": 1,
+        "categoryLimits": 1,
+        "monthlyBudgets": 1,
+        "customCategories": 1,
+        "savingsContributions": 1,
+        "notificationPreferences": 1
+      }
+    },
+    {
+      "name": "restored profile matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored customCategories matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored userCategories matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored transactions matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored monthlyBudgets matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored categoryLimits matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored savingsGoals matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored savingsContributions matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored reports matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored notificationPreferences matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored reminders matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored alerts matches backup",
+      "passed": true
+    },
+    {
+      "name": "selected categories survive restore",
+      "passed": true,
+      "detail": {
+        "before": 1,
+        "after": 1
+      }
+    },
+    {
+      "name": "restore completion recorded",
+      "passed": true
+    },
+    {
+      "name": "automatic backup preference preserved",
+      "passed": true
+    },
+    {
+      "name": "restored report still downloads original stored file",
+      "passed": true
+    },
+    {
+      "name": "older v1 backup restores without losing current selections",
+      "passed": true
+    },
+    {
+      "name": "disabled automatic backup is skipped",
+      "passed": true
+    },
+    {
+      "name": "eligible automatic backup completes",
+      "passed": true
+    },
+    {
+      "name": "automatic backup content matches source",
+      "passed": true
+    },
+    {
+      "name": "recent automatic backup is not duplicated",
+      "passed": true
+    },
+    {
+      "name": "automatic backup restores full data with empty category selections",
+      "passed": true
+    },
+    {
+      "name": "live export includes both transaction date boundaries",
+      "passed": true
+    },
+    {
+      "name": "live export excludes transactions outside selected dates",
+      "passed": true
+    },
+    {
+      "name": "live export excludes other account data",
+      "passed": true
+    },
+    {
+      "name": "live export budgets use only intersecting months",
+      "passed": true
+    },
+    {
+      "name": "empty section selection rejected",
+      "passed": true
+    },
+    {
+      "name": "reversed date range rejected",
+      "passed": true
+    },
+    {
+      "name": "invalid calendar date rejected",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 1 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 1 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 1 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 1 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 2 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 2 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 2 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 2 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 3 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 3 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 3 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 3 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 4 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 4 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 4 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 4 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 5 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 5 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 5 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 5 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 6 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 6 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 6 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 6 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "csv section selection 7 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "csv export history 7 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "pdf section selection 7 includes exactly requested sections",
+      "passed": true
+    },
+    {
+      "name": "pdf export history 7 stores selected contents",
+      "passed": true
+    },
+    {
+      "name": "CSV neutralizes formula-like transaction descriptions",
+      "passed": false,
+      "detail": {
+        "observedRawFormula": true
+      }
+    },
+    {
+      "name": "PDF source preserves transaction source field available in CSV",
+      "passed": false
+    },
+    {
+      "name": "empty date range contains no transactions or budgets",
+      "passed": true
+    },
+    {
+      "name": "savings export is current snapshot independent of date range",
+      "passed": true
+    },
+    {
+      "name": "report export includes Malaysia start-day early hours",
+      "passed": false
+    },
+    {
+      "name": "report export excludes Malaysia next-month early hours",
+      "passed": false
+    },
+    {
+      "name": "backup stores receipt and report path metadata",
+      "passed": true
+    },
+    {
+      "name": "missing-report recovery fixture is actually deleted",
+      "passed": true
+    },
+    {
+      "name": "restore recovers deleted receipt image bytes",
+      "passed": false
+    },
+    {
+      "name": "restore recovers deleted generated report PDF object",
+      "passed": false
+    },
+    {
+      "name": "restore preserves newer denied spending consent",
+      "passed": false,
+      "detail": {
+        "actual": "granted"
+      }
+    },
+    {
+      "name": "restore preserves current automatic backup toggle",
+      "passed": true
+    },
+    {
+      "name": "export fetch includes all selected rows above API row cap",
+      "passed": false,
+      "detail": {
+        "expected": 1109,
+        "actual": 1000
+      }
+    },
+    {
+      "name": "completed cloud backup includes all transaction rows above API row cap",
+      "passed": false,
+      "detail": {
+        "expected": 1111,
+        "actual": 1000,
+        "status": "completed"
+      }
+    },
+    {
+      "name": "completed cloud backup includes all savings contributions above API row cap",
+      "passed": false,
+      "detail": {
+        "expected": 1006,
+        "actual": 1000
+      }
+    },
+    {
+      "name": "restore preserves full pre-backup transaction count",
+      "passed": false,
+      "detail": {
+        "beforeBackup": 1111,
+        "afterRestore": 1000,
+        "lost": 111
+      }
+    },
+    {
+      "name": "restore preserves savings balance above contribution row cap",
+      "passed": false,
+      "detail": {
+        "beforeBackup": 1130.5,
+        "afterRestore": 1124.5
+      }
+    },
+    {
+      "name": "large restore leaves second account transaction unchanged",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-reports object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary receipts object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in profiles",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in categories",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in transactions",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in monthly_budgets",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in budgets",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in savings_goals",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in reports",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in reminders",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in alerts",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in notification_preferences",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in user_categories",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in backups",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: no fixture rows in data_exports",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: financial-backups fixture folder empty",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: financial-backups fixture folder empty",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: financial-reports fixture folder empty",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: financial-reports fixture folder empty",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: receipts fixture folder empty",
+      "passed": true
+    },
+    {
+      "name": "cleanup verified: receipts fixture folder empty",
+      "passed": true
+    }
+  ]
+}

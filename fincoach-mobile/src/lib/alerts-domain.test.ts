@@ -10,19 +10,55 @@ import {
   calculateNextBillTrigger,
   calculateSavingsReminderAt,
   filterAlerts,
+  formatLeadDays,
+  formatNotificationTime,
+  formatReminderDue,
+  formatSpendingSchedule,
   getCrossedBudgetThreshold,
   getCrossedSavingsMilestones,
   groupAlertsByDate,
+  groupUpcomingReminders,
   normalizeReminderTime,
   routeForAlert,
   validateBillReminderInput,
 } from './alerts-domain';
+
+function reminder(overrides: Partial<import('./types').BillReminder> = {}) {
+  return {
+    id: 'reminder-1',
+    user_id: 'user-1',
+    type: 'bill' as const,
+    title: 'Wi-Fi bill',
+    amount: 60,
+    due_at: '2026-07-16T13:00:00.000Z',
+    lead_days: 0,
+    recurrence: 'none' as const,
+    recurrence_anchor_day: 16,
+    enabled: true,
+    next_trigger_at: '2026-07-16T13:00:00.000Z',
+    last_triggered_at: null,
+    created_at: '2026-07-15T02:00:00.000Z',
+    updated_at: '2026-07-15T02:00:00.000Z',
+    ...overrides,
+  };
+}
 
 describe('notification preference times', () => {
   it('normalizes PostgreSQL time values to the HH:MM form used by the settings UI', () => {
     expect(normalizeReminderTime('20:00:00')).toBe('20:00');
     expect(normalizeReminderTime('09:30')).toBe('09:30');
     expect(normalizeReminderTime('25:00:00')).toBeNull();
+  });
+
+  it('formats compact preference summaries for progressive disclosure rows', () => {
+    expect(formatNotificationTime('20:00:00')).toBe('8:00 PM');
+    expect(formatSpendingSchedule('weekly', 4, '20:00')).toBe(
+      'Weekly · Thursday · 8:00 PM',
+    );
+    expect(formatSpendingSchedule('daily', null, '09:30')).toBe('Daily · 9:30 AM');
+    expect(formatLeadDays(0)).toBe('On the day');
+    expect(formatLeadDays(1)).toBe('1 day');
+    expect(formatLeadDays(7)).toBe('7 days');
   });
 });
 
@@ -182,7 +218,7 @@ describe('bill reminder validation', () => {
         now,
       ),
     ).toEqual({
-      title: 'Enter a bill title.',
+      title: 'Enter a reminder title.',
       amount: 'Enter a valid amount greater than RM 0.',
       dueAt: 'Choose a valid future due date and time.',
       leadDays: 'Lead time must be between 0 and 365 days.',
@@ -200,7 +236,7 @@ describe('bill reminder validation', () => {
       },
       now,
     );
-    expect(result.title).toBe('Bill title must be 100 characters or fewer.');
+    expect(result.title).toBe('Reminder title must be 100 characters or fewer.');
     expect(result.dueAt).toBe('Choose a future due date and time.');
     expect(result.amount).toBeUndefined();
   });
@@ -218,6 +254,28 @@ describe('bill reminder validation', () => {
         now,
       ),
     ).toEqual({});
+  });
+});
+
+describe('reminder list presentation', () => {
+  const now = '2026-07-15T02:00:00.000Z';
+
+  it('uses the notification timezone for a concise, unambiguous due label', () => {
+    expect(formatReminderDue('2026-07-16T13:00:00.000Z', now, 'Asia/Kuala_Lumpur')).toBe(
+      'Tomorrow · 9:00 PM',
+    );
+  });
+
+  it('groups the chronological list into Next up, This week, and Later', () => {
+    const groups = groupUpcomingReminders([
+      reminder({ id: 'tomorrow', due_at: '2026-07-16T13:00:00.000Z' }),
+      reminder({ id: 'this-week', due_at: '2026-07-20T13:00:00.000Z' }),
+      reminder({ id: 'later', due_at: '2026-08-01T13:00:00.000Z' }),
+    ], now, 'Asia/Kuala_Lumpur');
+
+    expect(groups.nextUp.map((item) => item.id)).toEqual(['tomorrow']);
+    expect(groups.thisWeek.map((item) => item.id)).toEqual(['this-week']);
+    expect(groups.later.map((item) => item.id)).toEqual(['later']);
   });
 });
 

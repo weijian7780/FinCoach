@@ -127,7 +127,12 @@ describe('custom category persistence', () => {
   });
 
   test('creates and updates only user-owned custom expense categories', async () => {
-    const input = { name: 'Groceries', icon: 'shopping-cart', color: '#00897B' };
+    const input = {
+      name: 'Groceries',
+      icon: 'shopping-cart',
+      icon_image_path: 'user-1/icon.webp',
+      color: '#00897B',
+    };
     const created = createClient({ categories: { data: { id: 7 } } });
     await createCustomCategory('user-1', input, created.client);
     expect(created.builders.get('categories')?.insert).toHaveBeenCalledWith({

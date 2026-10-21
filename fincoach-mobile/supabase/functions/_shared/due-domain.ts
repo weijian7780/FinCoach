@@ -1,6 +1,5 @@
 import { aggregateDeliveryStatus, type DeviceDeliveryState } from './push-domain.ts';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const PENDING_ALERT_RECOVERY_DELAY_MS = 2 * 60 * 1000;
 
@@ -137,28 +136,23 @@ export function advanceRecurrence(
   dueAt: string,
   recurrence: 'none' | 'weekly' | 'monthly' | 'yearly',
   anchorDay: number,
+  timeZone = 'Asia/Kuala_Lumpur',
 ): string | null {
   if (recurrence === 'none') return null;
   const current = new Date(dueAt);
-  if (Number.isNaN(current.getTime())) return null;
-  if (recurrence === 'weekly') return new Date(current.getTime() + 7 * DAY_MS).toISOString();
-
-  const monthOffset = recurrence === 'monthly' ? 1 : 0;
-  const rawMonth = current.getUTCMonth() + monthOffset;
-  const year = current.getUTCFullYear() + (recurrence === 'yearly' ? 1 : 0) + Math.floor(rawMonth / 12);
+  if (Number.isNaN(current.getTime()) || !Number.isInteger(anchorDay) || anchorDay < 1 || anchorDay > 31) return null;
+  const local = localDate(dueAt, timeZone);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(current).map(part => [part.type, part.value]));
+  // Advance the local calendar first; UTC dates differ before 08:00 in Malaysia.
+  const rawMonth = local.month - 1 + (recurrence === 'monthly' ? 1 : 0);
+  const year = local.year + (recurrence === 'yearly' ? 1 : 0) + Math.floor(rawMonth / 12);
   const month = rawMonth % 12;
-  const day = Math.min(anchorDay, daysInMonth(year, month));
-  return new Date(
-    Date.UTC(
-      year,
-      month,
-      day,
-      current.getUTCHours(),
-      current.getUTCMinutes(),
-      current.getUTCSeconds(),
-      current.getUTCMilliseconds(),
-    ),
-  ).toISOString();
+  const next = recurrence === 'weekly' ? addDays(local, 7)
+    : { year, month: month + 1, day: Math.min(anchorDay, daysInMonth(year, month)) };
+  const instant = localInstant(next, `${parts.hour}:${parts.minute}`, timeZone);
+  return instant ? new Date(instant.getTime() + current.getUTCSeconds() * 1000 + current.getUTCMilliseconds()).toISOString() : null;
 }
 
 export function shouldAttemptAlertDelivery(

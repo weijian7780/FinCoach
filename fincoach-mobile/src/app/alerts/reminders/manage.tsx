@@ -1,12 +1,14 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ReminderFormScreen } from '@/components/notifications/reminder-form-screen';
 import { TimePickerField } from '@/components/notifications/time-picker-field';
 import { DateField } from '@/components/savings/date-field';
 import { AppText as Text, AppTextInput as TextInput } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { createReminder, deleteReminder, ensureNotificationPreferences, fetchReminder, updateReminder } from '@/lib/alerts';
 import { validateBillReminderInput } from '@/lib/alerts-domain';
@@ -35,6 +37,12 @@ function toIso(dateValue: string, timeValue: string) {
 }
 
 export default function ManageBillReminderScreen() {
+  return <ReminderFormScreen />;
+}
+
+// Kept temporarily as the pre-redesign implementation reference while the
+// dedicated reminder form component is adopted by this route.
+export function LegacyManageBillReminderScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id?: string }>();
   const reminderId = typeof params.id === 'string' ? params.id : undefined;
@@ -73,7 +81,7 @@ export default function ManageBillReminderScreen() {
         setDueTime(preferences.default_bill_reminder_time.slice(0, 5));
       }
     } catch {
-      Alert.alert('Could not load reminder', 'Check your connection and try again.');
+      appDialog.open('Could not load reminder', 'Check your connection and try again.');
     } finally { setLoading(false); }
   }, [reminderId, userId]);
 
@@ -93,15 +101,15 @@ export default function ManageBillReminderScreen() {
       else await createReminder(userId, input);
       router.back();
     } catch {
-      Alert.alert('Could not save reminder', 'Check the fields and your connection, then try again.');
+      appDialog.open('Could not save reminder', 'Check the fields and your connection, then try again.');
     } finally { setSaving(false); }
   }
 
   function remove() {
     if (!reminderId || !userId) return;
-    Alert.alert('Delete reminder?', 'This permanently removes the bill reminder.', [
+    appDialog.open('Delete reminder?', 'This permanently removes the bill reminder.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => void (async () => { try { await deleteReminder(reminderId, userId); router.back(); } catch { Alert.alert('Could not delete', 'Check your connection and try again.'); } })() },
+      { text: 'Delete', style: 'destructive', onPress: () => void (async () => { try { await deleteReminder(reminderId, userId); router.back(); } catch { appDialog.open('Could not delete', 'Check your connection and try again.'); } })() },
     ]);
   }
 

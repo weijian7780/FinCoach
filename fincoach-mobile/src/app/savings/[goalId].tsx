@@ -1,12 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateField } from '@/components/savings/date-field';
 import { ProgressRing } from '@/components/savings/progress-ring';
 import { AppText as Text, AppTextInput as TextInput } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { emitSavingsMilestonesAfterContribution } from '@/lib/alert-events';
 import { useAuth } from '@/lib/auth-context';
@@ -79,7 +80,7 @@ export default function SavingsGoalDetailScreen() {
       await emitSavingsMilestonesAfterContribution(userId!, savedGoal, previousAmount, currentAmount);
       await load();
     } catch {
-      Alert.alert(
+      appDialog.open(
         'Contribution saved',
         'Your savings total is safe, but its milestone alert could not synchronize. Retry the alert sync now?',
         [
@@ -119,7 +120,7 @@ export default function SavingsGoalDetailScreen() {
 
   function confirmDeleteGoal() {
     if (!goal || !userId) return;
-    Alert.alert('Delete savings goal?', 'The goal and its full contribution history will be permanently removed.', [
+    appDialog.open('Delete savings goal?', 'The goal and its full contribution history will be permanently removed.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -136,7 +137,7 @@ export default function SavingsGoalDetailScreen() {
   }
 
   function confirmDeleteContribution(contribution: SavingsContribution) {
-    Alert.alert('Delete contribution?', `${formatMoney(contribution.amount)} will be removed from this goal.`, [
+    appDialog.open('Delete contribution?', `${formatMoney(contribution.amount)} will be removed from this goal.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',

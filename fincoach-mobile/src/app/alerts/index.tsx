@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
   topBar: { minHeight: 64, paddingHorizontal: 20, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   roundButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   heading: { fontFamily: authFont.semibold, fontSize: 18, lineHeight: 24, color: authColors.onSurface },
-  filtersRow: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 14, gap: 10 },
+  filtersRow: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, gap: 10 },
   filters: { flexDirection: 'row', gap: 8 },
   chip: { height: 36, paddingHorizontal: 16, borderRadius: 18, justifyContent: 'center', backgroundColor: authColors.surfaceContainerLowest, borderWidth: StyleSheet.hairlineWidth, borderColor: authColors.outlineVariant },
   chipActive: { backgroundColor: authColors.primary, borderColor: authColors.primary },

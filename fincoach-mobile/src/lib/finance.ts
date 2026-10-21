@@ -24,12 +24,7 @@ export async function fetchTrackedCategoryIds(userId: string) {
 
 // Replace the user's tracked set with exactly `categoryIds`.
 export async function setTrackedCategories(userId: string, categoryIds: number[]) {
-  const { error: deleteError } = await supabase.from('user_categories').delete().eq('user_id', userId);
-  if (deleteError) throw deleteError;
-
-  if (categoryIds.length === 0) return;
-  const rows = categoryIds.map((category_id) => ({ user_id: userId, category_id }));
-  const { error } = await supabase.from('user_categories').insert(rows);
+  const { error } = await supabase.rpc('replace_tracked_categories', { p_user_id: userId, p_category_ids: categoryIds });
   if (error) throw error;
 }
 

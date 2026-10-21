@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.108.1';
+import { isAccountActive } from './account-access.ts';
 
 import {
   aggregateDeliveryStatus,
@@ -65,6 +66,10 @@ export async function deliverAlert(
   alertId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ status: string; attemptedDevices: number }> {
+  // Avoid consuming a delivery attempt while an account is suspended.
+  const { data: owner, error: ownerError } = await service.from('alerts').select('user_id').eq('id', alertId).maybeSingle();
+  if (ownerError) throw ownerError;
+  if (!owner || !await isAccountActive(service, owner.user_id)) return { status: 'skipped', attemptedDevices: 0 };
   const { data: claimData, error: claimError } = await service.rpc('claim_alert_delivery', {
     p_alert_id: alertId,
   });
@@ -72,6 +77,12 @@ export async function deliverAlert(
 
   const alert = normalizeClaimedAlert(claimData);
   if (!alert) return { status: 'skipped', attemptedDevices: 0 };
+  if (!await isAccountActive(service, alert.user_id)) {
+    // Suspension can race the claim. Release it for recovery after restoration.
+    const { error } = await service.from('alerts').update({ delivery_status: 'retryable', delivery_attempt_count: Math.max(0, alert.delivery_attempt_count - 1), next_delivery_attempt_at: new Date(Date.now() + 60000).toISOString(), delivery_error: 'Account suspended.' }).eq('id', alert.id).eq('delivery_status', 'sending');
+    if (error) throw error;
+    return { status: 'skipped', attemptedDevices: 0 };
+  }
 
   const { data: deviceData, error: deviceError } = await service
     .from('user_devices')

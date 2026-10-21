@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.108.1';
 
 import { deliverAlert } from '../_shared/deliver-alerts.ts';
+import { isAccountActive } from '../_shared/account-access.ts';
 import {
   advanceRecurrence,
   PENDING_ALERT_RECOVERY_DELAY_MS,
@@ -49,7 +50,7 @@ async function insertDeduplicatedAlert(
 export async function processBillReminders(service: SupabaseClient, now: Date): Promise<number> {
   const { data, error } = await service
     .from('reminders')
-    .select('id,title,amount,due_at,lead_days,recurrence,recurrence_anchor_day,next_trigger_at')
+    .select('id,user_id,title,amount,due_at,lead_days,recurrence,recurrence_anchor_day,next_trigger_at')
     .eq('enabled', true)
     .not('next_trigger_at', 'is', null)
     .lte('next_trigger_at', now.toISOString())
@@ -59,11 +60,16 @@ export async function processBillReminders(service: SupabaseClient, now: Date): 
 
   let claimed = 0;
   for (const reminder of data ?? []) {
+    if (!await isAccountActive(service, reminder.user_id)) continue;
+    const { data: preferences, error: preferencesError } = await service.from('notification_preferences')
+      .select('timezone').eq('user_id', reminder.user_id).maybeSingle();
+    if (preferencesError) throw preferencesError;
     const expectedTrigger = reminder.next_trigger_at as string;
     const nextDue = advanceRecurrence(
       reminder.due_at,
       reminder.recurrence,
       reminder.recurrence_anchor_day,
+      preferences?.timezone ?? 'Asia/Kuala_Lumpur',
     );
     const amountText = reminder.amount == null ? '' : ` RM ${Number(reminder.amount).toFixed(2)} is due.`;
     const { data: alertId, error: claimError } = await service.rpc(
@@ -93,6 +99,7 @@ export async function processSavingsDeadlines(service: SupabaseClient, now: Date
 
   let inserted = 0;
   for (const preference of preferences ?? []) {
+    if (!await isAccountActive(service, preference.user_id)) continue;
     const { data: goals, error: goalError } = await service
       .from('savings_goals')
       .select('id,name,target_amount,current_amount,deadline')
@@ -139,6 +146,7 @@ export async function processSpendingReminders(service: SupabaseClient, now: Dat
 
   let inserted = 0;
   for (const preference of preferences ?? []) {
+    if (!await isAccountActive(service, preference.user_id)) continue;
     const nowIso = now.toISOString();
     if (
       !spendingScheduleIsDue(
@@ -290,6 +298,18 @@ export async function processRecoverableDeliveries(
   service: SupabaseClient,
   now: Date,
 ): Promise<number> {
+  if (Deno.env.get('ACCOUNT_ACCESS_ENFORCED') === 'true') {
+    // Owner status is filtered in SQL before pagination; suspended work is
+    // retained without occupying active users' recovery slots.
+    const { data, error } = await service.rpc('admin_recoverable_alerts', { p_now: now.toISOString(), p_limit: RECOVERABLE_DELIVERY_BATCH_SIZE });
+    if (error) throw error;
+    let attempted = 0;
+    for (const alert of data ?? []) {
+      const result = await deliverAlert(service, alert.id);
+      if (result.status !== 'skipped') attempted++;
+    }
+    return attempted;
+  }
   const pendingBefore = new Date(
     now.getTime() - PENDING_ALERT_RECOVERY_DELAY_MS,
   ).toISOString();

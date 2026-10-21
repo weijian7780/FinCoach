@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RemindersListScreen } from '@/components/notifications/reminders-list-screen';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { fetchReminders, setReminderEnabled } from '@/lib/alerts';
@@ -21,6 +22,13 @@ function formatDue(value: string) {
 }
 
 export default function BillRemindersScreen() {
+  return <RemindersListScreen />;
+}
+
+// Kept temporarily as the pre-redesign implementation reference while the
+// dedicated reminder list component is adopted by this route.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function LegacyBillRemindersScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const userId = session?.user.id;

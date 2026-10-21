@@ -98,6 +98,21 @@ export function getLimitStatus(usedAmount: number, limitAmount: number): LimitSt
   return { label: 'Within Limit', tone: 'success' };
 }
 
+export function getUnbudgetedCategorySpending(
+  spentByCategory: ReadonlyMap<number, number>,
+  limitedCategoryIds: Iterable<number>,
+) {
+  const limitedIds = new Set(limitedCategoryIds);
+
+  return Array.from(spentByCategory.entries())
+    .filter(([categoryId, amount]) => !limitedIds.has(categoryId) && amount > 0)
+    .map(([categoryId, amount]) => ({
+      categoryId,
+      amount: roundMoney(amount),
+    }))
+    .sort((left, right) => right.amount - left.amount);
+}
+
 export function validateMonthlyBudget(value: string, allocatedTotal: number) {
   const amount = parseBudgetMoney(value);
   if (amount == null || amount <= 0) return 'Enter an overall budget greater than RM 0.';

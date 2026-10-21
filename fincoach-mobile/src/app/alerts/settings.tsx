@@ -1,22 +1,39 @@
+import { DateTimePicker as ExpoDateTimePicker } from '@expo/ui/community/datetime-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { TimePickerField } from '@/components/notifications/time-picker-field';
 import { AppText as Text } from '@/components/ui/app-text';
+import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { ensureNotificationPreferences, saveNotificationPreferences } from '@/lib/alerts';
-import { normalizeReminderTime } from '@/lib/alerts-domain';
+import {
+  formatLeadDays,
+  formatNotificationTime,
+  formatSpendingSchedule,
+  normalizeReminderTime,
+} from '@/lib/alerts-domain';
 import { useAuth } from '@/lib/auth-context';
-import type { NotificationPreferences, SpendingFrequency } from '@/lib/types';
+import { loadNotificationSdk, openNotificationSettings } from '@/lib/notification-platform';
+import type {
+  NotificationPreferences,
+  NotificationPreferencesUpdate,
+  SpendingFrequency,
+} from '@/lib/types';
 
 const weekdayOptions = [
-  { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' }, { value: 3, label: 'Wed' },
-  { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
-  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Monday' }, { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' }, { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' }, { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
 ];
+
+const leadDayOptions = [0, 1, 3, 7, 14, 30];
+
+type SheetKind = 'savings' | 'spending';
+type SheetPage = 'main' | 'repeat' | 'weekday' | 'leadDays';
 
 function normalizePreferenceTimes(preferences: NotificationPreferences): NotificationPreferences {
   return {
@@ -27,6 +44,18 @@ function normalizePreferenceTimes(preferences: NotificationPreferences): Notific
   };
 }
 
+function dateForTime(value: string) {
+  const normalized = normalizeReminderTime(value) ?? '09:00';
+  const [hour, minute] = normalized.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return date;
+}
+
+function timeForDate(value: Date) {
+  return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+}
+
 export default function NotificationSettingsScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
@@ -35,53 +64,101 @@ export default function NotificationSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneEnabled, setPhoneEnabled] = useState<boolean | null>(null);
+  const [sheetKind, setSheetKind] = useState<SheetKind | null>(null);
+  const [sheetPage, setSheetPage] = useState<SheetPage>('main');
+  const [draft, setDraft] = useState<NotificationPreferences | null>(null);
 
   const load = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     setError(null);
-    try { setPreferences(normalizePreferenceTimes(await ensureNotificationPreferences(userId))); }
+    try {
+      const [savedPreferences, permission] = await Promise.all([
+        ensureNotificationPreferences(userId),
+        loadNotificationSdk()
+          .then(async (sdk) => {
+            const status = await sdk.getPermissionsAsync();
+            return status.status === 'granted';
+          })
+          .catch(() => null),
+      ]);
+      setPreferences(normalizePreferenceTimes(savedPreferences));
+      setPhoneEnabled(permission);
+    }
     catch { setError('Could not load notification settings. Check your connection and try again.'); }
     finally { setLoading(false); }
   }, [userId]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  function update<K extends keyof NotificationPreferences>(key: K, value: NotificationPreferences[K]) {
-    setPreferences((current) => current ? { ...current, [key]: value } : current);
+  function updateDraft<K extends keyof NotificationPreferences>(
+    key: K,
+    value: NotificationPreferences[K],
+  ) {
+    setDraft((current) => current ? { ...current, [key]: value } : current);
   }
 
-  async function save() {
-    if (!userId || !preferences) return;
-    const savingsTime = normalizeReminderTime(preferences.savings_reminder_time);
-    const spendingTime = normalizeReminderTime(preferences.spending_reminder_time);
-    const billTime = normalizeReminderTime(preferences.default_bill_reminder_time);
-    if (!savingsTime || !spendingTime || !billTime) {
-      Alert.alert('Check reminder times', 'Use 24-hour HH:MM format, for example 20:00.');
-      return;
-    }
+  async function persistPatch(patch: NotificationPreferencesUpdate) {
+    if (!userId || !preferences || saving) return false;
+    const previous = preferences;
+    setPreferences(normalizePreferenceTimes({ ...preferences, ...patch }));
     setSaving(true);
     try {
-      const saved = await saveNotificationPreferences(userId, {
-        budget_enabled: preferences.budget_enabled,
-        savings_enabled: preferences.savings_enabled,
-        savings_lead_days: preferences.savings_lead_days,
-        savings_reminder_time: savingsTime,
-        savings_milestones_enabled: preferences.savings_milestones_enabled,
-        spending_enabled: preferences.spending_enabled,
-        spending_frequency: preferences.spending_frequency,
-        spending_weekday: preferences.spending_frequency === 'weekly' ? (preferences.spending_weekday ?? 1) : null,
-        spending_reminder_time: spendingTime,
-        bills_enabled: preferences.bills_enabled,
-        default_bill_lead_days: preferences.default_bill_lead_days,
-        default_bill_reminder_time: billTime,
-        timezone: preferences.timezone,
-      });
+      const saved = await saveNotificationPreferences(userId, patch);
       setPreferences(normalizePreferenceTimes(saved));
-      Alert.alert('Saved', 'Notification settings are synchronized across your devices.');
+      return true;
     } catch {
-      Alert.alert('Could not save', 'Check your connection and try again.');
-    } finally { setSaving(false); }
+      setPreferences(previous);
+      appDialog.open('Could not save', 'Check your connection and try again.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openSheet(kind: SheetKind) {
+    if (!preferences) return;
+    setDraft({ ...preferences });
+    setSheetPage('main');
+    setSheetKind(kind);
+  }
+
+  function closeSheet() {
+    if (saving) return;
+    setSheetKind(null);
+    setSheetPage('main');
+    setDraft(null);
+  }
+
+  async function saveSheet() {
+    if (!draft || !sheetKind) return;
+    const reminderTime = normalizeReminderTime(
+      sheetKind === 'savings'
+        ? draft.savings_reminder_time
+        : draft.spending_reminder_time,
+    );
+    if (!reminderTime) {
+      appDialog.open('Check reminder time', 'Choose a valid reminder time.');
+      return;
+    }
+
+    const patch: NotificationPreferencesUpdate = sheetKind === 'savings'
+      ? {
+        savings_enabled: draft.savings_enabled,
+        savings_lead_days: draft.savings_lead_days,
+        savings_reminder_time: reminderTime,
+      }
+      : {
+        spending_enabled: draft.spending_enabled,
+        spending_frequency: draft.spending_frequency,
+        spending_weekday: draft.spending_frequency === 'weekly'
+          ? (draft.spending_weekday ?? 1)
+          : null,
+        spending_reminder_time: reminderTime,
+      };
+
+    if (await persistPatch(patch)) closeSheet();
   }
 
   return (
@@ -95,51 +172,444 @@ export default function NotificationSettingsScreen() {
       {loading ? <View style={styles.center}><ActivityIndicator color={authColors.primary} /><Text style={styles.helper}>Loading settings…</Text></View> : error || !preferences ? (
         <View style={styles.center}><MaterialIcons name="cloud-off" size={30} color={authColors.error} /><Text style={styles.error}>{error ?? 'Settings are unavailable.'}</Text><Pressable onPress={() => void load()} style={styles.primaryButton}><Text style={styles.primaryText}>Retry</Text></Pressable></View>
       ) : (
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 32, gap: 14 }}>
-          <Text style={styles.intro}>Choose each notification type separately. These preferences sync through your FinCoach account.</Text>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 8,
+            paddingBottom: insets.bottom + 32,
+            gap: 14,
+          }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Manage phone notification permission"
+            onPress={() => void openNotificationSettings()}
+            style={({ pressed }) => [styles.phoneCard, pressed && styles.pressed]}>
+            <View style={[styles.iconCircle, { backgroundColor: '#E7F7EE' }]}>
+              <MaterialIcons name="notifications-none" size={23} color="#2EAD6B" />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Phone notifications</Text>
+              <Text style={styles.rowDescription}>
+                {phoneEnabled === null ? 'Check device settings' : phoneEnabled ? 'Enabled' : 'Off'}
+              </Text>
+            </View>
+            <Text style={styles.manageLink}>Manage</Text>
+          </Pressable>
 
-          <SettingsCard icon="account-balance-wallet" color="#BA1A1A" title="Budget alerts" description="Warn at 80% and when a budget or category limit is exceeded." enabled={preferences.budget_enabled} onEnabled={(value) => update('budget_enabled', value)} />
+          <Text style={styles.sectionTitle}>Alerts</Text>
+          <View style={styles.groupCard}>
+            <PreferenceRow
+              icon="account-balance-wallet"
+              iconColor="#BA1A1A"
+              iconBackground="#FCE8E8"
+              title="Budget alerts"
+              description="80% warning and limit exceeded"
+              enabled={preferences.budget_enabled}
+              disabled={saving}
+              onToggle={(value) => void persistPatch({ budget_enabled: value })}
+            />
+            <View style={styles.divider} />
+            <PreferenceRow
+              icon="savings"
+              iconColor="#06A96B"
+              iconBackground="#E5F8EF"
+              title="Savings reminders"
+              description={`${preferences.savings_lead_days === 0 ? 'On deadline day' : `${formatLeadDays(preferences.savings_lead_days)} before`} · ${formatNotificationTime(preferences.savings_reminder_time)}`}
+              enabled={preferences.savings_enabled}
+              disabled={saving}
+              onToggle={(value) => void persistPatch({ savings_enabled: value })}
+              onOpen={() => openSheet('savings')}
+            />
+          </View>
 
-          <SettingsCard icon="savings" color="#06A96B" title="Savings reminders" description="Deadline reminders and progress milestones." enabled={preferences.savings_enabled} onEnabled={(value) => update('savings_enabled', value)}>
-            <SettingLine label="Remind before deadline"><DayStepper value={preferences.savings_lead_days} onChange={(value) => update('savings_lead_days', value)} /></SettingLine>
-            <SettingLine label="Reminder time"><TimePickerField compact value={preferences.savings_reminder_time} onChange={(value) => update('savings_reminder_time', value)} /></SettingLine>
-            <SettingLine label="Progress milestones" helper="25%, 50%, 75% and 100%"><Switch value={preferences.savings_milestones_enabled} onValueChange={(value) => update('savings_milestones_enabled', value)} trackColor={{ false: authColors.surfaceContainerHigh, true: authColors.primary }} thumbColor="#FFFFFF" /></SettingLine>
-          </SettingsCard>
+          <Text style={styles.sectionTitle}>Reminders</Text>
+          <View style={styles.groupCard}>
+            <PreferenceRow
+              icon="insights"
+              iconColor="#7C4DFF"
+              iconBackground="#EEE9FF"
+              title="Spending check-in"
+              description={formatSpendingSchedule(
+                preferences.spending_frequency,
+                preferences.spending_weekday,
+                preferences.spending_reminder_time,
+              )}
+              enabled={preferences.spending_enabled}
+              disabled={saving}
+              onToggle={(value) => void persistPatch({ spending_enabled: value })}
+              onOpen={() => openSheet('spending')}
+            />
+            <View style={styles.divider} />
+            <PreferenceRow
+              icon="format-list-bulleted"
+              iconColor={authColors.primary}
+              iconBackground={authColors.primaryFixed}
+              title="Manage reminders"
+              description="Bills, payments and other due dates"
+              onOpen={() => router.push('/alerts/reminders' as never)}
+            />
+          </View>
 
-          <SettingsCard icon="insights" color="#8B5CF6" title="Spending check-ins" description="A short reminder to review and record spending." enabled={preferences.spending_enabled} onEnabled={(value) => update('spending_enabled', value)}>
-            <Text style={styles.fieldLabel}>Frequency</Text>
-            <View style={styles.segmentRow}>{(['daily', 'weekly'] as SpendingFrequency[]).map((value) => <Choice key={value} selected={preferences.spending_frequency === value} label={value === 'daily' ? 'Daily' : 'Weekly'} onPress={() => update('spending_frequency', value)} />)}</View>
-            {preferences.spending_frequency === 'weekly' ? <><Text style={styles.fieldLabel}>Day</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>{weekdayOptions.map((day) => <Choice key={day.value} compact selected={preferences.spending_weekday === day.value} label={day.label} onPress={() => update('spending_weekday', day.value)} />)}</ScrollView></> : null}
-            <SettingLine label="Reminder time"><TimePickerField compact value={preferences.spending_reminder_time} onChange={(value) => update('spending_reminder_time', value)} /></SettingLine>
-          </SettingsCard>
-
-          <SettingsCard icon="receipt-long" color="#F59E0B" title="Bill reminders" description="Default timing for bills you add to FinCoach." enabled={preferences.bills_enabled} onEnabled={(value) => update('bills_enabled', value)}>
-            <SettingLine label="Default lead time"><DayStepper value={preferences.default_bill_lead_days} onChange={(value) => update('default_bill_lead_days', value)} /></SettingLine>
-            <SettingLine label="Default reminder time"><TimePickerField compact value={preferences.default_bill_reminder_time} onChange={(value) => update('default_bill_reminder_time', value)} /></SettingLine>
-            <Pressable onPress={() => router.push('/alerts/reminders' as never)} style={styles.manageButton}><Text style={styles.manageText}>Manage bill reminders</Text><MaterialIcons name="chevron-right" size={21} color={authColors.primary} /></Pressable>
-          </SettingsCard>
-
-          <Pressable disabled={saving} onPress={() => void save()} style={[styles.saveButton, saving && { opacity: 0.6 }]}>{saving ? <ActivityIndicator color="#FFFFFF" /> : <><MaterialIcons name="check" size={20} color="#FFFFFF" /><Text style={styles.saveText}>Save settings</Text></>}</Pressable>
+          <View style={styles.autoSave}>
+            {saving
+              ? <ActivityIndicator size="small" color={authColors.primary} />
+              : <View style={styles.savedIcon}><MaterialIcons name="check" size={15} color={authColors.primary} /></View>}
+            <Text style={styles.autoSaveText}>{saving ? 'Saving changes…' : 'Changes save automatically'}</Text>
+          </View>
         </ScrollView>
       )}
+
+      <PreferenceSheet
+        visible={sheetKind !== null}
+        kind={sheetKind}
+        page={sheetPage}
+        draft={draft}
+        saving={saving}
+        bottomInset={insets.bottom}
+        onClose={closeSheet}
+        onPageChange={setSheetPage}
+        onUpdate={updateDraft}
+        onDone={() => void saveSheet()}
+      />
     </View>
   );
 }
 
-function SettingsCard({ icon, color, title, description, enabled, onEnabled, children }: { icon: keyof typeof MaterialIcons.glyphMap; color: string; title: string; description: string; enabled: boolean; onEnabled: (value: boolean) => void; children?: React.ReactNode }) {
-  return <View style={styles.card}><View style={styles.cardHeader}><View style={[styles.cardIcon, { backgroundColor: `${color}1C` }]}><MaterialIcons name={icon} size={21} color={color} /></View><View style={{ flex: 1 }}><Text style={styles.cardTitle}>{title}</Text><Text style={styles.cardDescription}>{description}</Text></View><Switch value={enabled} onValueChange={onEnabled} trackColor={{ false: authColors.surfaceContainerHigh, true: authColors.primary }} thumbColor="#FFFFFF" /></View>{enabled && children ? <View style={styles.cardBody}>{children}</View> : null}</View>;
+type PreferenceRowProps = {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  iconColor: string;
+  iconBackground: string;
+  title: string;
+  description: string;
+  enabled?: boolean;
+  disabled?: boolean;
+  onToggle?: (value: boolean) => void;
+  onOpen?: () => void;
+};
+
+function PreferenceRow({
+  icon,
+  iconColor,
+  iconBackground,
+  title,
+  description,
+  enabled,
+  disabled = false,
+  onToggle,
+  onOpen,
+}: PreferenceRowProps) {
+  const identity = (
+    <>
+      <View style={[styles.iconCircle, { backgroundColor: iconBackground }]}>
+        <MaterialIcons name={icon} size={22} color={iconColor} />
+      </View>
+      <View style={styles.rowText}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        <Text style={styles.rowDescription}>{description}</Text>
+      </View>
+    </>
+  );
+
+  return (
+    <View style={styles.preferenceRow}>
+      {onOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${title} settings`}
+          onPress={onOpen}
+          style={({ pressed }) => [styles.preferenceMain, pressed && styles.pressed]}>
+          {identity}
+        </Pressable>
+      ) : (
+        <View style={styles.preferenceMain}>{identity}</View>
+      )}
+      {enabled !== undefined && onToggle ? (
+        <Switch
+          accessibilityLabel={`${title} ${enabled ? 'enabled' : 'disabled'}`}
+          disabled={disabled}
+          value={enabled}
+          onValueChange={onToggle}
+          trackColor={{ false: authColors.surfaceContainerHigh, true: authColors.primary }}
+          thumbColor="#FFFFFF"
+        />
+      ) : null}
+      {onOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${title} settings`}
+          hitSlop={8}
+          onPress={onOpen}
+          style={styles.chevronButton}>
+          <MaterialIcons name="chevron-right" size={26} color={authColors.outline} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
-function SettingLine({ label, helper, children }: { label: string; helper?: string; children: React.ReactNode }) {
-  return <View style={styles.settingLine}><View style={{ flex: 1 }}><Text style={styles.settingLabel}>{label}</Text>{helper ? <Text style={styles.settingHelper}>{helper}</Text> : null}</View>{children}</View>;
+type PreferenceSheetProps = {
+  visible: boolean;
+  kind: SheetKind | null;
+  page: SheetPage;
+  draft: NotificationPreferences | null;
+  saving: boolean;
+  bottomInset: number;
+  onClose: () => void;
+  onPageChange: (page: SheetPage) => void;
+  onUpdate: <K extends keyof NotificationPreferences>(
+    key: K,
+    value: NotificationPreferences[K],
+  ) => void;
+  onDone: () => void;
+};
+
+function PreferenceSheet({
+  visible,
+  kind,
+  page,
+  draft,
+  saving,
+  bottomInset,
+  onClose,
+  onPageChange,
+  onUpdate,
+  onDone,
+}: PreferenceSheetProps) {
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const isSavings = kind === 'savings';
+  const currentTime = isSavings
+    ? draft?.savings_reminder_time ?? '09:00'
+    : draft?.spending_reminder_time ?? '20:00';
+
+  function selectAndReturn<K extends keyof NotificationPreferences>(
+    key: K,
+    value: NotificationPreferences[K],
+  ) {
+    onUpdate(key, value);
+    onPageChange('main');
+  }
+
+  function renderSelectionPage() {
+    if (!draft || page === 'main') return null;
+
+    const title = page === 'repeat'
+      ? 'Repeat'
+      : page === 'weekday'
+        ? 'Day'
+        : 'Remind before deadline';
+
+    return (
+      <>
+        <View style={styles.sheetSubHeader}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to reminder settings"
+            onPress={() => onPageChange('main')}
+            style={styles.sheetBackButton}>
+            <MaterialIcons name="arrow-back" size={22} color={authColors.onSurface} />
+          </Pressable>
+          <Text style={styles.sheetSubTitle}>{title}</Text>
+          <View style={styles.sheetBackButton} />
+        </View>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.optionList}>
+          {page === 'repeat'
+            ? (['daily', 'weekly'] as SpendingFrequency[]).map((value) => (
+              <SelectionOption
+                key={value}
+                label={value === 'daily' ? 'Daily' : 'Weekly'}
+                selected={draft.spending_frequency === value}
+                onPress={() => selectAndReturn('spending_frequency', value)}
+              />
+            ))
+            : null}
+          {page === 'weekday'
+            ? weekdayOptions.map((day) => (
+              <SelectionOption
+                key={day.value}
+                label={day.label}
+                selected={draft.spending_weekday === day.value}
+                onPress={() => selectAndReturn('spending_weekday', day.value)}
+              />
+            ))
+            : null}
+          {page === 'leadDays'
+            ? leadDayOptions.map((days) => (
+              <SelectionOption
+                key={days}
+                label={formatLeadDays(days)}
+                selected={draft.savings_lead_days === days}
+                onPress={() => selectAndReturn('savings_lead_days', days)}
+              />
+            ))
+            : null}
+        </ScrollView>
+      </>
+    );
+  }
+
+  return (
+    <Modal
+      animationType="slide"
+      hardwareAccelerated
+      onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      transparent
+      visible={visible && Boolean(kind && draft)}>
+      <View style={styles.modalRoot}>
+        <Pressable
+          accessibilityLabel="Close reminder settings"
+          onPress={onClose}
+          style={styles.backdrop}
+        />
+        <View style={[styles.sheet, { paddingBottom: Math.max(bottomInset, 14) }]}>
+          <View style={styles.grabber} />
+          {page !== 'main' ? renderSelectionPage() : draft && kind ? (
+            <>
+              <ScrollView
+                contentInsetAdjustmentBehavior="automatic"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.sheetContent}>
+                <View style={styles.sheetHeader}>
+                  <View style={styles.sheetTitleBlock}>
+                    <Text style={styles.sheetTitle}>
+                      {isSavings ? 'Savings reminders' : 'Spending check-in'}
+                    </Text>
+                    <Text style={styles.sheetDescription}>
+                      {isSavings
+                        ? 'Get notified before a savings goal is due.'
+                        : 'A short reminder to review and record spending.'}
+                    </Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel={`${isSavings ? 'Savings reminders' : 'Spending check-in'} enabled`}
+                    value={isSavings ? draft.savings_enabled : draft.spending_enabled}
+                    onValueChange={(value) => onUpdate(
+                      isSavings ? 'savings_enabled' : 'spending_enabled',
+                      value,
+                    )}
+                    trackColor={{ false: authColors.surfaceContainerHigh, true: authColors.primary }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                <View style={styles.sheetRows}>
+                  {isSavings ? (
+                    <SheetRow
+                      label="Remind before deadline"
+                      value={formatLeadDays(draft.savings_lead_days)}
+                      onPress={() => onPageChange('leadDays')}
+                    />
+                  ) : (
+                    <>
+                      <SheetRow
+                        label="Repeat"
+                        value={draft.spending_frequency === 'daily' ? 'Daily' : 'Weekly'}
+                        onPress={() => onPageChange('repeat')}
+                      />
+                      {draft.spending_frequency === 'weekly' ? (
+                        <SheetRow
+                          label="Day"
+                          value={weekdayOptions.find((day) => day.value === draft.spending_weekday)?.label ?? 'Monday'}
+                          onPress={() => onPageChange('weekday')}
+                        />
+                      ) : null}
+                    </>
+                  )}
+                  <SheetRow
+                    label="Time"
+                    value={formatNotificationTime(currentTime)}
+                    onPress={() => setShowTimePicker(true)}
+                  />
+                </View>
+              </ScrollView>
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={saving}
+                onPress={onDone}
+                style={({ pressed }) => [
+                  styles.doneButton,
+                  (pressed || saving) && { opacity: 0.72 },
+                ]}>
+                {saving
+                  ? <ActivityIndicator color={authColors.onPrimary} />
+                  : <Text style={styles.doneText}>Done</Text>}
+              </Pressable>
+            </>
+          ) : null}
+
+          {showTimePicker ? (
+            <ExpoDateTimePicker
+              value={dateForTime(currentTime)}
+              mode="time"
+              presentation="dialog"
+              is24Hour={false}
+              accentColor={authColors.primary}
+              positiveButton={{ label: 'OK' }}
+              negativeButton={{ label: 'Cancel' }}
+              onValueChange={(_, selectedTime) => {
+                setShowTimePicker(false);
+                onUpdate(
+                  isSavings ? 'savings_reminder_time' : 'spending_reminder_time',
+                  timeForDate(selectedTime),
+                );
+              }}
+              onDismiss={() => setShowTimePicker(false)}
+            />
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
-function DayStepper({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  return <View style={styles.stepper}><Pressable accessibilityLabel="Decrease days" onPress={() => onChange(Math.max(0, value - 1))} style={styles.stepButton}><MaterialIcons name="remove" size={18} color={authColors.primary} /></Pressable><Text style={styles.stepValue}>{value} day{value === 1 ? '' : 's'}</Text><Pressable accessibilityLabel="Increase days" onPress={() => onChange(Math.min(30, value + 1))} style={styles.stepButton}><MaterialIcons name="add" size={18} color={authColors.primary} /></Pressable></View>;
+function SheetRow({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.sheetRow, pressed && styles.pressed]}>
+      <Text style={styles.sheetRowLabel}>{label}</Text>
+      <View style={styles.sheetRowValue}>
+        <Text style={styles.sheetRowValueText}>{value}</Text>
+        <MaterialIcons name="chevron-right" size={24} color={authColors.outline} />
+      </View>
+    </Pressable>
+  );
 }
 
-function Choice({ label, selected, onPress, compact = false }: { label: string; selected: boolean; onPress: () => void; compact?: boolean }) {
-  return <Pressable onPress={onPress} style={[styles.choice, compact && { paddingHorizontal: 11 }, selected && styles.choiceActive]}><Text style={[styles.choiceText, selected && styles.choiceTextActive]}>{label}</Text></Pressable>;
+function SelectionOption({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.selectionOption,
+        selected && styles.selectionOptionSelected,
+        pressed && styles.pressed,
+      ]}>
+      <Text style={[styles.selectionLabel, selected && styles.selectionLabelSelected]}>
+        {label}
+      </Text>
+      {selected ? <MaterialIcons name="check" size={21} color={authColors.primary} /> : null}
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -147,32 +617,263 @@ const styles = StyleSheet.create({
   topBar: { minHeight: 64, paddingHorizontal: 20, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   roundButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   heading: { fontFamily: authFont.semibold, fontSize: 18, color: authColors.onSurface },
-  intro: { fontFamily: authFont.regular, fontSize: 13, lineHeight: 19, color: authColors.onSurfaceVariant, marginBottom: 2 },
   center: { margin: 20, padding: 28, borderRadius: 22, alignItems: 'center', gap: 12, backgroundColor: authColors.surfaceContainerLowest },
   helper: { fontFamily: authFont.regular, color: authColors.onSurfaceVariant },
   error: { fontFamily: authFont.regular, fontSize: 14, lineHeight: 20, color: authColors.error, textAlign: 'center' },
-  card: { backgroundColor: authColors.surfaceContainerLowest, borderRadius: 22, padding: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: authColors.outlineVariant, elevation: 2, shadowColor: '#1B1B23', shadowOpacity: 0.05, shadowOffset: { width: 0, height: 4 }, shadowRadius: 12 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  cardIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { fontFamily: authFont.semibold, fontSize: 15, color: authColors.onSurface },
-  cardDescription: { marginTop: 2, fontFamily: authFont.regular, fontSize: 12, lineHeight: 16, color: authColors.onSurfaceVariant },
-  cardBody: { marginTop: 15, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: authColors.outlineVariant, gap: 12 },
-  settingLine: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  settingLabel: { fontFamily: authFont.regular, fontSize: 13, color: authColors.onSurface },
-  settingHelper: { marginTop: 1, fontFamily: authFont.regular, fontSize: 11, color: authColors.onSurfaceVariant },
-  fieldLabel: { fontFamily: authFont.semibold, fontSize: 12, color: authColors.onSurfaceVariant },
-  segmentRow: { flexDirection: 'row', gap: 8 },
-  choice: { minHeight: 34, flex: 1, paddingHorizontal: 15, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: authColors.outlineVariant, backgroundColor: authColors.surfaceContainerLowest },
-  choiceActive: { borderColor: authColors.primary, backgroundColor: authColors.primaryFixed },
-  choiceText: { fontFamily: authFont.semibold, fontSize: 12, textTransform: 'capitalize', color: authColors.onSurfaceVariant },
-  choiceTextActive: { color: authColors.primary },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  stepButton: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: authColors.primaryFixed },
-  stepValue: { minWidth: 48, fontFamily: authFont.semibold, fontSize: 12, textAlign: 'center', color: authColors.onSurface },
-  manageButton: { minHeight: 44, paddingHorizontal: 13, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: authColors.primaryFixed },
-  manageText: { fontFamily: authFont.semibold, fontSize: 13, color: authColors.primary },
   primaryButton: { minHeight: 40, paddingHorizontal: 22, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: authColors.primary },
   primaryText: { fontFamily: authFont.semibold, color: authColors.onPrimary },
-  saveButton: { height: 54, marginTop: 3, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: authColors.primary },
-  saveText: { fontFamily: authFont.semibold, fontSize: 15, color: authColors.onPrimary },
+  phoneCard: {
+    minHeight: 78,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: authColors.surfaceContainerLowest,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: authColors.outlineVariant,
+    boxShadow: '0 3px 12px rgba(27, 27, 35, 0.06)',
+  },
+  sectionTitle: {
+    paddingTop: 8,
+    paddingHorizontal: 4,
+    fontFamily: authFont.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: authColors.onSurfaceVariant,
+  },
+  groupCard: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+    backgroundColor: authColors.surfaceContainerLowest,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: authColors.outlineVariant,
+    boxShadow: '0 3px 12px rgba(27, 27, 35, 0.06)',
+  },
+  preferenceRow: {
+    minHeight: 88,
+    paddingLeft: 16,
+    paddingRight: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  preferenceMain: {
+    minHeight: 88,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowText: { flex: 1, gap: 2 },
+  rowTitle: {
+    fontFamily: authFont.semibold,
+    fontSize: 16,
+    lineHeight: 21,
+    color: authColors.onSurface,
+  },
+  rowDescription: {
+    fontFamily: authFont.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: authColors.onSurfaceVariant,
+  },
+  manageLink: {
+    paddingHorizontal: 4,
+    fontFamily: authFont.semibold,
+    fontSize: 14,
+    color: authColors.primary,
+  },
+  chevronButton: {
+    width: 32,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 72,
+    marginRight: 16,
+    backgroundColor: authColors.outlineVariant,
+  },
+  pressed: { opacity: 0.68 },
+  autoSave: {
+    minHeight: 42,
+    paddingTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  savedIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: authColors.primaryFixed,
+  },
+  autoSaveText: {
+    fontFamily: authFont.regular,
+    fontSize: 13,
+    color: authColors.onSurfaceVariant,
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(28, 29, 43, 0.48)',
+  },
+  sheet: {
+    maxHeight: '92%',
+    minHeight: 420,
+    paddingTop: 10,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderCurve: 'continuous',
+    backgroundColor: authColors.surfaceContainerLowest,
+    boxShadow: '0 -8px 30px rgba(27, 27, 35, 0.16)',
+  },
+  grabber: {
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    alignSelf: 'center',
+    backgroundColor: authColors.outlineVariant,
+  },
+  sheetContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 8,
+    gap: 22,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  sheetTitleBlock: { flex: 1, gap: 4 },
+  sheetTitle: {
+    fontFamily: authFont.semibold,
+    fontSize: 22,
+    lineHeight: 28,
+    color: authColors.onSurface,
+  },
+  sheetDescription: {
+    fontFamily: authFont.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: authColors.onSurfaceVariant,
+  },
+  sheetRows: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: authColors.outlineVariant,
+  },
+  sheetRow: {
+    minHeight: 66,
+    paddingHorizontal: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: authColors.outlineVariant,
+  },
+  sheetRowLabel: {
+    flex: 1,
+    fontFamily: authFont.regular,
+    fontSize: 16,
+    color: authColors.onSurface,
+  },
+  sheetRowValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sheetRowValueText: {
+    fontFamily: authFont.semibold,
+    fontSize: 15,
+    color: authColors.onSurfaceVariant,
+  },
+  doneButton: {
+    height: 54,
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 18,
+    borderCurve: 'continuous',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: authColors.primary,
+  },
+  doneText: {
+    fontFamily: authFont.semibold,
+    fontSize: 16,
+    color: authColors.onPrimary,
+  },
+  sheetSubHeader: {
+    minHeight: 60,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sheetBackButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetSubTitle: {
+    fontFamily: authFont.semibold,
+    fontSize: 18,
+    color: authColors.onSurface,
+  },
+  optionList: {
+    paddingHorizontal: 20,
+    paddingBottom: 18,
+    gap: 8,
+  },
+  selectionOption: {
+    minHeight: 52,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: authColors.outlineVariant,
+    backgroundColor: authColors.surfaceContainerLowest,
+  },
+  selectionOptionSelected: {
+    borderColor: authColors.primary,
+    backgroundColor: authColors.primaryFixed,
+  },
+  selectionLabel: {
+    fontFamily: authFont.regular,
+    fontSize: 15,
+    color: authColors.onSurface,
+  },
+  selectionLabelSelected: {
+    fontFamily: authFont.semibold,
+    color: authColors.primary,
+  },
 });

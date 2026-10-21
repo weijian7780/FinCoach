@@ -1,0 +1,184 @@
+{
+  "runId": "abb7c8b8-18b1-4d3e-85b1-d8bf19398b61",
+  "testedAt": "2026-10-07T23:54:35.564Z",
+  "project": "yqsyrzdpvtasldkthhfg.supabase.co",
+  "environment": "Node runner, real Supabase Auth/REST/Storage/RPC; no Android device",
+  "checks": [
+    {
+      "name": "representative fixture populated",
+      "passed": true
+    },
+    {
+      "name": "manual backup marked completed",
+      "passed": true
+    },
+    {
+      "name": "downloaded backup matches source records",
+      "passed": true,
+      "detail": {
+        "bytes": 4551
+      }
+    },
+    {
+      "name": "another account cannot read backup metadata",
+      "passed": true
+    },
+    {
+      "name": "another account cannot download private backup",
+      "passed": true
+    },
+    {
+      "name": "corrupt checksum rejected before restore",
+      "passed": true
+    },
+    {
+      "name": "another account cannot restore owner backup",
+      "passed": true
+    },
+    {
+      "name": "test data actually differs before restore",
+      "passed": true
+    },
+    {
+      "name": "database rejects invalid transaction in restore",
+      "passed": true
+    },
+    {
+      "name": "invalid restore rolls back all financial changes",
+      "passed": true
+    },
+    {
+      "name": "restore RPC succeeds",
+      "passed": true,
+      "detail": {
+        "alerts": 1,
+        "profile": 1,
+        "reports": 1,
+        "reminders": 1,
+        "savingsGoals": 1,
+        "transactions": 1,
+        "categoryLimits": 1,
+        "monthlyBudgets": 1,
+        "customCategories": 1,
+        "savingsContributions": 1,
+        "notificationPreferences": 1
+      }
+    },
+    {
+      "name": "restored profile matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored customCategories matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored userCategories matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored transactions matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored monthlyBudgets matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored categoryLimits matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored savingsGoals matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored savingsContributions matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored reports matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored notificationPreferences matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored reminders matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored alerts matches backup",
+      "passed": true
+    },
+    {
+      "name": "selected categories survive restore",
+      "passed": true,
+      "detail": {
+        "before": 1,
+        "after": 1
+      }
+    },
+    {
+      "name": "restore completion recorded",
+      "passed": true
+    },
+    {
+      "name": "automatic backup preference preserved",
+      "passed": true
+    },
+    {
+      "name": "restored report still downloads original stored file",
+      "passed": true
+    },
+    {
+      "name": "older v1 backup restores without losing current selections",
+      "passed": true
+    },
+    {
+      "name": "disabled automatic backup is skipped",
+      "passed": true
+    },
+    {
+      "name": "eligible automatic backup completes",
+      "passed": true
+    },
+    {
+      "name": "automatic backup content matches source",
+      "passed": true
+    },
+    {
+      "name": "recent automatic backup is not duplicated",
+      "passed": true
+    },
+    {
+      "name": "automatic backup restores full data with empty category selections",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-reports object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary financial-backups object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    }
+  ]
+}

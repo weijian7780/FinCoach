@@ -22,6 +22,8 @@ describe('Alert and reminder UI', () => {
     expect(source).toContain('fetchAlerts');
     expect(source).toContain('postgres_changes');
     expect(source).toContain("'/alerts/settings'");
+    expect(source).not.toContain('styles.moduleTabs');
+    expect(source).not.toContain("router.replace('/alerts/reminders'");
   });
 
   test('alert cards support opening and swipe dismissal', () => {
@@ -44,24 +46,29 @@ describe('Alert and reminder UI', () => {
     expect(profile).toContain('NotificationBell');
   });
 
-  test('settings configure each notification type separately', () => {
+  test('settings use a compact overview and focused preference sheet', () => {
     const source = read('src', 'app', 'alerts', 'settings.tsx');
 
     expect(source).toContain('ensureNotificationPreferences');
     expect(source).toContain('saveNotificationPreferences');
+    expect(source).toContain('Phone notifications');
     expect(source).toContain('Budget alerts');
     expect(source).toContain('Savings reminders');
-    expect(source).toContain('Spending check-ins');
-    expect(source).toContain('Bill reminders');
+    expect(source).toContain('Spending check-in');
+    expect(source).toContain('Manage reminders');
+    expect(source).toContain('Changes save automatically');
+    expect(source).toContain('PreferenceSheet');
+    expect(source).toContain('Modal');
     expect(source).toContain('savings_lead_days');
     expect(source).toContain('savings_reminder_time');
-    expect(source).toContain('savings_milestones_enabled');
     expect(source).toContain('spending_frequency');
+    expect(source).toContain('spending_weekday');
     expect(source).toContain('spending_reminder_time');
-    expect(source).toContain('default_bill_lead_days');
-    expect(source).toContain('default_bill_reminder_time');
     expect(source).toContain("'/alerts/reminders'");
-    expect(source).toContain('TimePickerField');
+    expect(source).toContain('ExpoDateTimePicker');
+    expect(source).not.toContain('Save settings');
+    expect(source).not.toContain('Progress milestones');
+    expect(source).not.toContain('Default lead time');
     expect(source).not.toContain('keyboardType="numbers-and-punctuation"');
   });
 
@@ -80,12 +87,19 @@ describe('Alert and reminder UI', () => {
 
   test('bill reminder screens support history, CRUD and recurrence', () => {
     const list = read('src', 'app', 'alerts', 'reminders.tsx');
+    const renderedList = read('src', 'components', 'notifications', 'reminders-list-screen.tsx');
     const manage = read('src', 'app', 'alerts', 'reminders', 'manage.tsx');
 
     expect(list).toContain('fetchReminders');
     expect(list).toContain('setReminderEnabled');
     expect(list).toContain('Upcoming bill reminders');
     expect(list).toContain("'/alerts/reminders/manage'");
+    expect(renderedList).toContain('RemindersListScreen');
+    expect(renderedList).toContain('fetchReminders');
+    expect(renderedList).toContain("'/alerts/reminders/manage'");
+    expect(renderedList).not.toContain('styles.moduleTabs');
+    expect(renderedList).not.toContain('accessibilityRole="tab"');
+    expect(renderedList).not.toContain("router.replace('/alerts'");
     expect(manage).toContain('createReminder');
     expect(manage).toContain('updateReminder');
     expect(manage).toContain('deleteReminder');

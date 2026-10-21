@@ -1,0 +1,35 @@
+{
+  "request": {
+    "type": "http",
+    "target": "api.chisquaredv10.dpdns.org",
+    "measurementOptions": {
+      "protocol": "HTTPS",
+      "request": {
+        "method": "GET",
+        "path": "/health"
+      }
+    },
+    "locations": [
+      {
+        "country": "MY",
+        "limit": 2
+      },
+      {
+        "country": "SG"
+      },
+      {
+        "country": "JP"
+      },
+      {
+        "country": "DE"
+      },
+      {
+        "country": "US"
+      }
+    ]
+  },
+  "measurement": {
+    "id": "2eEyQLomMMIip5JFw00021F6B",
+    "probesCount": 6
+  }
+}

@@ -18,17 +18,7 @@ Use this checklist after the Supabase `FinCoach` project exists and `.env` is fi
 - New user can save basic profile details.
 - Consent can be set to `unset`, `granted`, `denied`, or `withdrawn`.
 - Profile updates persist after app reload.
-- User can view their email, profile status, onboarding status, and PIN status.
-
-## PIN
-
-- App rejects non-4-digit PIN values.
-- App rejects mismatched PIN confirmation.
-- Valid PIN saves only a local salted hash through SecureStore.
-- Supabase stores only `pin_enabled = true`.
-- Unlock succeeds with the correct PIN.
-- Unlock fails with an incorrect PIN.
-- Reset local PIN clears SecureStore and sets `pin_enabled = false`.
+- User can view their email, profile status, onboarding status, and consent status.
 
 ## RLS
 
@@ -102,7 +92,7 @@ Run `supabase/migrations/20260713060910_complete_budget_category_limit_managemen
 ## FRBL-03 — Remaining Budget And Progress
 
 - Budget tab shows overall and category limit, used amount, remaining amount, percentage, and progress.
-- Before Transaction Management is implemented, used amount remains RM 0 and the screen states `No transactions recorded`.
+- Used amount reflects persisted expense transactions in the selected month and category. When none exist, the screen states `No transactions recorded`.
 - Navigating between months never mixes parent budgets or category limits.
 - Current-month Home preview reads `monthly_budgets`, not the Financial Profile monthly allowance.
 
@@ -258,6 +248,9 @@ Apply `supabase/migrations/20260716131958_complete_financial_data_export_backup.
 - Restore is atomic: an insertion failure leaves the user's current financial data unchanged.
 - Restore leaves authentication, default categories, receipt objects, device tokens, `auto_backup_enabled`, export history, and backup history unchanged.
 - The latest restore status and completion time are recorded on the selected backup.
+- New backups restore tracked-category selections, including an explicitly empty selection. Legacy v1 backups preserve current selections whose categories remain available after restore.
+- Report history retains PDF metadata and existing Storage download paths after restore.
+- Live service evidence (8 October 2026): see `backup-restore-verification.md` and `backup-restore-live-verification.json`; representative manual/automatic round trips and rollback checks passed with disposable accounts.
 - Repeat manual backup, delete, corruption rejection, and successful restore on the Honor 200 physical device.
 
 # AI Financial Coaching Acceptance Tests
@@ -289,6 +282,19 @@ approved finance corpus, configure the FastAPI server, and set
 - Advice ends with an educational-not-financial-advice reminder and remains bounded by the configured output limit.
 
 ## Reliability And Safeguards
+
+### Preferences Income Entry (2026-10-02)
+
+- Preferences calls the amount Expected Monthly Allowance / Income. Updating it alone creates no financial transaction.
+- Record monthly income saves unsaved Preferences only after Save & continue, then opens an editable Income draft; cancel creates nothing.
+- All six source types are supported; Mixed/Other require an actual income source. No available income category means the user must select one, never an expense category.
+- Confirm RM2,000 through the shortcut and add RM500 manually in the same report period: income RM2,500. With RM300 expenses, net balance RM2,200.
+- Edit the RM2,000 entry to RM1,900: income RM2,400. Delete it: income RM500. A changed expected amount leaves those totals unchanged.
+- Similar income entries show a review warning. Two genuine equal installments are allowed after Record another payment. A failed similarity check offers Retry check/Cancel before writing.
+- Double taps, a lost save response, and a retry use the same draft UUID. Changed values cannot overwrite an already-saved payment. Receipt images and stored IDs survive transaction edits.
+- Verify keyboard, scrolling, safe-area padding, and every action on Honor 200 and a small Android screen.
+- Evidence status: automated domain/persistence/report tests and Android bundle export verified locally. Live authenticated Supabase writes and updated-screen device interaction remain unverified; no test account was supplied, and the connected phone has an existing standalone release rather than the updated source build.
+
 
 - Sending the same client message ID twice returns the existing completed reply or a safe `409`; it never creates two assistant replies.
 - Airplane mode or an unreachable API shows a retry state without deleting previously loaded messages.

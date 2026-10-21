@@ -1,5 +1,6 @@
 import { corsHeaders, errorResponse, jsonResponse, readJsonBody } from '../_shared/http.ts';
 import { createCallerClient, createServiceClient } from '../_shared/supabase.ts';
+import { isAccountActive } from '../_shared/account-access.ts';
 
 type DeviceAction = 'register' | 'refresh' | 'deactivate';
 
@@ -34,6 +35,9 @@ Deno.serve(async (request) => {
 
   const service = createServiceClient();
   try {
+    if (!await isAccountActive(service, authData.user.id)) {
+      return errorResponse('Account access is suspended.', 403, 'account_suspended');
+    }
     if (action === 'register') {
       const platform = body.platform;
       const deviceName = typeof body.deviceName === 'string' ? body.deviceName.trim() : null;

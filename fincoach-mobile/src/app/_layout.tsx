@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NotificationBootstrap } from '@/components/notifications/notification-bootstrap';
 import { AppDialogProvider } from '@/components/ui/app-dialog';
 import { AuthProvider } from '@/lib/auth-context';
+import { AccountAccessGate } from '@/components/account-access-gate';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   // The splash screen may already be hidden during fast refresh.
@@ -41,8 +42,9 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthProvider>
           <AppDialogProvider>
-          <NotificationBootstrap />
-          <Stack
+            <AccountAccessGate>
+            <NotificationBootstrap />
+            <Stack
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: '#F6F7F2' },
@@ -74,7 +76,8 @@ export default function RootLayout() {
             <Stack.Screen name="export-backup/restore" />
             <Stack.Screen name="coach/history" />
             <Stack.Screen name="(app)" />
-          </Stack>
+            </Stack>
+            </AccountAccessGate>
           </AppDialogProvider>
         </AuthProvider>
       </ThemeProvider>

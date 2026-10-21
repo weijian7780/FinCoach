@@ -1,3 +1,8 @@
+-- Reference schema: apply all supabase/migrations in order for authoritative deployment.
+-- Financial integrity, receipt items, admin name sync, and coaching leases additionally require
+-- 20261015091221_repair_financial_integrity_and_admin_sync.sql and 20261015092100_recover_coaching_processing_leases.sql.
+-- Financial backup v2 snapshot, immutable attachments and lifecycle RPCs are defined in
+-- 20261010151101_complete_financial_backup_v2.sql and subsequent migrations.
 -- ============================================================
 -- FinCoach — database schema (PostgreSQL / Supabase)
 -- Paste into Supabase SQL Editor on a fresh project and Run.
@@ -120,13 +125,15 @@ create table if not exists public.categories (
   name text not null,                  -- CATEGORY Name
   type text not null default 'expense' check (type in ('expense', 'income')), -- CATEGORY Type
   icon text,                           -- CATEGORY Icon (MaterialIcons name)
+  icon_image_path text,                -- optional user-owned image in category-icons Storage
   user_id uuid references auth.users (id) on delete cascade,
   color text
 );
 
 alter table public.categories
   add column if not exists user_id uuid,
-  add column if not exists color text;
+  add column if not exists color text,
+  add column if not exists icon_image_path text;
 
 do $$
 begin
@@ -173,6 +180,53 @@ drop policy if exists "Users can delete own custom categories" on public.categor
 create policy "Users can delete own custom categories" on public.categories
   for delete to authenticated
   using ((select auth.uid()) = user_id);
+
+-- Public category images are non-sensitive display assets. Only the owner may
+-- create, replace, or remove files inside their own <user_id>/ folder.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'category-icons',
+  'category-icons',
+  true,
+  2097152,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Category icons are publicly readable" on storage.objects;
+create policy "Category icons are publicly readable" on storage.objects
+  for select using (bucket_id = 'category-icons');
+
+drop policy if exists "Users can upload own category icons" on storage.objects;
+create policy "Users can upload own category icons" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'category-icons'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can update own category icons" on storage.objects;
+create policy "Users can update own category icons" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'category-icons'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  )
+  with check (
+    bucket_id = 'category-icons'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can delete own category icons" on storage.objects;
+create policy "Users can delete own category icons" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'category-icons'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
 
 insert into public.categories (name, type, icon, color) values
   ('Food', 'expense', 'restaurant', '#E45C3A'),
@@ -603,7 +657,7 @@ using (
   )
 );
 
-+-- Transaction and Receipt Capture Management
+-- Transaction and Receipt Capture Management
 -- ERD-aligned single transaction record with a private receipt image path.
 
 create extension if not exists pgcrypto;
@@ -755,16 +809,30 @@ using (
 
 
 
--- ---------- reports : ERD REPORT (immutable log of generated reports, many per user) ----------
--- Metadata only. The live Reports screen calculates analytics from current owner-scoped
--- source records and writes one history row only after an explicit Generate Report action.
+-- ---------- reports : ERD REPORT (generated private PDFs, one per selection) ----------
 create table if not exists public.reports (
   id bigint generated always as identity primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
   period text not null,                            -- REPORT_Period (e.g. '2026-06')
   type text not null,                              -- constrained report selection type
+  title text,
+  file_name text,
+  storage_path text,
+  report_key text,
+  start_date date,
+  end_date date,
+  category_id bigint,
   generated_at timestamptz not null default now()  -- REPORT_GeneratedDate
 );
+
+alter table public.reports
+  add column if not exists title text,
+  add column if not exists file_name text,
+  add column if not exists storage_path text,
+  add column if not exists report_key text,
+  add column if not exists start_date date,
+  add column if not exists end_date date,
+  add column if not exists category_id bigint;
 
 alter table public.reports drop constraint if exists reports_period_length_check;
 alter table public.reports
@@ -786,10 +854,33 @@ alter table public.reports
 create index if not exists reports_user_generated_idx
   on public.reports (user_id, generated_at desc);
 
+alter table public.reports drop constraint if exists reports_user_report_key_key;
+alter table public.reports
+  add constraint reports_user_report_key_key unique (user_id, report_key);
+
+alter table public.reports drop constraint if exists reports_pdf_metadata_check;
+alter table public.reports
+  add constraint reports_pdf_metadata_check check (
+    report_key is null
+    or (
+      title is not null
+      and file_name is not null
+      and storage_path is not null
+      and char_length(btrim(title)) between 1 and 160
+      and char_length(btrim(file_name)) between 5 and 255
+      and file_name like '%.pdf'
+      and char_length(btrim(storage_path)) between 5 and 512
+      and storage_path like user_id::text || '/%'
+      and start_date is not null
+      and end_date is not null
+      and start_date <= end_date
+    )
+  ) not valid;
+
 alter table public.reports enable row level security;
 revoke all on table public.reports from anon;
-grant select, insert on table public.reports to authenticated;
-revoke update, delete on table public.reports from authenticated;
+grant select, insert, update on table public.reports to authenticated;
+revoke delete on table public.reports from authenticated;
 grant usage, select on sequence public.reports_id_seq to authenticated;
 
 drop policy if exists "Users manage own reports" on public.reports;
@@ -800,6 +891,60 @@ create policy "Users can read own reports" on public.reports
 drop policy if exists "Users can create own reports" on public.reports;
 create policy "Users can create own reports" on public.reports
   for insert to authenticated with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can update own reports" on public.reports;
+create policy "Users can update own reports" on public.reports
+  for update to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+insert into storage.buckets (
+  id, name, public, file_size_limit, allowed_mime_types
+)
+values (
+  'financial-reports',
+  'financial-reports',
+  false,
+  10485760,
+  array['application/pdf']
+)
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Users can read own financial reports" on storage.objects;
+create policy "Users can read own financial reports" on storage.objects
+  for select to authenticated using (
+    bucket_id = 'financial-reports'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can upload own financial reports" on storage.objects;
+create policy "Users can upload own financial reports" on storage.objects
+  for insert to authenticated with check (
+    bucket_id = 'financial-reports'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can update own financial reports" on storage.objects;
+create policy "Users can update own financial reports" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'financial-reports'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  )
+  with check (
+    bucket_id = 'financial-reports'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can delete own financial reports" on storage.objects;
+create policy "Users can delete own financial reports" on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'financial-reports'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
 
 -- ============================================================
 -- Storage bucket for profile avatars (public read, owner write)
@@ -1558,6 +1703,7 @@ as $$
 declare
   owner_id uuid := (select auth.uid());
   profile_data jsonb := payload -> 'data' -> 'profile';
+  selected_categories jsonb;
 begin
   if owner_id is null then raise exception 'Authentication required.'; end if;
   if coalesce((payload ->> 'schemaVersion')::integer, 0) <> 1 then
@@ -1568,6 +1714,24 @@ begin
     select 1 from public.backups b
     where b.id = backup_record_id and b.user_id = owner_id and b.status = 'completed'
   ) then raise exception 'Completed backup not found.'; end if;
+
+  -- New backups capture tracked categories. Older v1 backups did not, so keep
+  -- the current selections whose categories still exist in the restored data.
+  if (payload -> 'data') ? 'userCategories' then
+    selected_categories := payload -> 'data' -> 'userCategories';
+    if jsonb_typeof(selected_categories) is distinct from 'array' then
+      raise exception 'Invalid tracked categories in backup.';
+    end if;
+  else
+    select coalesce(jsonb_agg(to_jsonb(uc)), '[]'::jsonb)
+      into selected_categories
+    from public.user_categories uc where uc.user_id = owner_id;
+  end if;
+  if exists (
+    select 1 from jsonb_to_recordset(selected_categories)
+      as x(user_id uuid, category_id bigint)
+    where x.user_id is distinct from owner_id or x.category_id is null
+  ) then raise exception 'Invalid tracked category owner in backup.'; end if;
 
   update public.backups set last_restore_status = 'processing'
   where id = backup_record_id and user_id = owner_id;
@@ -1582,12 +1746,12 @@ begin
   where goal_id in (select id from public.savings_goals where user_id = owner_id);
   delete from public.savings_goals where user_id = owner_id;
   delete from public.reports where user_id = owner_id;
+  delete from public.user_categories where user_id = owner_id;
   delete from public.categories where user_id = owner_id;
 
   if profile_data is not null and profile_data <> 'null'::jsonb then
     update public.profiles
-    set email = coalesce(profile_data ->> 'email', email),
-        full_name = profile_data ->> 'full_name',
+    set full_name = profile_data ->> 'full_name',
         avatar_url = profile_data ->> 'avatar_url',
         monthly_allowance = nullif(profile_data ->> 'monthly_allowance', '')::numeric,
         university = coalesce(profile_data ->> 'university', university),
@@ -1596,19 +1760,29 @@ begin
         financial_status = profile_data ->> 'financial_status',
         coaching_style = profile_data ->> 'coaching_style',
         onboarding_completed = coalesce((profile_data ->> 'onboarding_completed')::boolean, onboarding_completed),
-        spending_records_consent = coalesce(
-          (profile_data ->> 'spending_records_consent')::public.spending_records_consent,
-          spending_records_consent
-        ),
         updated_at = now()
     where id = owner_id;
   end if;
 
-  insert into public.categories (id, name, type, icon, user_id, color)
+  insert into public.categories (id, name, type, icon, icon_image_path, user_id, color)
   overriding system value
-  select id, name, type, icon, owner_id, color
+  select id, name, type, icon, icon_image_path, owner_id, color
   from jsonb_to_recordset(coalesce(payload -> 'data' -> 'customCategories', '[]'::jsonb))
-    as x(id bigint, name text, type text, icon text, user_id uuid, color text);
+    as x(id bigint, name text, type text, icon text, icon_image_path text, user_id uuid, color text);
+
+  -- Validate new snapshots against visible categories. The definer function
+  -- must not allow a supplied category ID to link to another account's data.
+  if (payload -> 'data') ? 'userCategories' and exists (
+    select 1 from jsonb_to_recordset(selected_categories) as x(category_id bigint)
+    left join public.categories c on c.id = x.category_id
+    where c.id is null or (c.user_id is not null and c.user_id <> owner_id)
+  ) then raise exception 'Tracked category is not available to this account.'; end if;
+
+  insert into public.user_categories (user_id, category_id, created_at)
+  select owner_id, x.category_id, coalesce(x.created_at, now())
+  from jsonb_to_recordset(selected_categories) as x(category_id bigint, created_at timestamptz)
+  join public.categories c on c.id = x.category_id
+  where c.user_id is null or c.user_id = owner_id;
 
   insert into public.monthly_budgets (id, user_id, month, limit_amount, created_at, updated_at)
   select id, owner_id, month, limit_amount, created_at, updated_at
@@ -1642,11 +1816,19 @@ begin
     as x(id uuid, user_id uuid, category_id bigint, amount numeric, transaction_date date,
       description text, source text, receipt_image_path text, created_at timestamptz, updated_at timestamptz);
 
-  insert into public.reports (id, user_id, period, type, generated_at)
+  -- Restore PDF metadata as well as the history row so existing stored files
+  -- remain reachable from the report screen after a restore.
+  insert into public.reports (
+    id, user_id, period, type, generated_at, title, file_name, storage_path,
+    report_key, start_date, end_date, category_id
+  )
   overriding system value
-  select id, owner_id, period, type, generated_at
+  select id, owner_id, period, type, generated_at, title, file_name, storage_path,
+    report_key, start_date, end_date, category_id
   from jsonb_to_recordset(coalesce(payload -> 'data' -> 'reports', '[]'::jsonb))
-    as x(id bigint, user_id uuid, period text, type text, generated_at timestamptz);
+    as x(id bigint, user_id uuid, period text, type text, generated_at timestamptz,
+      title text, file_name text, storage_path text, report_key text,
+      start_date date, end_date date, category_id bigint);
 
   insert into public.notification_preferences (
     user_id, budget_enabled, savings_enabled, savings_lead_days, savings_reminder_time,
@@ -1696,14 +1878,6 @@ begin
       delivery_attempt_count smallint, delivery_claimed_at timestamptz,
       next_delivery_attempt_at timestamptz, delivery_receipts jsonb, created_at timestamptz);
 
-  perform setval(pg_get_serial_sequence('public.categories', 'id'),
-    greatest(coalesce((select max(id) from public.categories), 1), 1), true);
-  perform setval(pg_get_serial_sequence('public.budgets', 'id'),
-    greatest(coalesce((select max(id) from public.budgets), 1), 1), true);
-  perform setval(pg_get_serial_sequence('public.savings_contributions', 'id'),
-    greatest(coalesce((select max(id) from public.savings_contributions), 1), 1), true);
-  perform setval(pg_get_serial_sequence('public.reports', 'id'),
-    greatest(coalesce((select max(id) from public.reports), 1), 1), true);
 
   update public.backups
   set last_restore_status = 'completed', last_restored_at = now()
@@ -1816,6 +1990,8 @@ create table if not exists public.coaching_messages (
   model text,
   prompt_tokens integer,
   completion_tokens integer,
+  feedback text,
+  ui_payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   constraint coaching_messages_role_check check (role in ('user', 'assistant')),
   constraint coaching_messages_status_check check (status in ('completed', 'failed')),
@@ -1826,6 +2002,11 @@ create table if not exists public.coaching_messages (
   ),
   constraint coaching_messages_prompt_tokens_check check (prompt_tokens is null or prompt_tokens >= 0),
   constraint coaching_messages_completion_tokens_check check (completion_tokens is null or completion_tokens >= 0),
+  constraint coaching_messages_ui_payload_object_check check (jsonb_typeof(ui_payload) = 'object'),
+  constraint coaching_messages_feedback_check check (
+    feedback is null
+    or (role = 'assistant' and feedback in ('helpful', 'not_helpful'))
+  ),
   unique (reply_to_message_id)
 );
 
@@ -1883,7 +2064,17 @@ create policy "Users can read own coaching messages" on public.coaching_messages
 drop policy if exists "Users can send own coaching messages" on public.coaching_messages;
 create policy "Users can send own coaching messages" on public.coaching_messages
   for insert to authenticated
-  with check ((select auth.uid()) = user_id and role = 'user');
+  with check (
+    (select auth.uid()) is not null
+    and (select auth.uid()) = user_id
+    and role = 'user'
+    and exists (
+      select 1
+      from public.coaching_sessions as session
+      where session.id = coaching_messages.session_id
+        and session.user_id = (select auth.uid())
+    )
+  );
 drop policy if exists "Users can read own coaching retrievals" on public.coaching_retrievals;
 create policy "Users can read own coaching retrievals" on public.coaching_retrievals
   for select to authenticated using ((select auth.uid()) = user_id);
@@ -1892,3 +2083,115 @@ drop trigger if exists coaching_sessions_set_updated_at on public.coaching_sessi
 create trigger coaching_sessions_set_updated_at
 before update on public.coaching_sessions
 for each row execute function private.set_updated_at();
+
+create or replace function public.complete_coaching_turn(
+  p_user_id uuid,
+  p_session_id uuid,
+  p_user_message_id uuid,
+  p_assistant_message jsonb,
+  p_retrievals jsonb,
+  p_title text
+)
+returns setof public.coaching_messages
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  assistant public.coaching_messages;
+begin
+  if jsonb_typeof(p_assistant_message) <> 'object' then
+    raise exception 'Assistant message payload must be an object.';
+  end if;
+  if jsonb_typeof(coalesce(p_retrievals, '[]'::jsonb)) <> 'array' then
+    raise exception 'Retrieval payload must be an array.';
+  end if;
+  if jsonb_typeof(coalesce(p_assistant_message -> 'ui_payload', '{}'::jsonb)) <> 'object' then
+    raise exception 'Coach interaction payload must be an object.';
+  end if;
+  if not exists (
+    select 1
+    from public.coaching_sessions as session
+    join public.coaching_messages as user_message
+      on user_message.session_id = session.id
+    where session.id = p_session_id
+      and session.user_id = p_user_id
+      and user_message.id = p_user_message_id
+      and user_message.user_id = p_user_id
+      and user_message.role = 'user'
+  ) then
+    raise exception 'Invalid coaching turn.';
+  end if;
+
+  insert into public.coaching_messages (
+    id,
+    session_id,
+    user_id,
+    role,
+    content,
+    reply_to_message_id,
+    status,
+    error_code,
+    model,
+    prompt_tokens,
+    completion_tokens,
+    ui_payload
+  )
+  values (
+    (p_assistant_message ->> 'id')::uuid,
+    p_session_id,
+    p_user_id,
+    'assistant',
+    p_assistant_message ->> 'content',
+    p_user_message_id,
+    'completed',
+    null,
+    p_assistant_message ->> 'model',
+    (p_assistant_message ->> 'prompt_tokens')::integer,
+    (p_assistant_message ->> 'completion_tokens')::integer,
+    coalesce(p_assistant_message -> 'ui_payload', '{}'::jsonb)
+  )
+  returning * into assistant;
+
+  insert into public.coaching_retrievals (
+    user_id,
+    assistant_message_id,
+    knowledge_document_id,
+    rank,
+    similarity,
+    title,
+    source
+  )
+  select
+    p_user_id,
+    assistant.id,
+    (item ->> 'knowledge_document_id')::bigint,
+    (item ->> 'rank')::smallint,
+    (item ->> 'similarity')::double precision,
+    item ->> 'title',
+    item ->> 'source'
+  from jsonb_array_elements(coalesce(p_retrievals, '[]'::jsonb)) as entries(item);
+
+  update public.coaching_messages
+  set status = 'completed',
+      error_code = null
+  where id = p_user_message_id
+    and user_id = p_user_id
+    and role = 'user';
+
+  update public.coaching_sessions
+  set last_message_at = now(),
+      title = coalesce(p_title, title)
+  where id = p_session_id
+    and user_id = p_user_id;
+
+  return next assistant;
+end;
+$$;
+
+revoke execute on function public.complete_coaching_turn(
+  uuid, uuid, uuid, jsonb, jsonb, text
+) from public, anon, authenticated;
+grant execute on function public.complete_coaching_turn(
+  uuid, uuid, uuid, jsonb, jsonb, text
+) to service_role;

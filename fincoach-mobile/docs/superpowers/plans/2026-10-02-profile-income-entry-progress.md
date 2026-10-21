@@ -1,0 +1,15 @@
+# Execution ledger: 2026-10-02-profile-income-entry.md
+
+- Authorization: user instructed "implement now" on 2026-10-02.
+- Pre-flight: Task 1 helpers feed Task 2 recovery and Task 3 UI; Task 2 persistence feeds Task 3 UI; Task 4 uses ordinary saved transactions. Interfaces agree.
+- Ruling: use the existing dirty codex/financial-report-analytics checkout and preserve unrelated changes, as the approved plan specifies. No commits or deployment.
+- Ruling: implement and review natively without delegation, as the approved spec specifies.
+- Tasks 1/2: initial red run showed 24 missing-helper failures; implemented helpers and owner-scoped queries/recovery; 39 tests passed before UI wiring.
+- Task 3: Preferences shortcut, expected-income wording, save-first confirmation, one-time prefill, editable income, stable UUID, repeat-tap guard, advisory duplicate review, and receipt-preserving edits implemented. Invalid/incomplete Preferences loading disables the shortcut. Focused keyboard changes invalidate an older payment confirmation.
+- Task 4: regression proves RM2,000 + RM500 = RM2,500 and RM300 expenses produce RM2,200 net; verifies edits, deletions, active filters, and expected-income-only updates.
+- Final review: native self-review per approved spec; confirmed create UUID is stripped from edit payloads, no existing receipt is cleared, private data is absent from route parameters, and draft changes invalidate confirmation. Added failing owner-recovery regression, then corrected it so another owner's row cannot be exposed by a recovery error.
+- Final validation: 46 files / 339 tests passed; TypeScript passed; changed-file ESLint passed without cache; transaction schema verifier passed; final Android export passed (1,965 modules). `git diff --check` passed for intended source/doc files. Android export is bundle evidence, not an installed APK or device UI test.
+- Ruling: use ESLint with --no-cache because Expo's cached wrapper cannot write its existing cache. Same lint engine and configuration; no rules disabled.
+- Existing report-schema verifier fails because it expects revoked report updates, while the later 20260719010000 PDF-history migration and current schema intentionally grant owner-scoped updates. Schema/verifier were not modified by this task.
+- Broad `npx eslint . --no-cache` includes files outside Expo's mobile-source scope and finds existing errors: `plugins/with-fincoach-dns-fallback.js:97` has `no-undef` for `__dirname`; `supabase/functions/_shared/supabase.ts:1` uses a Deno `npm:` import that Node ESLint cannot resolve. Also reports five existing warnings. These files were not changed; the affected application files pass lint with the same configuration and no disabled rules.
+- Live/device evidence: adb sees the connected Honor device with installed package versionCode 32 and no DEBUGGABLE flag; no Metro was listening. Updated-screen interaction requires an updated APK or development build. No authenticated disposable test account was supplied, so no live records were written. These checks are documented as unverified, not passed.

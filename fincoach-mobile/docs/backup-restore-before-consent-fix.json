@@ -1,0 +1,81 @@
+{
+  "runId": "8bddf977-50e3-421e-b823-273699b4c828",
+  "testedAt": "2026-10-07T23:45:24.309Z",
+  "project": "yqsyrzdpvtasldkthhfg.supabase.co",
+  "environment": "Node runner, real Supabase Auth/REST/Storage/RPC; no Android device",
+  "checks": [
+    {
+      "name": "representative fixture populated",
+      "passed": true
+    },
+    {
+      "name": "manual backup marked completed",
+      "passed": true
+    },
+    {
+      "name": "downloaded backup matches source records",
+      "passed": true,
+      "detail": {
+        "bytes": 4419
+      }
+    },
+    {
+      "name": "another account cannot read backup metadata",
+      "passed": true
+    },
+    {
+      "name": "another account cannot download private backup",
+      "passed": true
+    },
+    {
+      "name": "corrupt checksum rejected before restore",
+      "passed": true
+    },
+    {
+      "name": "test data actually differs before restore",
+      "passed": true
+    },
+    {
+      "name": "restore RPC succeeds",
+      "passed": false,
+      "detail": {
+        "message": "COALESCE types public.spending_records_consent and text cannot be matched",
+        "code": "42804",
+        "details": null,
+        "hint": null
+      }
+    },
+    {
+      "name": "failed restore rolls back financial changes",
+      "passed": true
+    },
+    {
+      "name": "completed stage: real database restore RPC",
+      "passed": false,
+      "detail": {
+        "message": "COALESCE types public.spending_records_consent and text cannot be matched",
+        "code": "42804",
+        "details": null,
+        "hint": null
+      }
+    },
+    {
+      "name": "temporary backup object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    }
+  ],
+  "fatal": {
+    "message": "COALESCE types public.spending_records_consent and text cannot be matched",
+    "code": "42804",
+    "details": null,
+    "hint": null
+  }
+}

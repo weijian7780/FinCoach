@@ -200,3 +200,9 @@ export async function deleteCustomCategory(
     .eq('user_id', userId);
   throwIfError(error);
 }
+
+/** One RPC commits the parent and all category allocations together. */
+export async function saveBudgetMonth(userId: string, month: string, overall: number, allocations: { category_id: number; amount: number }[]) {
+  const { error } = await supabase.rpc('save_budget_month', { p_user_id: userId, p_month: month, p_overall: overall, p_allocations: allocations });
+  if (error) throw error;
+}

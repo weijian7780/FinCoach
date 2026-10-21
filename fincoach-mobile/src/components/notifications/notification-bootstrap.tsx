@@ -2,13 +2,14 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { Alert, AppState } from 'react-native';
+import { AppState } from 'react-native';
 
 import {
   ensureNotificationPreferences,
   refreshDeviceRegistration,
   registerDevice,
 } from '@/lib/alerts';
+import { appDialog } from '@/components/ui/app-dialog';
 import { useAuth } from '@/lib/auth-context';
 import {
   configureForegroundNotificationHandler,
@@ -22,7 +23,7 @@ import {
 
 function askForNotificationPermission(): Promise<boolean> {
   return new Promise((resolve) => {
-    Alert.alert(
+    appDialog.open(
       'Stay on track with FinCoach',
       'Allow reminders for budgets, savings, spending records and bills. You can configure each type separately.',
       [

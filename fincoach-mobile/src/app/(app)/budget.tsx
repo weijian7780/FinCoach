@@ -8,11 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BudgetProgress } from '@/components/budget/budget-progress';
 import { MonthSelector } from '@/components/budget/month-selector';
 import { StatusBadge } from '@/components/budget/status-badge';
+import { CategoryIcon } from '@/components/categories/category-icon';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { fetchBudgetMonth } from '@/lib/budget';
-import { formatBudgetMoney, getLimitMetrics, getLimitStatus, monthKey, shiftMonth } from '@/lib/budget-domain';
+import { formatBudgetMoney, getLimitMetrics, getLimitStatus, getUnbudgetedCategorySpending, monthKey, shiftMonth } from '@/lib/budget-domain';
 import { useAuth } from '@/lib/auth-context';
 import { fetchTransactions } from '@/lib/transactions';
 import type { BudgetMonthData, Category, TransactionWithCategory } from '@/lib/types';
@@ -39,11 +40,46 @@ function CategoryBudgetCard({ category, limitAmount, usedAmount }: { category: C
   return (
     <View style={prototypeCard}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: `${categoryColor}1F` }}><MaterialIcons name={(category.icon ?? 'category') as never} size={21} color={categoryColor} /></View>
+        <CategoryIcon category={category} size={40} glyphSize={21} tintColor={categoryColor} />
         <View style={{ flex: 1, gap: 3 }}><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 16, color: authColors.onSurface }}>{category.name}</Text>{status.tone !== 'success' ? <StatusBadge status={status} /> : null}</View>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 14, color: authColors.onSurface }}>{formatBudgetMoney(metrics.usedAmount)} <Text style={{ fontFamily: authFont.regular, color: authColors.onSurfaceVariant }}>/ {formatBudgetMoney(metrics.limitAmount)}</Text></Text><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 13, color, fontVariant: ['tabular-nums'] }}>{metrics.percentage}%</Text></View>
       <BudgetProgress ratio={metrics.ratio} color={color} height={7} />
+    </View>
+  );
+}
+
+function UnbudgetedCategoryCard({
+  category,
+  onSetLimit,
+  usedAmount,
+}: {
+  category: Category;
+  onSetLimit: () => void;
+  usedAmount: number;
+}) {
+  const categoryColor = category.color ?? authColors.primary;
+
+  return (
+    <View style={unbudgetedCard}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <CategoryIcon category={category} size={40} glyphSize={21} tintColor={categoryColor} />
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text selectable style={{ fontFamily: authFont.semibold, fontSize: 16, color: authColors.onSurface }}>{category.name}</Text>
+          <Text selectable style={{ fontFamily: authFont.regular, fontSize: 13, color: authColors.onSurfaceVariant, fontVariant: ['tabular-nums'] }}>{formatBudgetMoney(usedAmount)} spent this month</Text>
+        </View>
+        <View style={noLimitBadge}><Text selectable style={noLimitBadgeText}>No limit set</Text></View>
+      </View>
+      <Text selectable style={{ fontFamily: authFont.regular, fontSize: 13, lineHeight: 18, color: authColors.onSurfaceVariant }}>This category has recorded spending. Add a monthly limit to track it separately.</Text>
+      <Pressable
+        accessibilityLabel={`Set a monthly limit for ${category.name}`}
+        accessibilityRole="button"
+        onPress={onSetLimit}
+        style={({ pressed }) => [suggestionButton, { opacity: pressed ? 0.65 : 1 }]}
+      >
+        <MaterialIcons name="add" size={20} color={authColors.primary} />
+        <Text numberOfLines={1} style={suggestionButtonText}>Set {category.name} limit</Text>
+      </Pressable>
     </View>
   );
 }
@@ -78,6 +114,13 @@ export default function BudgetScreen() {
   expenses.forEach((item) => spentByCategory.set(item.category_id, (spentByCategory.get(item.category_id) ?? 0) + item.amount));
   const overall = getLimitMetrics(expenses.reduce((sum, item) => sum + item.amount, 0), parent?.limit_amount ?? 0);
   const categoriesById = new Map((data?.categories ?? []).map((category) => [category.id, category]));
+  const unbudgetedCategories = getUnbudgetedCategorySpending(
+    spentByCategory,
+    (data?.categoryLimits ?? []).map((limit) => limit.category_id),
+  ).flatMap((spending) => {
+    const category = categoriesById.get(spending.categoryId);
+    return category ? [{ category, usedAmount: spending.amount }] : [];
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: authColors.surface }}>
@@ -91,10 +134,7 @@ export default function BudgetScreen() {
         <NotificationBell />
       </View>
       <ScrollView contentInsetAdjustmentBehavior="automatic" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={authColors.primary} />} contentContainerStyle={{ paddingTop: 8, paddingHorizontal: 20, paddingBottom: insets.bottom + 96, gap: 18 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text selectable style={{ fontFamily: authFont.bold, fontSize: 26, letterSpacing: -0.3, color: authColors.onSurface }}>My Budgets</Text>
-          <Pressable accessibilityLabel="Manage categories" accessibilityRole="button" onPress={() => router.push('/budget/categories' as never)} style={compactIconButton}><MaterialIcons name="category" size={20} color={authColors.primary} /></Pressable>
-        </View>
+        <Text selectable style={{ fontFamily: authFont.bold, fontSize: 26, letterSpacing: -0.3, color: authColors.onSurface }}>Monthly Budget</Text>
         <MonthSelector month={month} onPrevious={() => setMonth((value) => shiftMonth(value, -1))} onNext={() => setMonth((value) => shiftMonth(value, 1))} />
         {loading ? (
           <View style={[prototypeCard, { alignItems: 'center', paddingVertical: 36 }]}><ActivityIndicator color={authColors.primary} /><Text style={{ color: authColors.onSurfaceVariant }}>Loading budget…</Text></View>
@@ -112,9 +152,18 @@ export default function BudgetScreen() {
               <View style={{ height: 1, backgroundColor: authColors.outlineVariant, opacity: 0.45 }} />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><MaterialIcons name="info-outline" size={16} color={authColors.onSurfaceVariant} /><Text selectable style={{ flex: 1, fontFamily: authFont.regular, fontSize: 12, color: authColors.onSurfaceVariant }}>{expenses.length} expense{expenses.length === 1 ? '' : 's'} included for this month.</Text></View>
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 18, color: authColors.onSurface }}>Category Breakdown</Text><Pressable onPress={() => router.push('/budget/categories' as never)}><Text style={{ fontFamily: authFont.semibold, fontSize: 13, color: authColors.primary }}>Manage</Text></Pressable></View>
-            {data?.categoryLimits.length ? data.categoryLimits.map((limit) => { const category = categoriesById.get(limit.category_id); return category ? <CategoryBudgetCard key={limit.id} category={category} limitAmount={limit.amount} usedAmount={spentByCategory.get(limit.category_id) ?? 0} /> : null; }) : <View style={prototypeCard}><Text selectable style={{ textAlign: 'center', fontFamily: authFont.regular, fontSize: 14, color: authColors.onSurfaceVariant }}>No category limits yet.</Text></View>}
-            <Pressable onPress={() => router.push({ pathname: '/budget/manage', params: { month } } as never)} style={primaryButton}><MaterialIcons name="edit" size={19} color={authColors.onPrimary} /><Text style={primaryButtonText}>Edit Budgets</Text></Pressable>
+            <Text selectable style={{ fontFamily: authFont.semibold, fontSize: 18, color: authColors.onSurface }}>Category Breakdown</Text>
+            {data?.categoryLimits.map((limit) => { const category = categoriesById.get(limit.category_id); return category ? <CategoryBudgetCard key={limit.id} category={category} limitAmount={limit.amount} usedAmount={spentByCategory.get(limit.category_id) ?? 0} /> : null; })}
+            {unbudgetedCategories.map(({ category, usedAmount }) => (
+              <UnbudgetedCategoryCard
+                key={category.id}
+                category={category}
+                onSetLimit={() => router.push({ pathname: '/budget/manage', params: { categoryId: String(category.id), month } } as never)}
+                usedAmount={usedAmount}
+              />
+            ))}
+            {!data?.categoryLimits.length && !unbudgetedCategories.length ? <View style={prototypeCard}><Text selectable style={{ textAlign: 'center', fontFamily: authFont.regular, fontSize: 14, color: authColors.onSurfaceVariant }}>No category limits or recorded category spending yet.</Text></View> : null}
+            <Pressable onPress={() => router.push({ pathname: '/budget/manage', params: { month } } as never)} style={primaryButton}><MaterialIcons name="edit" size={19} color={authColors.onPrimary} /><Text style={primaryButtonText}>Edit monthly budget</Text></Pressable>
           </>
         )}
       </ScrollView>
@@ -123,7 +172,11 @@ export default function BudgetScreen() {
 }
 
 const labelCaps = { fontFamily: authFont.bold, fontSize: 10, lineHeight: 14, letterSpacing: 0.65, color: authColors.onSurfaceVariant } as const;
-const compactIconButton = { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: authColors.primaryFixed } as const;
+const unbudgetedCard = { ...prototypeCard, borderWidth: 1, borderColor: '#E4B765' } as const;
+const noLimitBadge = { minHeight: 28, justifyContent: 'center', paddingHorizontal: 9, borderRadius: 999, backgroundColor: '#FFF1D6' } as const;
+const noLimitBadgeText = { fontFamily: authFont.semibold, fontSize: 11, color: '#8A5200' } as const;
+const suggestionButton = { minHeight: 44, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1.5, borderColor: authColors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: authColors.surfaceContainerLowest } as const;
+const suggestionButtonText = { flexShrink: 1, fontFamily: authFont.semibold, fontSize: 14, color: authColors.primary } as const;
 const primaryButton = { minHeight: 48, paddingHorizontal: 18, borderRadius: 12, backgroundColor: authColors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 } as const;
 const primaryButtonText = { fontFamily: authFont.semibold, fontSize: 14, color: authColors.onPrimary } as const;
 const secondaryButton = { minHeight: 42, paddingHorizontal: 18, borderRadius: 12, backgroundColor: authColors.primaryFixed, alignItems: 'center', justifyContent: 'center' } as const;

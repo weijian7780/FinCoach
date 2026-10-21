@@ -1,0 +1,162 @@
+{
+  "runId": "654b2999-5e8e-4ef4-a74e-de7c26babe33",
+  "testedAt": "2026-10-07T23:50:06.980Z",
+  "project": "yqsyrzdpvtasldkthhfg.supabase.co",
+  "environment": "Node runner, real Supabase Auth/REST/Storage/RPC; no Android device",
+  "checks": [
+    {
+      "name": "representative fixture populated",
+      "passed": true
+    },
+    {
+      "name": "manual backup marked completed",
+      "passed": true
+    },
+    {
+      "name": "downloaded backup matches source records",
+      "passed": true,
+      "detail": {
+        "bytes": 4421
+      }
+    },
+    {
+      "name": "another account cannot read backup metadata",
+      "passed": true
+    },
+    {
+      "name": "another account cannot download private backup",
+      "passed": true
+    },
+    {
+      "name": "corrupt checksum rejected before restore",
+      "passed": true
+    },
+    {
+      "name": "test data actually differs before restore",
+      "passed": true
+    },
+    {
+      "name": "restore RPC succeeds",
+      "passed": true,
+      "detail": {
+        "alerts": 1,
+        "profile": 1,
+        "reports": 1,
+        "reminders": 1,
+        "savingsGoals": 1,
+        "transactions": 1,
+        "categoryLimits": 1,
+        "monthlyBudgets": 1,
+        "customCategories": 1,
+        "savingsContributions": 1,
+        "notificationPreferences": 1
+      }
+    },
+    {
+      "name": "restored profile matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored customCategories matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored transactions matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored monthlyBudgets matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored categoryLimits matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored savingsGoals matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored savingsContributions matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored reports matches backup",
+      "passed": false,
+      "detail": {
+        "expected": [
+          {
+            "id": 8,
+            "user_id": "158bae2f-f137-4e7e-b89d-1646adca9966",
+            "period": "2026-10",
+            "type": "monthly",
+            "generated_at": "2026-10-07T23:50:00.799865+00:00",
+            "title": "Test October report",
+            "file_name": "test-report.pdf",
+            "storage_path": "158bae2f-f137-4e7e-b89d-1646adca9966/test-report.pdf",
+            "report_key": "backup-test-654b2999-5e8e-4ef4-a74e-de7c26babe33",
+            "start_date": "2026-10-01",
+            "end_date": "2026-10-31",
+            "category_id": null
+          }
+        ],
+        "actual": [
+          {
+            "id": 8,
+            "user_id": "158bae2f-f137-4e7e-b89d-1646adca9966",
+            "period": "2026-10",
+            "type": "monthly",
+            "generated_at": "2026-10-07T23:50:00.799865+00:00",
+            "title": null,
+            "file_name": null,
+            "storage_path": null,
+            "report_key": null,
+            "start_date": null,
+            "end_date": null,
+            "category_id": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "restored notificationPreferences matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored reminders matches backup",
+      "passed": true
+    },
+    {
+      "name": "restored alerts matches backup",
+      "passed": true
+    },
+    {
+      "name": "selected categories survive restore",
+      "passed": false,
+      "detail": {
+        "before": 1,
+        "after": 0
+      }
+    },
+    {
+      "name": "restore completion recorded",
+      "passed": true
+    },
+    {
+      "name": "automatic backup preference preserved",
+      "passed": true
+    },
+    {
+      "name": "temporary backup object removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    },
+    {
+      "name": "temporary account removed",
+      "passed": true
+    }
+  ]
+}

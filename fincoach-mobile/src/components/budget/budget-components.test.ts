@@ -13,6 +13,7 @@ const componentFiles = [
   'status-badge.tsx',
   'money-field.tsx',
   'category-picker.tsx',
+  'category-limit-row.tsx',
   'icon-color-picker.tsx',
 ];
 
@@ -36,5 +37,6 @@ describe('Budget component compatibility and accessibility', () => {
     expect(source).toContain('accessibilityLabel={label}');
     expect(source).toContain('accessibilityRole="checkbox"');
     expect(source).toContain('accessibilityRole="radio"');
+    expect(source).toContain('accessibilityLabel={`Remove ${category.name} limit`}');
   });
 });

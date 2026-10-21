@@ -1,6 +1,7 @@
 import type {
   AlertFilter,
   AlertRecord,
+  BillReminder,
   ReminderRecurrence,
 } from './types';
 
@@ -18,12 +19,55 @@ export type BillReminderValidationErrors = Partial<
   Record<'title' | 'amount' | 'dueAt' | 'leadDays' | 'recurrence', string>
 >;
 
+export type UpcomingReminderGroups = {
+  nextUp: BillReminder[];
+  thisWeek: BillReminder[];
+  later: BillReminder[];
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MILESTONES = [25, 50, 75, 100] as const;
 
 export function normalizeReminderTime(value: string): string | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d(?:\.\d+)?)?$/.exec(value.trim());
   return match ? `${match[1]}:${match[2]}` : null;
+}
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+export function formatNotificationTime(value: string): string {
+  const normalized = normalizeReminderTime(value);
+  if (!normalized) return 'Time unavailable';
+
+  const [hour, minute] = normalized.split(':').map(Number);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
+export function formatSpendingSchedule(
+  frequency: 'daily' | 'weekly',
+  weekday: number | null,
+  reminderTime: string,
+): string {
+  const time = formatNotificationTime(reminderTime);
+  if (frequency === 'daily') return `Daily · ${time}`;
+
+  const day = weekday === null ? 'Monday' : WEEKDAY_NAMES[weekday];
+  return `Weekly · ${day ?? 'Monday'} · ${time}`;
+}
+
+export function formatLeadDays(value: number): string {
+  if (value === 0) return 'On the day';
+  return `${value} day${value === 1 ? '' : 's'}`;
 }
 
 function toCents(value: number): number {
@@ -211,8 +255,8 @@ export function validateBillReminderInput(
 ): BillReminderValidationErrors {
   const errors: BillReminderValidationErrors = {};
   const title = input.title.trim();
-  if (!title) errors.title = 'Enter a bill title.';
-  else if (title.length > 100) errors.title = 'Bill title must be 100 characters or fewer.';
+  if (!title) errors.title = 'Enter a reminder title.';
+  else if (title.length > 100) errors.title = 'Reminder title must be 100 characters or fewer.';
 
   const amount = input.amount.trim();
   if (amount && (!/^\d+(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0)) {
@@ -247,6 +291,71 @@ function zonedDateKey(value: string | Date, timeZone: string): string {
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function dateKeyDifference(left: string, right: string): number {
+  const [leftYear, leftMonth, leftDay] = left.split('-').map(Number);
+  const [rightYear, rightMonth, rightDay] = right.split('-').map(Number);
+  return Math.round(
+    (Date.UTC(leftYear, leftMonth - 1, leftDay) - Date.UTC(rightYear, rightMonth - 1, rightDay)) /
+      DAY_MS,
+  );
+}
+
+/**
+ * Keeps dates people scan most often human-readable. The calendar day is
+ * calculated in the user's notification timezone, rather than the server UTC
+ * date, so a Malaysia evening reminder is never labelled as the wrong day.
+ */
+export function formatReminderDue(
+  dueAt: string,
+  now = new Date().toISOString(),
+  timeZone = 'Asia/Kuala_Lumpur',
+): string {
+  const due = new Date(dueAt);
+  const reference = new Date(now);
+  if (Number.isNaN(due.getTime()) || Number.isNaN(reference.getTime())) return 'Date unavailable';
+
+  const difference = dateKeyDifference(zonedDateKey(due, timeZone), zonedDateKey(reference, timeZone));
+  const dateLabel = difference === 0
+    ? 'Today'
+    : difference === 1
+      ? 'Tomorrow'
+      : new Intl.DateTimeFormat('en-MY', {
+        day: 'numeric',
+        month: 'short',
+        ...(due.getUTCFullYear() === reference.getUTCFullYear() ? {} : { year: 'numeric' }),
+      }).format(due);
+  const timeLabel = new Intl.DateTimeFormat('en-MY', {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(due).toUpperCase();
+  return `${dateLabel} · ${timeLabel}`;
+}
+
+/** Groups a chronological reminder list into the three sections used by the UI. */
+export function groupUpcomingReminders(
+  reminders: BillReminder[],
+  now = new Date().toISOString(),
+  timeZone = 'Asia/Kuala_Lumpur',
+): UpcomingReminderGroups {
+  const referenceKey = zonedDateKey(now, timeZone);
+  const groups: UpcomingReminderGroups = { nextUp: [], thisWeek: [], later: [] };
+
+  for (const reminder of reminders) {
+    const due = new Date(reminder.due_at);
+    if (Number.isNaN(due.getTime())) {
+      groups.later.push(reminder);
+      continue;
+    }
+    const daysAway = dateKeyDifference(zonedDateKey(due, timeZone), referenceKey);
+    if (daysAway <= 1) groups.nextUp.push(reminder);
+    else if (daysAway <= 7) groups.thisWeek.push(reminder);
+    else groups.later.push(reminder);
+  }
+  return groups;
 }
 
 function previousDateKey(dateKey: string): string {

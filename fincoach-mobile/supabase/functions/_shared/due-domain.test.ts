@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 
 import {
   advanceRecurrence,
@@ -199,5 +199,23 @@ describe('delivery retry and receipts', () => {
         'device-2': { status: 'failed', error: 'InvalidCredentials' },
       }).deliveryStatus,
     ).toBe('partially_delivered');
+  });
+});
+
+describe('local calendar recurrence regression', () => {
+  test.each([
+    ['2026-01-30T16:00:00.000Z', 'monthly', 31, '2026-02-27T16:00:00.000Z'],
+    ['2026-01-31T23:59:00.000Z', 'monthly', 1, '2026-02-28T23:59:00.000Z'],
+    ['2026-12-31T16:00:00.000Z', 'monthly', 1, '2027-01-31T16:00:00.000Z'],
+    ['2024-02-28T16:00:00.000Z', 'yearly', 29, '2025-02-27T16:00:00.000Z'],
+  ] as const)('advances %s using its Malaysia date', (due, recurrence, anchor, expected) => {
+    expect(advanceRecurrence(due, recurrence, anchor, 'Asia/Kuala_Lumpur')).toBe(expected);
+  });
+  test('preserves the monthly anchor after February clamping', () => {
+    const february = advanceRecurrence('2026-01-30T16:00:00.000Z', 'monthly', 31)!;
+    expect(advanceRecurrence(february, 'monthly', 31)).toBe('2026-03-30T16:00:00.000Z');
+  });
+  test('weekly reminders preserve wall time across daylight saving', () => {
+    expect(advanceRecurrence('2026-03-01T14:00:00.000Z', 'weekly', 1, 'America/New_York')).toBe('2026-03-08T13:00:00.000Z');
   });
 });
