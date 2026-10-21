@@ -1,20 +1,20 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ReportDashboard, ReportFilters, ReportHistory } from '@/components/reports/report-components';
+import { ReportDashboard, ReportFilters } from '@/components/reports/report-components';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { useAuth } from '@/lib/auth-context';
-import { compileFinancialReport, createPresetSelection, validateReportSelection, withReportCategory } from '@/lib/report-domain';
-import { createReportRecord, fetchRecentReports, fetchReportSourceData } from '@/lib/reports';
+import { ReportCalculationError, compileFinancialReport, createPresetSelection, validateReportSelection, withReportCategory } from '@/lib/report-domain';
+import { fetchReportSourceData, ReportDataChangedError } from '@/lib/reports';
 import { fetchTransactionCategories } from '@/lib/transactions';
-import type { Category, FinancialReport, Report, ReportPreset, ReportSelection } from '@/lib/types';
+import type { Category, FinancialReport, ReportPreset, ReportSelection } from '@/lib/types';
 
-function reportErrorMessage(action: 'load' | 'generate' | 'refresh') {
-  if (action === 'generate') return 'The report could not be generated. Check your connection and try again.';
+function reportErrorMessage(action: 'load' | 'view' | 'refresh') {
+  if (action === 'view') return 'The report could not be displayed. Check your connection and try again.';
   if (action === 'refresh') return 'The report could not be refreshed. Your last successful results are still shown.';
   return 'Financial data could not be loaded. Check your connection and try again.';
 }
@@ -26,113 +26,125 @@ export default function ReportsScreen() {
   const [selection, setSelection] = useState<ReportSelection>(() => createPresetSelection('current_month'));
   const selectionRef = useRef(selection);
   const [report, setReport] = useState<FinancialReport | null>(null);
-  const [reports, setReports] = useState<Report[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [historyWarning, setHistoryWarning] = useState<string | null>(null);
-  const [historyUnavailable, setHistoryUnavailable] = useState(false);
 
-  useEffect(() => {
-    selectionRef.current = selection;
-  }, [selection]);
+  const requestId = useRef(0);
+  const focused = useRef(false);
+  const reportOwner = useRef(userId);
+  const reportRef = useRef<FinancialReport | null>(null);
 
-  const loadHistory = useCallback(async () => {
-    if (!userId) return;
-    try {
-      setReports(await fetchRecentReports(userId));
-      setHistoryUnavailable(false);
-    } catch {
-      setHistoryUnavailable(true);
-    }
-  }, [userId]);
-
-  const loadPreview = useCallback(async () => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+  const replaceSelection = useCallback((next: ReportSelection) => {
+    // Invalidate synchronously: a pending promise can settle before effects run.
+    requestId.current += 1;
+    selectionRef.current = next;
+    reportRef.current = null;
+    setSelection(next);
+    setReport(null);
+    setValidationError(null);
     setError(null);
-    setHistoryWarning(null);
+    setLoading(false);
+    setViewing(false);
+    setRefreshing(false);
+  }, []);
+
+  const runReport = useCallback(async (action: 'load' | 'view' | 'refresh') => {
+    if (!focused.current) return;
+    if (!userId) { setLoading(false); return; }
+    let activeSelection = selectionRef.current;
+    if (activeSelection.preset !== 'custom') {
+      const resolved = withReportCategory(createPresetSelection(activeSelection.preset), activeSelection.categoryId);
+      if (resolved.startDate !== activeSelection.startDate || resolved.endDate !== activeSelection.endDate) {
+        replaceSelection(resolved);
+        activeSelection = resolved;
+      }
+    }
+    const currentRequest = ++requestId.current;
+    const isCurrent = () => focused.current && currentRequest === requestId.current;
+    const selectionError = validateReportSelection(activeSelection);
+    setValidationError(selectionError);
+    setError(null);
+    setLoading(false);
+    setViewing(false);
+    setRefreshing(false);
+    if (selectionError) return;
+    setLoading(action === 'load');
+    setViewing(action === 'view');
+    setRefreshing(action === 'refresh');
     try {
-      const activeSelection = selectionRef.current;
       const [availableCategories, source] = await Promise.all([
         fetchTransactionCategories(userId),
         fetchReportSourceData(userId, activeSelection),
       ]);
+      if (!isCurrent()) return;
+      const compiled = compileFinancialReport(source, activeSelection);
+      reportRef.current = compiled;
       setCategories(availableCategories);
-      setReport(compileFinancialReport(source, activeSelection));
-    } catch {
-      setError(reportErrorMessage('load'));
+      setReport(compiled);
+    } catch (failure) {
+      if (!isCurrent()) return;
+      const retained = reportRef.current !== null;
+      setError(failure instanceof ReportCalculationError || failure instanceof ReportDataChangedError
+        ? failure.message : reportErrorMessage(action === 'refresh' && !retained ? 'view' : action));
     } finally {
-      setLoading(false);
+      // An older finally must never stop the newer operation's spinner.
+      if (isCurrent()) { setLoading(false); setViewing(false); setRefreshing(false); }
     }
-    await loadHistory();
-  }, [loadHistory, userId]);
+  }, [replaceSelection, userId]);
 
-  useFocusEffect(useCallback(() => { void loadPreview(); }, [loadPreview]));
+  const loadPreview = useCallback(() => runReport('load'), [runReport]);
+  const viewReport = useCallback(() => runReport('view'), [runReport]);
+  const refreshReport = useCallback(() => runReport('refresh'), [runReport]);
 
-  const generateReport = useCallback(async () => {
-    if (!userId || generating) return;
-    const selectionError = validateReportSelection(selection);
-    setValidationError(selectionError);
-    if (selectionError) return;
-    setGenerating(true);
-    setError(null);
-    setHistoryWarning(null);
-    try {
-      const source = await fetchReportSourceData(userId, selection);
-      setReport(compileFinancialReport(source, selection));
-      try {
-        await createReportRecord(userId, selection);
-        await loadHistory();
-      } catch {
-        setHistoryWarning('Report generated, but its history record could not be saved.');
-        setHistoryUnavailable(true);
+  useFocusEffect(useCallback(() => {
+    focused.current = true;
+    if (reportOwner.current !== userId) {
+      reportOwner.current = userId;
+      replaceSelection(withReportCategory(selectionRef.current, null));
+      setCategories([]);
+    }
+    void loadPreview();
+    let timer: ReturnType<typeof setTimeout>;
+    const recheckMonth = () => {
+      const current = selectionRef.current;
+      if (current.preset !== 'custom') {
+        const resolved = createPresetSelection(current.preset);
+        if (resolved.startDate !== current.startDate || resolved.endDate !== current.endDate) void loadPreview();
       }
-    } catch {
-      setError(reportErrorMessage('generate'));
-    } finally {
-      setGenerating(false);
-    }
-  }, [generating, loadHistory, selection, userId]);
-
-  const refreshReport = useCallback(async () => {
-    if (!userId || refreshing) return;
-    const selectionError = validateReportSelection(selection);
-    setValidationError(selectionError);
-    if (selectionError) return;
-    setRefreshing(true);
-    setError(null);
-    try {
-      const source = await fetchReportSourceData(userId, selection);
-      setReport(compileFinancialReport(source, selection));
-      await loadHistory();
-    } catch {
-      setError(reportErrorMessage('refresh'));
-    } finally {
-      setRefreshing(false);
-    }
-  }, [loadHistory, refreshing, selection, userId]);
+    };
+    const schedule = () => {
+      const now = new Date();
+      const boundary = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+      // Rearm at most a day ahead to avoid timer overflow and handle clock changes.
+      timer = setTimeout(() => { recheckMonth(); schedule(); }, Math.max(1, Math.min(86_400_000, boundary - now.getTime())));
+    };
+    schedule();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') recheckMonth();
+    });
+    return () => {
+      focused.current = false;
+      requestId.current += 1;
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, [loadPreview, replaceSelection, userId]));
 
   const changePreset = useCallback((preset: ReportPreset) => {
-    setSelection(withReportCategory(createPresetSelection(preset), selection.categoryId));
-    setValidationError(null);
-  }, [selection.categoryId]);
+    replaceSelection(withReportCategory(createPresetSelection(preset), selectionRef.current.categoryId));
+  }, [replaceSelection]);
 
   const changeCategory = useCallback((categoryId: number | null) => {
-    setSelection((current) => withReportCategory(current, categoryId));
-    setValidationError(null);
-  }, []);
+    replaceSelection(withReportCategory(selectionRef.current, categoryId));
+  }, [replaceSelection]);
 
   const changeCustomDate = useCallback((key: 'startDate' | 'endDate', value: string) => {
-    setSelection((current) => ({ ...current, [key]: value }));
-    setValidationError(null);
-  }, []);
+    replaceSelection({ ...selectionRef.current, [key]: value });
+  }, [replaceSelection]);
 
   return (
     <View style={{ flex: 1, backgroundColor: authColors.surface }}>
@@ -140,7 +152,7 @@ export default function ReportsScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={23} color={authColors.onSurface} />
         </Pressable>
-        <View style={{ flex: 1 }}><Text style={styles.pageTitle}>Reports & Analytics</Text><Text style={styles.pageSubtitle}>Calculated from your real financial records</Text></View>
+        <View style={{ flex: 1 }}><Text style={styles.pageTitle}>Reports & Analytics</Text><Text style={styles.pageSubtitle}>View interactive analysis inside FinCoach</Text></View>
       </View>
 
       {loading ? (
@@ -158,8 +170,8 @@ export default function ReportsScreen() {
             onCategoryChange={changeCategory}
             onStartDateChange={(value) => changeCustomDate('startDate', value)}
             onEndDateChange={(value) => changeCustomDate('endDate', value)}
-            onGenerate={() => void generateReport()}
-            generating={generating}
+            onView={() => void viewReport()}
+            viewing={viewing}
             validationError={validationError}
           />
           {error ? (
@@ -169,9 +181,7 @@ export default function ReportsScreen() {
               <Pressable accessibilityRole="button" onPress={() => void refreshReport()}><Text style={styles.retryText}>Retry</Text></Pressable>
             </View>
           ) : null}
-          {historyWarning ? <View accessibilityRole="alert" style={styles.warningCard}><MaterialIcons name="history-toggle-off" size={20} color="#8A4B00" /><Text style={styles.warningText}>{historyWarning}</Text></View> : null}
-          {report ? <ReportDashboard report={report} /> : !error ? <View style={styles.centerCard}><MaterialIcons name="analytics" size={34} color={authColors.primary} /><Text style={styles.stateTitle}>Choose filters to generate a report</Text></View> : null}
-          <ReportHistory reports={reports} unavailable={historyUnavailable} />
+          {report ? <ReportDashboard report={report} /> : !error ? <View style={styles.centerCard}><MaterialIcons name="analytics" size={34} color={authColors.primary} /><Text style={styles.stateTitle}>Choose filters to view your report</Text></View> : null}
         </ScrollView>
       )}
     </View>
@@ -190,6 +200,4 @@ const styles = {
   errorCard: { borderWidth: 1, borderColor: '#F3B6B6', borderRadius: 16, padding: 14, backgroundColor: '#FFF4F4', flexDirection: 'row', alignItems: 'center', gap: 11 } as const,
   errorTitle: { fontSize: 14, fontFamily: authFont.semibold, color: authColors.error } as const,
   retryText: { fontSize: 13, fontFamily: authFont.bold, color: authColors.primary } as const,
-  warningCard: { borderWidth: 1, borderColor: '#F0C68A', borderRadius: 14, padding: 12, backgroundColor: '#FFF8E8', flexDirection: 'row', alignItems: 'center', gap: 9 } as const,
-  warningText: { flex: 1, fontSize: 13, lineHeight: 18, fontFamily: authFont.regular, color: '#6B3A00' } as const,
 } as const;

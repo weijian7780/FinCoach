@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clarificationReply,
   isCoachAction,
+  isCoachChoices,
   isCoachClarification,
   isCoachReadClarification,
   reportSelectionFromCoachAction,
@@ -111,5 +112,33 @@ describe('coach agent interaction domain', () => {
       endDate: '2026-07-31',
       categoryId: null,
     });
+  });
+});
+
+describe('coach LLM choice payloads', () => {
+  const valid = {
+    type: 'coach_choices',
+    input_type: 'single_select',
+    options: [
+      { id: 'c1', label: 'Repay PTPTN', query: 'How do I repay PTPTN?' },
+      { id: 'c2', label: 'My balance', query: 'How much PTPTN do I owe?' },
+    ],
+  };
+
+  it('recognises a well-formed choice payload', () => {
+    expect(isCoachChoices(valid)).toBe(true);
+  });
+
+  it('rejects wrong type, empty, and malformed options', () => {
+    expect(isCoachChoices({ ...valid, type: 'read_clarification' })).toBe(false);
+    expect(isCoachChoices({ type: 'coach_choices', options: [] })).toBe(false);
+    expect(isCoachChoices({ type: 'coach_choices', options: [{ id: 'c1', label: 'x' }] })).toBe(false);
+    expect(isCoachChoices({ type: 'coach_choices', options: [{ id: 'c1', label: '', query: 'q' }] })).toBe(false);
+    expect(isCoachChoices(undefined)).toBe(false);
+    expect(isCoachChoices({ follow_ups: [] })).toBe(false);
+  });
+
+  it('does not mistake a choice payload for a read clarification', () => {
+    expect(isCoachReadClarification(valid)).toBe(false);
   });
 });

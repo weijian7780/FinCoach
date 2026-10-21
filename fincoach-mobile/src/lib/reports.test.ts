@@ -1,22 +1,28 @@
 import { describe, expect, test, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 import {
-  createReportRecord,
+  createReportSignedUrl,
   fetchRecentReports,
   fetchReportSourceData,
+  fetchReportStoragePath,
+  isDuplicateReportUploadError,
+  uploadReportPdf,
   type ReportDataClient,
 } from './reports';
 import type { ReportSelection } from './types';
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('expo-crypto', () => ({ CryptoDigestAlgorithm: { SHA256: 'SHA-256' }, digestStringAsync: async (_algorithm: string, value: string) => createHash('sha256').update(value).digest('hex') }));
 
-type Result = { data: unknown; error: unknown };
+type Result = { data: unknown; error: unknown; count?: number };
 
 function createBuilder(result: Partial<Result> = {}) {
-  const response: Result = { data: result.data ?? null, error: result.error ?? null };
+  const response: Result = { data: result.data ?? null, error: result.error ?? null, count: Array.isArray(result.data) ? result.data.length : 0 };
   const builder: Record<string, ReturnType<typeof vi.fn>> & {
     then?: (resolve: (value: Result) => unknown, reject?: (reason: unknown) => unknown) => Promise<unknown>;
   } = {
+    range: vi.fn(),
     select: vi.fn(),
     eq: vi.fn(),
     gte: vi.fn(),
@@ -26,7 +32,7 @@ function createBuilder(result: Partial<Result> = {}) {
     insert: vi.fn(),
     single: vi.fn(),
   };
-  for (const method of ['select', 'eq', 'gte', 'lte', 'order', 'limit', 'insert'] as const) {
+  for (const method of ['range', 'select', 'eq', 'gte', 'lte', 'order', 'limit', 'insert'] as const) {
     builder[method].mockReturnValue(builder);
   }
   builder.single.mockResolvedValue(response);
@@ -36,12 +42,31 @@ function createBuilder(result: Partial<Result> = {}) {
 
 function createClient(results: Record<string, Partial<Result>> = {}) {
   const builders = new Map<string, ReturnType<typeof createBuilder>>();
+  const upload = vi.fn().mockResolvedValue({
+    data: { path: 'user-1/monthly-2026-07.pdf' },
+    error: null,
+  });
+  const createSignedUrl = vi.fn().mockResolvedValue({
+    data: { signedUrl: 'https://example.supabase.co/report.pdf?token=signed' },
+    error: null,
+  });
+  const storageFrom = vi.fn().mockReturnValue({ upload, createSignedUrl });
   const from = vi.fn((table: string) => {
     const builder = createBuilder(results[table]);
     builders.set(table, builder);
     return builder;
   });
-  return { client: { from } as unknown as ReportDataClient, from, builders };
+  return {
+    client: {
+      from,
+      storage: { from: storageFrom },
+    } as unknown as ReportDataClient,
+    from,
+    builders,
+    storageFrom,
+    upload,
+    createSignedUrl,
+  };
 }
 
 const selection: ReportSelection = {
@@ -73,7 +98,7 @@ describe('report source persistence', () => {
     });
 
     const transactionsQuery = builders.get('transactions');
-    expect(transactionsQuery?.select).toHaveBeenCalledWith('*, category:categories(*)');
+    expect(transactionsQuery?.select).toHaveBeenCalledWith('*, category:categories(*)', { count: 'exact' });
     expect(transactionsQuery?.eq).toHaveBeenCalledWith('user_id', 'user-1');
     expect(transactionsQuery?.gte).toHaveBeenCalledWith('transaction_date', '2026-05-01');
     expect(transactionsQuery?.lte).toHaveBeenCalledWith('transaction_date', '2026-07-31');
@@ -93,22 +118,61 @@ describe('report source persistence', () => {
     await expect(fetchReportSourceData('user-1', selection, client)).rejects.toBe(error);
   });
 
-  test('inserts immutable owner-scoped report metadata', async () => {
-    const row = {
-      id: 5,
-      user_id: 'user-1',
-      period: '2026-05..2026-07',
-      type: 'multi_month',
-      generated_at: '2026-07-16T08:00:00Z',
-    };
-    const { client, builders } = createClient({ reports: { data: row } });
-    await expect(createReportRecord('user-1', selection, client)).resolves.toEqual(row);
-    expect(builders.get('reports')?.insert).toHaveBeenCalledWith({
-      user_id: 'user-1',
-      period: '2026-05..2026-07',
-      type: 'multi_month',
+  test('uploads the PDF to the private financial-reports bucket without overwriting', async () => {
+    const { client, storageFrom, upload } = createClient();
+    const bytes = new ArrayBuffer(8);
+
+    await expect(
+      uploadReportPdf('user-1/coach/attempt-1.pdf', bytes, client),
+    ).resolves.toEqual({ path: 'user-1/monthly-2026-07.pdf' });
+
+    expect(storageFrom).toHaveBeenCalledWith('financial-reports');
+    expect(upload).toHaveBeenCalledWith(
+      'user-1/coach/attempt-1.pdf',
+      bytes,
+      { contentType: 'application/pdf', upsert: false },
+    );
+  });
+
+  test('classifies a conflict on a reserved path as a duplicate upload', () => {
+    expect(isDuplicateReportUploadError({ statusCode: 409 })).toBe(true);
+    expect(isDuplicateReportUploadError({ statusCode: '409' })).toBe(true);
+    expect(isDuplicateReportUploadError({ message: 'The resource already exists' })).toBe(true);
+    expect(isDuplicateReportUploadError(new Error('network request failed'))).toBe(false);
+    expect(isDuplicateReportUploadError(null)).toBe(false);
+  });
+
+  test('creates a short-lived URL for opening a private report PDF', async () => {
+    const { client, storageFrom, createSignedUrl } = createClient();
+
+    await expect(
+      createReportSignedUrl('user-1/monthly-2026-07.pdf', 600, client),
+    ).resolves.toBe('https://example.supabase.co/report.pdf?token=signed');
+
+    expect(storageFrom).toHaveBeenCalledWith('financial-reports');
+    expect(createSignedUrl).toHaveBeenCalledWith(
+      'user-1/monthly-2026-07.pdf',
+      600,
+    );
+  });
+
+  test('recovers the storage path of an older report from its history row', async () => {
+    const { client, builders } = createClient({
+      reports: { data: { storage_path: 'user-1/monthly-2026-07.pdf' } },
     });
-    expect(builders.get('reports')?.select).toHaveBeenCalledWith('*');
+
+    await expect(fetchReportStoragePath(42, client)).resolves.toBe(
+      'user-1/monthly-2026-07.pdf',
+    );
+    expect(builders.get('reports')?.eq).toHaveBeenCalledWith('id', 42);
+  });
+
+  test('reports a clear reason when a history row has no stored PDF', async () => {
+    const { client } = createClient({ reports: { data: { storage_path: null } } });
+
+    await expect(fetchReportStoragePath(42, client)).rejects.toThrow(
+      'That report has no stored PDF file.',
+    );
   });
 
   test('retrieves recent history with owner, ordering, and a bounded limit', async () => {

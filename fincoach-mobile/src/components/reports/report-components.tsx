@@ -4,7 +4,7 @@ import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { formatReportMoney, formatReportPeriodLabel } from '@/lib/report-domain';
-import type { Category, FinancialReport, Report, ReportPreset, ReportSelection } from '@/lib/types';
+import type { Category, FinancialReport, ReportPreset, ReportSelection } from '@/lib/types';
 
 type FiltersProps = {
   selection: ReportSelection;
@@ -13,8 +13,8 @@ type FiltersProps = {
   onCategoryChange: (value: number | null) => void;
   onStartDateChange: (value: string) => void;
   onEndDateChange: (value: string) => void;
-  onGenerate: () => void;
-  generating: boolean;
+  onView: () => void;
+  viewing: boolean;
   validationError: string | null;
 };
 
@@ -51,13 +51,13 @@ export function ReportFilters(props: FiltersProps) {
       {props.validationError ? <Text accessibilityRole="alert" style={styles.error}>{props.validationError}</Text> : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Generate Report using selected filters"
-        disabled={props.generating}
-        onPress={props.onGenerate}
-        style={({ pressed }) => [styles.primaryButton, pressed && { opacity: 0.84 }, props.generating && { opacity: 0.56 }]}
+        accessibilityLabel="View report using selected filters"
+        disabled={props.viewing}
+        onPress={props.onView}
+        style={({ pressed }) => [styles.primaryButton, pressed && { opacity: 0.84 }, props.viewing && { opacity: 0.56 }]}
       >
         <MaterialIcons name="analytics" size={20} color={authColors.onPrimary} />
-        <Text style={styles.primaryButtonText}>{props.generating ? 'Generating…' : 'Generate Report'}</Text>
+        <Text style={styles.primaryButtonText}>{props.viewing ? 'Loading report…' : 'View Report'}</Text>
       </Pressable>
     </Card>
   );
@@ -123,11 +123,16 @@ function Metric({ label, value, icon, color, wide = false }: { label: string; va
   );
 }
 
+// Budget and savings stay overall when a category is selected, so say so.
+function overallPrefix(report: FinancialReport) {
+  return report.selection.categoryId == null ? '' : 'Overall ';
+}
+
 function Budget({ report }: { report: FinancialReport }) {
   const over = report.budget.exceeded > 0;
   return (
     <Card>
-      <Heading title="Budget vs Actual" icon="donut-large" />
+      <Heading title={`${overallPrefix(report)}Budget vs Actual`} icon="donut-large" />
       {report.budget.limit <= 0 ? <Text style={styles.muted}>No overall budget is saved for this period.</Text> : <>
         <Between left="SPENT" leftValue={formatReportMoney(report.budget.spent)} right="LIMIT" rightValue={formatReportMoney(report.budget.limit)} />
         <Bar label={`Budget used ${report.budget.percentage} percent`} value={report.budget.progressPercentage} color={over ? authColors.error : authColors.primary} />
@@ -156,7 +161,7 @@ function Categories({ report }: { report: FinancialReport }) {
 }
 
 function Trend({ report }: { report: FinancialReport }) {
-  const maximum = Math.max(1, ...report.trend.flatMap((item) => [item.income, item.expenses]));
+  const maximum = report.trend.reduce((value, item) => Math.max(value, item.income, item.expenses), 1);
   return (
     <Card>
       <Heading title="Monthly Trend" icon="bar-chart" />
@@ -179,27 +184,12 @@ function Trend({ report }: { report: FinancialReport }) {
 function Savings({ report }: { report: FinancialReport }) {
   return (
     <Card>
-      <Heading title="Savings Progress" icon="savings" />
+      <Heading title={`${overallPrefix(report)}Savings Progress`} icon="savings" />
       {report.savings.target <= 0 ? <Text style={styles.muted}>No savings goals are available yet.</Text> : <>
         <View style={styles.between}><Text style={styles.amount}>{formatReportMoney(report.savings.current)}</Text><Text style={styles.muted}>of {formatReportMoney(report.savings.target)}</Text></View>
         <Bar label={`Savings progress ${report.savings.percentage} percent`} value={report.savings.progressPercentage} color="#067647" />
         <View style={styles.between}><Text style={styles.muted}>{formatReportMoney(report.savings.remaining)} remaining</Text><Text style={[styles.percent, { color: '#067647' }]}>{report.savings.percentage}%</Text></View>
       </>}
-    </Card>
-  );
-}
-
-export function ReportHistory({ reports, unavailable }: { reports: Report[]; unavailable: boolean }) {
-  return (
-    <Card>
-      <Heading title="Recent Reports" icon="history" />
-      {unavailable ? <Text style={styles.muted}>Report history is unavailable. Analytics can still be generated.</Text> : !reports.length ? <Text style={styles.muted}>Generate a report to start your history.</Text> : reports.map((item, index) => (
-        <View key={item.id} style={[styles.historyRow, index === reports.length - 1 && { borderBottomWidth: 0 }]}>
-          <View style={styles.historyIcon}><MaterialIcons name="description" size={20} color={authColors.primary} /></View>
-          <View style={{ flex: 1 }}><Text style={styles.rowLabel}>{humanType(item.type)}</Text><Text style={styles.caption}>{item.period}</Text></View>
-          <Text style={styles.historyDate}>{formatDate(item.generated_at)}</Text>
-        </View>
-      ))}
     </Card>
   );
 }
@@ -211,9 +201,6 @@ function Card({ children }: { children: React.ReactNode }) { return <View style=
 function Bar({ value, color, label }: { value: number; color: string; label?: string }) { return <View accessibilityLabel={label} style={styles.track}><View style={[styles.fill, { width: `${Math.min(100, Math.max(0, value))}%`, backgroundColor: color }]} /></View>; }
 function Legend({ color, label }: { color: string; label: string }) { return <View style={styles.legend}><View style={[styles.dot, { backgroundColor: color }]} /><Text style={styles.caption}>{label}</Text></View>; }
 function Between({ left, leftValue, right, rightValue }: { left: string; leftValue: string; right: string; rightValue: string }) { return <View style={styles.between}><View><Text style={styles.eyebrow}>{left}</Text><Text style={styles.amount}>{leftValue}</Text></View><View style={{ alignItems: 'flex-end' }}><Text style={styles.eyebrow}>{right}</Text><Text style={styles.amount}>{rightValue}</Text></View></View>; }
-function humanType(type: Report['type']) { const base = type.replace('_category', '').replace('_', ' '); return `${base.replace(/^./, (letter) => letter.toUpperCase())} report${type.endsWith('_category') ? ' · Category' : ''}`; }
-function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Saved' : new Intl.DateTimeFormat('en-MY', { day: 'numeric', month: 'short' }).format(date); }
-
 const styles = {
   card: { backgroundColor: authColors.surfaceContainerLowest, borderRadius: 18, padding: 16, shadowColor: authColors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 2 } as const,
   heading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 } as const,
@@ -255,7 +242,4 @@ const styles = {
   trendBar: { width: 18, borderTopLeftRadius: 5, borderTopRightRadius: 5 } as const,
   trendLabel: { marginTop: 7, fontSize: 11, fontFamily: authFont.semibold, color: authColors.onSurfaceVariant } as const,
   trendNet: { marginTop: 2, fontSize: 11, fontFamily: authFont.bold, color: '#067647' } as const,
-  historyRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 11, borderBottomWidth: 1, borderBottomColor: authColors.outlineVariant, paddingVertical: 9 } as const,
-  historyIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: authColors.primaryFixed, alignItems: 'center', justifyContent: 'center' } as const,
-  historyDate: { fontSize: 12, fontFamily: authFont.semibold, color: authColors.onSurfaceVariant } as const,
 } as const;

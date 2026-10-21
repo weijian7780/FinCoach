@@ -15,28 +15,35 @@ describe('Financial Report and Analytics UI', () => {
     expect(route).toContain("@/components/reports/reports-screen");
     expect(screen).toContain('fetchReportSourceData');
     expect(screen).toContain('compileFinancialReport');
-    expect(screen).toContain('createReportRecord');
-    expect(screen).toContain('fetchRecentReports');
     expect(screen).toContain('fetchTransactionCategories');
     expect(screen).toContain('RefreshControl');
-    expect(components).toContain('Generate Report');
+    expect(components).toContain('View Report');
     expect(screen + components).not.toContain('RM 0');
     expect(screen + components).not.toContain('AI insight');
   });
 
-  test('keeps initial preview and refresh separate from history creation', () => {
+  test('keeps initial preview, filtered viewing, and refresh as in-app operations', () => {
     const screen = read('src', 'components', 'reports', 'reports-screen.tsx');
     expect(screen).toContain('loadPreview');
-    expect(screen).toContain('generateReport');
+    expect(screen).toContain('viewReport');
     expect(screen).toContain('refreshReport');
-    expect(screen).toContain('historyWarning');
+    expect(screen).toContain('setReport(null)');
     expect(screen).toContain('validateReportSelection');
+  });
+
+  test('does not generate, upload, or open files from the Reports module', () => {
+    const screen = read('src', 'components', 'reports', 'reports-screen.tsx');
+    expect(screen).not.toContain('writePdfExport');
+    expect(screen).not.toContain('uploadReportPdf');
+    expect(screen).not.toContain('saveReportRecord');
+    expect(screen).not.toContain('createReportSignedUrl');
+    expect(screen).not.toContain('Linking.openURL');
   });
 
   test('does not refetch the focus preview on every filter keystroke', () => {
     const screen = read('src', 'components', 'reports', 'reports-screen.tsx');
     expect(screen).toContain('selectionRef.current');
-    expect(screen).not.toContain('[loadHistory, selection, userId]');
+    expect(screen).not.toContain('[selection, userId]');
   });
 
   test('provides all approved dashboard sections and accessible chart labels', () => {
@@ -49,11 +56,17 @@ describe('Financial Report and Analytics UI', () => {
       'Spending by Category',
       'Monthly Trend',
       'Savings Progress',
-      'Recent Reports',
     ]) expect(components).toContain(label);
     expect(components).toContain('accessibilityLabel');
     expect(components).toContain('No transactions in this period');
     expect(components).toContain('YYYY-MM-DD');
     expect(components).not.toContain('react-native-svg');
+  });
+
+  test('labels budget and savings as overall when a category filter is active', () => {
+    const components = read('src', 'components', 'reports', 'report-components.tsx');
+    expect(components).toContain("report.selection.categoryId == null ? '' : 'Overall '");
+    expect(components).toContain('${overallPrefix(report)}Budget vs Actual');
+    expect(components).toContain('${overallPrefix(report)}Savings Progress');
   });
 });

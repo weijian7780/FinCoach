@@ -9,6 +9,7 @@ import {
   validateReportSelection,
 } from './report-domain';
 import type { ReportSelection, ReportSourceData, TransactionWithCategory } from './types';
+import { buildProfileIncomeDraft } from './transaction-domain';
 
 function transaction(
   id: string,
@@ -67,6 +68,22 @@ const source: ReportSourceData = {
 };
 
 describe('report selections', () => {
+  test('combines confirmed profile income and manual income, respecting edits, deletion and filters', () => {
+    const allowance = transaction('allowance', '2026-07-02', 2000, 9, 'Income', 'income');
+    const draft = buildProfileIncomeDraft({ monthly_allowance: 2000, income_source: 'Allowance' }, [allowance.category], allowance.transaction_date)!;
+    allowance.amount = Number(draft.amount);
+    const manual = transaction('manual', '2026-07-03', 500, 9, 'Income', 'income');
+    const expense = transaction('expense', '2026-07-04', 300, 1, 'Food', 'expense');
+    const outside = transaction('outside', '2026-08-01', 9000, 9, 'Income', 'income');
+    const data = { ...source, transactions: [allowance, manual, expense, outside] };
+    expect(compileFinancialReport(data, selection)).toMatchObject({ totalIncome: 2500, totalExpenses: 300, netBalance: 2200 });
+    expect(compileFinancialReport({ ...data, transactions: [{ ...allowance, amount: 1900 }, manual, expense] }, selection).totalIncome).toBe(2400);
+    expect(compileFinancialReport({ ...data, transactions: [manual, expense] }, selection).totalIncome).toBe(500);
+    expect(compileFinancialReport(data, { ...selection, categoryId: 1 }).totalIncome).toBe(0);
+    // Changing expected income produces a different future draft, never a synthetic report row.
+    buildProfileIncomeDraft({ monthly_allowance: 2500, income_source: 'Allowance' }, [allowance.category], allowance.transaction_date);
+    expect(compileFinancialReport(data, selection).totalIncome).toBe(2500);
+  });
   test('uses local calendar dates for the current month', () => {
     const now = new Date(2026, 6, 16, 0, 30);
     expect(createPresetSelection('current_month', now)).toEqual({
@@ -172,16 +189,29 @@ describe('financial report compiler', () => {
   test('shows true over-budget percentages while capping visual progress only', () => {
     const report = compileFinancialReport({
       ...source,
-      monthlyBudgets: [{ ...source.monthlyBudgets[0], limit_amount: 100 }],
+      monthlyBudgets: [{ ...source.monthlyBudgets[1], limit_amount: 100 }],
     }, selection);
     expect(report.budget).toMatchObject({
       limit: 100,
-      spent: 350,
+      spent: 250,
       remaining: 0,
-      exceeded: 250,
-      percentage: 350,
+      exceeded: 150,
+      percentage: 250,
       progressPercentage: 100,
     });
+  });
+
+  test('compares a monthly budget only with spending from its own month', () => {
+    const food = (id: string, date: string, amount: number) => transaction(id, date, amount, 1, 'Food', 'expense');
+    const report = compileFinancialReport({
+      transactions: [food('aug', '2026-08-10', 400), food('sep', '2026-09-10', 400), food('oct', '2026-10-10', 300)],
+      monthlyBudgets: [{ id: 'b', user_id: 'user-1', month: '2026-10-01', limit_amount: 500, created_at: '', updated_at: '' }],
+      categoryLimits: [{ id: 1, user_id: 'user-1', month: '2026-10-01', category_id: 1, amount: 350, created_at: '', updated_at: '' }],
+      savingsGoals: [],
+    }, { preset: 'last_3_months', startDate: '2026-08-01', endDate: '2026-10-31', categoryId: null, reportType: 'multi_month' });
+    expect(report.totalExpenses).toBe(1100);
+    expect(report.budget).toMatchObject({ limit: 500, spent: 300, remaining: 200, exceeded: 0, percentage: 60 });
+    expect(report.categoryBudgets[0]).toMatchObject({ categoryId: 1, limit: 350, spent: 300, exceeded: 0 });
   });
 
   test('fills missing trend months and handles empty data safely', () => {

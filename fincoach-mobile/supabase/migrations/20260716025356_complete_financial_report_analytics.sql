@@ -1,4 +1,4 @@
-+-- Complete Financial Report and Analytics report-history storage.
+-- Complete Financial Report and Analytics report-history storage.
 -- Analytics are calculated from owner-scoped source records in the mobile client.
 -- This table stores only immutable generation metadata required by the ERD.
 

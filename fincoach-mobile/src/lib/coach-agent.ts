@@ -1,6 +1,7 @@
 import type {
   CoachActionPayload,
   CoachChoiceOption,
+  CoachChoicesPayload,
   CoachClarificationPayload,
   CoachReadClarificationPayload,
   ReportPreset,
@@ -52,6 +53,25 @@ export function isCoachReadClarification(
     && typeof value.field === 'string'
     && areValidOptions(value.options)
     && typeof value.allow_other === 'boolean';
+}
+
+// LLM-offered choice cards: tapping one submits its `query` as a new request.
+// Validated defensively so a malformed payload renders nothing rather than a
+// broken card.
+export function isCoachChoices(value: unknown): value is CoachChoicesPayload {
+  if (!isRecord(value)) return false;
+  return value.type === 'coach_choices'
+    && Array.isArray(value.options)
+    && value.options.length > 0
+    && value.options.every(
+      (option) =>
+        isRecord(option)
+        && typeof option.id === 'string'
+        && typeof option.label === 'string'
+        && option.label.trim().length > 0
+        && typeof option.query === 'string'
+        && option.query.trim().length > 0,
+    );
 }
 
 export function isCoachAction(value: unknown): value is CoachActionPayload {

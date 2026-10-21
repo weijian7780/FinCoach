@@ -25,7 +25,12 @@ import { AnimatedPressable } from '@/components/ui/animated-pressable';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { coachMotion, coachTypingDotDelay } from '@/lib/coach-motion';
-import { isCoachAction, isCoachClarification, isCoachReadClarification } from '@/lib/coach-agent';
+import {
+  isCoachAction,
+  isCoachChoices,
+  isCoachClarification,
+  isCoachReadClarification,
+} from '@/lib/coach-agent';
 import {
   coachFollowUpChips,
   coachSourceDisclosure,
@@ -84,6 +89,9 @@ function CoachMessageView({
       ? message.ui_payload
       : null;
   const action = isCoachAction(message.ui_payload) ? message.ui_payload : null;
+  // LLM-offered choice cards: tapping one submits its saved query as a new
+  // request, resolved server-side by option id (never a resume of state).
+  const choices = isCoachChoices(message.ui_payload) ? message.ui_payload.options : [];
 
   useEffect(() => {
     if (!copied) return;
@@ -252,7 +260,33 @@ function CoachMessageView({
           ) : null}
         </View>
       ) : null}
-      {isAssistant && showFollowUps && !clarification && !action ? (
+      {isAssistant && choices.length > 0 && !clarification && !action ? (
+        <Animated.View
+          entering={reduceMotion ? undefined : FadeInUp.duration(coachMotion.messageEnterDuration)}
+          style={styles.followUpSection}>
+          <Text style={styles.followUpLabel}>SUGGESTED NEXT</Text>
+          <View style={styles.followUpRow}>
+            {choices.map((choice) => (
+              <AnimatedPressable
+                accessibilityRole="button"
+                disabled={feedbackDisabled}
+                key={choice.id}
+                onPress={() => onFollowUp(choice.query, {
+                  assistant_message_id: message.id,
+                  value: choice.id,
+                })}
+                style={[
+                  styles.followUpChip,
+                  feedbackDisabled ? styles.utilityDisabled : null,
+                ]}>
+                <Text style={styles.followUpText}>{choice.label}</Text>
+                <MaterialCommunityIcons name="arrow-right" size={15} color={authColors.primary} />
+              </AnimatedPressable>
+            ))}
+          </View>
+        </Animated.View>
+      ) : null}
+      {isAssistant && showFollowUps && followUps.length > 0 && choices.length === 0 && !clarification && !action ? (
         <Animated.View
           entering={reduceMotion ? undefined : FadeInUp.duration(coachMotion.messageEnterDuration)}
           style={styles.followUpSection}>
