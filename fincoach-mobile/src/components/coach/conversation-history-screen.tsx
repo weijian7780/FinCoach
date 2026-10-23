@@ -14,7 +14,9 @@ import { AnimatedPressable } from '@/components/ui/animated-pressable';
 import { appDialog } from '@/components/ui/app-dialog';
 import { AppText as Text, AppTextInput as TextInput } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
+import { useAuth } from '@/lib/auth-context';
 import { createCoachConversation, deleteCoachConversation, listCoachConversations, renameCoachConversation } from '@/lib/coach-api';
+import { forgetCachedConversation, readCachedConversations, writeCachedConversations } from '@/lib/coach-cache';
 import { coachErrorMessage, sortConversations } from '@/lib/coach-domain';
 import { coachMotion } from '@/lib/coach-motion';
 import { coachDeleteConfirmation, validateCoachTitle } from '@/lib/coach-ui';
@@ -23,24 +25,40 @@ import type { CoachConversation } from '@/lib/types';
 export default function ConversationHistoryScreen() {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
-  const [conversations, setConversations] = useState<CoachConversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const userId = useAuth().session?.user.id ?? null;
+  const [conversations, setConversationState] = useState<CoachConversation[]>(
+    () => (userId ? readCachedConversations(userId) : null) ?? [],
+  );
+  const [loading, setLoading] = useState(() => !userId || !readCachedConversations(userId));
   const [error, setError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [titleError, setTitleError] = useState<string | null>(null);
 
+  // The coach screen reads this cache to open a chat without waiting for the list.
+  const setConversations = useCallback((update: (current: CoachConversation[]) => CoachConversation[]) => {
+    setConversationState((current) => {
+      const next = update(current);
+      if (userId) writeCachedConversations(userId, next);
+      return next;
+    });
+  }, [userId]);
+
   const load = useCallback(async () => {
-    setLoading(true);
+    const cached = userId ? readCachedConversations(userId) : null;
+    // Cached rows stay visible while the list refreshes.
+    if (cached) setConversationState(cached);
+    setLoading(!cached);
     setError(null);
     try {
-      setConversations(sortConversations(await listCoachConversations()));
+      const saved = sortConversations(await listCoachConversations());
+      setConversations(() => saved);
     } catch (caught) {
       setError(coachErrorMessage(caught));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setConversations, userId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const open = useCallback((sessionId: string) => {
@@ -66,7 +84,7 @@ export default function ConversationHistoryScreen() {
     } catch (caught) {
       setTitleError(coachErrorMessage(caught));
     }
-  }, [title]);
+  }, [setConversations, title]);
 
   const confirmDelete = useCallback((conversation: CoachConversation) => {
     appDialog.open('Delete conversation?', coachDeleteConfirmation(conversation.title), [
@@ -76,12 +94,15 @@ export default function ConversationHistoryScreen() {
         style: 'destructive',
         onPress: () => {
           void deleteCoachConversation(conversation.id)
-            .then(() => setConversations((current) => current.filter((item) => item.id !== conversation.id)))
+            .then(() => {
+              if (userId) forgetCachedConversation(userId, conversation.id);
+              setConversations((current) => current.filter((item) => item.id !== conversation.id));
+            })
             .catch((caught) => setError(coachErrorMessage(caught)));
         },
       },
     ]);
-  }, []);
+  }, [setConversations, userId]);
 
   return (
     <View style={{ flex: 1, backgroundColor: authColors.surface }}>

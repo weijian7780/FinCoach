@@ -79,7 +79,7 @@ describe('coach API client', () => {
       networkStatus: async () => 'online',
     });
     try {
-      const outcome = client.listConversations().catch((error: unknown) => error);
+      const outcome = client.sendMessage('session-1', 'message-1', 'Hi').catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(90_000);
       expect(signal?.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(30_000);
@@ -87,6 +87,33 @@ describe('coach API client', () => {
       await vi.advanceTimersByTimeAsync(30_000);
       expect(await outcome).toMatchObject({ code: 'timeout' });
       expect(signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives history reads a 15-second deadline instead of the generation deadline', async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const client = createCoachApiClient({
+      baseUrl: 'http://api',
+      auth: { getAccessToken: async () => 'token', refreshAccessToken: async () => null },
+      fetchImpl: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal ?? undefined;
+        if (signal) signals.push(signal);
+        signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      }),
+      networkStatus: async () => 'online',
+    });
+    try {
+      const conversations = client.listConversations().catch((error: unknown) => error);
+      const messages = client.listMessages('session-1').catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(signals.some((signal) => signal.aborted)).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await conversations).toMatchObject({ code: 'timeout' });
+      expect(await messages).toMatchObject({ code: 'timeout' });
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();

@@ -209,6 +209,51 @@ afterEach(async () => {
   if (renderer) await act(async () => { renderer.unmount(); });
 });
 
+function headerTitle() {
+  return renderer.root.findAllByType('Text' as never)
+    .find((node) => node.props.numberOfLines === 1)!.props.children;
+}
+
+describe('opening a saved chat', () => {
+  it('shows its messages without waiting for the conversation list', async () => {
+    const list = deferred<CoachConversation[]>();
+    fixtures.list.mockReturnValue(list.promise);
+    await mount();
+    expect(fixtures.messages).toHaveBeenCalledWith('session-a', { limit: 30 });
+    expect(listProps().data.map((item: CoachMessage) => item.id)).toEqual(['session-a-answer']);
+    expect(headerTitle()).toBe('FinCoach');
+    await act(async () => { list.resolve([conversation('session-a')]); });
+    expect(headerTitle()).toBe('session-a');
+  });
+
+  it('still shows messages when the conversation list fails', async () => {
+    fixtures.list.mockRejectedValue(new Error('list down'));
+    await mount();
+    expect(listProps().data.map((item: CoachMessage) => item.id)).toEqual(['session-a-answer']);
+  });
+
+  it('opens a chat deleted elsewhere as an empty draft', async () => {
+    fixtures.messages.mockRejectedValue(new CoachApiError(404, 'Conversation not found.'));
+    await mount();
+    expect(listProps().data).toEqual([]);
+    expect(renderer.root.findAllByProps({ children: 'Coach unavailable' })).toHaveLength(0);
+  });
+
+  it('never shows a previous chat page that arrives after switching', async () => {
+    const first = deferred<CoachMessagePage>();
+    fixtures.messages.mockImplementation(async (id: string) => (
+      id === 'session-a' ? first.promise : { messages: [message(`${id}-answer`, id)], next_before: null }
+    ));
+    await mount();
+    await act(async () => {
+      fixtures.params = { sessionId: 'session-b' };
+      renderer.update(<CoachScreen />);
+    });
+    await act(async () => { first.resolve({ messages: [message('session-a-answer')], next_before: null }); });
+    expect(listProps().data.map((item: CoachMessage) => item.id)).toEqual(['session-b-answer']);
+  });
+});
+
 describe('coaching screen asynchronous behavior', () => {
   it('submits one turn when send is pressed twice before React renders', async () => {
     const pending = deferred<CoachTurnResponse>();

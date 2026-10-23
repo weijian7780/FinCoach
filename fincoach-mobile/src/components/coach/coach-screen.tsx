@@ -44,6 +44,15 @@ import {
 } from '@/lib/coach-actions';
 import { isCoachAction } from '@/lib/coach-agent';
 import {
+  fetchLatestMessagePageOnce,
+  forgetCachedConversation,
+  invalidatePendingMessagePage,
+  readCachedConversations,
+  readCachedMessagePage,
+  writeCachedConversations,
+  writeCachedMessagePage,
+} from '@/lib/coach-cache';
+import {
   canSendCoachMessage,
   coachErrorMessage,
   getCoachFollowUpChips,
@@ -79,7 +88,6 @@ import type {
   CoachConversation,
   CoachInteractionReply,
   CoachMessage as CoachMessageType,
-  CoachMessagePage,
   CoachReportAttempt,
 } from '@/lib/types';
 
@@ -104,10 +112,6 @@ const coachListContentStyle = {
   flexGrow: 1,
 } as const;
 
-// Memory-only cache: it speeds up tab switching without persisting private chats
-// to device storage. Every entry is scoped to its owner before it is read back.
-const conversationCache = new Map<string, CoachConversation[]>();
-const messagePageCache = new Map<string, CoachMessagePage>();
 // A rendered PDF is kept by attempt id so a lost completion response is retried
 // without regenerating or overwriting the immutable per-attempt file.
 const pendingReportCompletions = new Map<string, GeneratedCoachReport>();
@@ -118,24 +122,10 @@ async function discardSavedReportAttempt(ownerId: string, messageId: string, act
   await clearReportAttempt(ownerId, messageId, actionId).catch(() => {});
 }
 
-function cacheKey(userId: string, sessionId: string) {
-  return `${userId}:${sessionId}`;
-}
-
-function readCachedConversations(userId: string) {
-  return conversationCache.get(userId) ?? null;
-}
-
-function writeCachedConversations(userId: string, conversations: CoachConversation[]) {
-  conversationCache.set(userId, conversations);
-}
-
-function readCachedMessagePage(userId: string, sessionId: string) {
-  return messagePageCache.get(cacheKey(userId, sessionId)) ?? null;
-}
-
-function writeCachedMessagePage(userId: string, sessionId: string, page: CoachMessagePage) {
-  messagePageCache.set(cacheKey(userId, sessionId), page);
+// Shown until the conversation list arrives. Only the id is needed to read,
+// send and page; the empty title keeps the header on its default label.
+function placeholderConversation(id: string, userId: string): CoachConversation {
+  return { id, user_id: userId, title: '', created_at: '', updated_at: '', last_message_at: '' };
 }
 
 function prependOlderMessages(
@@ -264,22 +254,62 @@ export default function CoachScreen() {
       return;
     }
 
+    const isCurrent = () => requestId === loadSequence.current && scope === scopeRef.current;
     const selectConversation = (items: CoachConversation[]) => (
       params.sessionId
         ? items.find((item) => item.id === params.sessionId) ?? null
         : items[0] ?? null
     );
+    const showEmptyChat = () => {
+      setConversation(null);
+      setMessages([]);
+      setNextBefore(null);
+    };
+    // Keep cached messages visible, then refresh them in the background so a
+    // second device or a later reply is not hidden behind stale local state.
+    const refreshMessages = async (sessionId: string) => {
+      const page = await fetchLatestMessagePageOnce(
+        ownerId,
+        sessionId,
+        () => listCoachMessages(sessionId, { limit: COACH_MESSAGE_PAGE_SIZE }),
+      );
+      if (!isCurrent()) return;
+      writeCachedMessagePage(ownerId, sessionId, page);
+      setConversation((current) => (
+        current?.id === sessionId
+          ? current
+          : readCachedConversations(ownerId)?.find((item) => item.id === sessionId)
+            ?? placeholderConversation(sessionId, ownerId)
+      ));
+      shouldScrollToLatest.current = true;
+      setMessages(page.messages);
+      reconcileAttemptsRef.current(page.messages, scope);
+      const activeSend = sendStateRef.current;
+      const recoveredReply =
+        activeSend.status === 'failed' &&
+        page.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.reply_to_message_id === activeSend.messageId,
+        );
+      if (recoveredReply) {
+        setSendError(null);
+        updateSendState({ status: 'idle' });
+      }
+      setNextBefore(page.next_before);
+    };
     const cachedConversations = readCachedConversations(ownerId);
     const cachedConversation = cachedConversations
       ? selectConversation(cachedConversations)
       : null;
-    const cachedPage = cachedConversation
-      ? readCachedMessagePage(ownerId, cachedConversation.id)
+    const cachedSessionId = params.sessionId ?? cachedConversation?.id ?? null;
+    const cachedPage = cachedSessionId
+      ? readCachedMessagePage(ownerId, cachedSessionId)
       : null;
-    const hasCachedPage = Boolean(cachedConversation && cachedPage);
-    if (cachedConversation && cachedPage) {
+    const hasCachedPage = Boolean(cachedSessionId && cachedPage);
+    if (cachedSessionId && cachedPage) {
       shouldScrollToLatest.current = true;
-      setConversation(cachedConversation);
+      setConversation(cachedConversation ?? placeholderConversation(cachedSessionId, ownerId));
       setMessages(cachedPage.messages);
       setNextBefore(cachedPage.next_before);
       setLoading(false);
@@ -288,37 +318,40 @@ export default function CoachScreen() {
     }
     setLoadError(null);
     try {
+      if (params.sessionId) {
+        const sessionId = params.sessionId;
+        // The chat id is already known, so its messages do not wait for the
+        // conversation list. The list only refreshes the title and the cache.
+        void listCoachConversations().then((items) => {
+          if (!isCurrent()) return;
+          const saved = sortConversations(items);
+          writeCachedConversations(ownerId, saved);
+          const selected = selectConversation(saved);
+          if (selected) setConversation((current) => (current === null || current.id === selected.id ? selected : current));
+        }, () => {
+          // The header keeps its default label; the messages are what matter.
+        });
+        try {
+          await refreshMessages(sessionId);
+        } catch (error) {
+          if (!(error instanceof CoachApiError && error.status === 404)) throw error;
+          // A chat deleted elsewhere opens as an empty draft, as before.
+          if (!isCurrent()) return;
+          forgetCachedConversation(ownerId, sessionId);
+          showEmptyChat();
+        }
+        return;
+      }
+      // Without a chat id the latest conversation has to be found first.
       const saved = sortConversations(await listCoachConversations());
-      if (requestId !== loadSequence.current || scope !== scopeRef.current) return;
+      if (!isCurrent()) return;
       writeCachedConversations(ownerId, saved);
       const selected = selectConversation(saved);
       if (!selected) {
-        setConversation(null);
-        setMessages([]);
-        setNextBefore(null);
+        showEmptyChat();
       } else {
         setConversation(selected);
-        // Keep cached messages visible, then refresh them in the background so a
-        // second device or a later reply is not hidden behind stale local state.
-        const page = await listCoachMessages(selected.id, { limit: COACH_MESSAGE_PAGE_SIZE });
-        if (requestId !== loadSequence.current || scope !== scopeRef.current) return;
-        writeCachedMessagePage(ownerId, selected.id, page);
-        shouldScrollToLatest.current = true;
-        setMessages(page.messages);
-        reconcileAttemptsRef.current(page.messages, scope);
-        const activeSend = sendStateRef.current;
-        const recoveredReply =
-          activeSend.status === 'failed' &&
-          page.messages.some(
-            (message) =>
-              message.role === 'assistant' &&
-              message.reply_to_message_id === activeSend.messageId,
-          );
-        if (recoveredReply) {
-          setSendError(null);
-          updateSendState({ status: 'idle' });
-        }
-        setNextBefore(page.next_before);
+        await refreshMessages(selected.id);
       }
     } catch (error) {
       if (requestId === loadSequence.current && scope === scopeRef.current && !hasCachedPage) {
@@ -525,6 +558,7 @@ export default function CoachScreen() {
       );
       if (scope !== scopeRef.current) return;
       ++loadSequence.current;
+      if (userId) invalidatePendingMessagePage(userId, active.id);
       shouldScrollToLatest.current = true;
       setMessages((current) => {
         const updated = mergeTurn(current, turn);
@@ -617,6 +651,7 @@ export default function CoachScreen() {
   }, []);
 
   const replaceMessage = useCallback((updated: CoachMessageType) => {
+    if (userId) invalidatePendingMessagePage(userId, updated.session_id);
     setMessages((current) => {
       const next = current.map((message) => (
         message.id === updated.id ? { ...updated, sources: updated.sources ?? message.sources } : message
@@ -924,7 +959,7 @@ export default function CoachScreen() {
   const retryMessageId = sendState.status === 'failed' ? sendState.messageId : null;
   const retryInteractionReply = sendState.status === 'failed' ? sendState.interactionReply : undefined;
   const showSuggestions = shouldShowCoachSuggestions(messages, loading || isSending);
-  const title = conversation?.title === 'New conversation' || !conversation ? 'FinCoach' : conversation.title;
+  const title = conversation?.title === 'New conversation' || !conversation?.title ? 'FinCoach' : conversation.title;
   const listData = useMemo(() => messages, [messages]);
   const lastAssistantMessageId = useMemo(
     () => [...messages].reverse().find((message) => message.role === 'assistant')?.id ?? null,

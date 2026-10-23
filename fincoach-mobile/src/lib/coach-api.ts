@@ -28,6 +28,7 @@ type ClientOptions = {
   auth?: CoachAuthAdapter;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  readTimeoutMs?: number;
   networkStatus?: () => Promise<CoachNetworkStatus>;
 };
 
@@ -105,9 +106,16 @@ export function createCoachApiClient(options: ClientOptions = {}) {
   const auth = options.auth ?? supabaseAuth;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 150_000;
+  // History reads never wait on the model, so a stalled connection should reach
+  // Retry quickly instead of holding the loading state for the generation deadline.
+  const readTimeoutMs = Math.min(options.readTimeoutMs ?? 15_000, timeoutMs);
   const networkStatus = options.networkStatus ?? nativeNetworkStatus;
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async function request<T>(
+    path: string,
+    init: RequestInit = {},
+    deadlineMs = timeoutMs,
+  ): Promise<T> {
     const defaultBaseUrl = configuredBaseUrl === undefined
       ? (await import('./env')).fincoachApiUrl
       : configuredBaseUrl;
@@ -122,7 +130,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
       const timeout = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, timeoutMs);
+      }, deadlineMs);
       try {
         const response = await fetchImpl(`${baseUrl}${path}`, {
           ...init,
@@ -174,7 +182,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
   }
 
   return {
-    listConversations: () => request<CoachConversation[]>('/coach/conversations'),
+    listConversations: () => request<CoachConversation[]>('/coach/conversations', {}, readTimeoutMs),
     createConversation: (title = 'New conversation') =>
       request<CoachConversation>('/coach/conversations', {
         method: 'POST',
@@ -193,6 +201,8 @@ export function createCoachApiClient(options: ClientOptions = {}) {
       if (options.before) params.set('before', options.before);
       return request<CoachMessagePage>(
         `/coach/conversations/${encodeURIComponent(sessionId)}/messages?${params.toString()}`,
+        {},
+        readTimeoutMs,
       );
     },
     sendMessage: (
