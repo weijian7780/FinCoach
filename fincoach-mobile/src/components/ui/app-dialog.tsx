@@ -40,7 +40,7 @@ let globalOpenDialog: OpenDialog | null = null;
 function inferTone(title: string, buttons: AppDialogButton[]): AppDialogTone {
   if (buttons.some((button) => button.role === 'destructive')) return 'destructive';
   if (/completed|saved|ready|success/i.test(title)) return 'success';
-  if (/permission|check |retry|rescan|too large|synchron/i.test(title)) return 'warning';
+  if (/permission|check |retry|rescan|too large|synchron|exceeded|almost reached/i.test(title)) return 'warning';
   if (/failed|could not|blocked|unavailable|cannot|error/i.test(title)) return 'error';
   return 'info';
 }

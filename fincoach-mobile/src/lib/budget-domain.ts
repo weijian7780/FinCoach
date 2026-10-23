@@ -98,6 +98,28 @@ export function getLimitStatus(usedAmount: number, limitAmount: number): LimitSt
   return { label: 'Within Limit', tone: 'success' };
 }
 
+const BUDGET_LEFT_GREEN = [46, 158, 91] as const;
+const BUDGET_LEFT_YELLOW = [229, 180, 0] as const;
+const BUDGET_LEFT_RED = [217, 48, 37] as const;
+
+function mixRgb(from: readonly number[], to: readonly number[], t: number, shade = 1) {
+  const channel = (index: number) => Math.round((from[index] + (to[index] - from[index]) * t) * shade).toString(16).padStart(2, '0');
+  return `#${channel(0)}${channel(1)}${channel(2)}`;
+}
+
+/**
+ * Colour by budget left: green at 100% left, yellow at 50%, red at 0% (or over), blended in between.
+ * `text` is a darker shade of the same colour so the percentage stays readable on white cards.
+ */
+export function getBudgetLeftColor(usedAmount: number, limitAmount: number) {
+  const { limitAmount: limit, usedAmount: used } = getLimitMetrics(usedAmount, limitAmount);
+  const left = limit > 0 ? Math.min(1, Math.max(0, 1 - used / limit)) : 0;
+  const [from, to, t] = left >= 0.5
+    ? [BUDGET_LEFT_YELLOW, BUDGET_LEFT_GREEN, (left - 0.5) / 0.5]
+    : [BUDGET_LEFT_RED, BUDGET_LEFT_YELLOW, left / 0.5];
+  return { bar: mixRgb(from, to, t), text: mixRgb(from, to, t, 0.72) };
+}
+
 export function getUnbudgetedCategorySpending(
   spentByCategory: ReadonlyMap<number, number>,
   limitedCategoryIds: Iterable<number>,

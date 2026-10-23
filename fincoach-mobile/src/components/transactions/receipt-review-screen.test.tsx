@@ -15,7 +15,7 @@ vi.mock('@/components/transactions/transaction-date-field', () => ({ Transaction
 vi.mock('@/components/transactions/receipt-image-viewer', () => ({ ReceiptImageViewer: 'ImageViewer' }));
 vi.mock('@/lib/auth-context', () => ({ useAuth: () => ({ session: { user: { id: 'owner' } } }) }));
 vi.mock('@/lib/receipt-ocr', () => ({ getReceiptDraft: () => mocks.draft, clearReceiptDraft: mocks.clear }));
-vi.mock('@/lib/alert-events', () => ({ emitBudgetAlertsAfterTransactionChange: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@/lib/alert-events', () => ({ emitBudgetAlertsAfterTransactionChange: vi.fn().mockResolvedValue([]) }));
 vi.mock('@/lib/transactions', () => ({ saveReceiptTransaction: mocks.save,
   fetchTransactionCategories: vi.fn().mockResolvedValue([{ id: 1, name: 'Food', type: 'expense' }]),
   TransactionDraftConflictError: class extends Error {} }));

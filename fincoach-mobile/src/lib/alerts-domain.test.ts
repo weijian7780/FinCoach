@@ -15,6 +15,8 @@ import {
   formatReminderDue,
   formatSpendingSchedule,
   getCrossedBudgetThreshold,
+  getReachedBudgetThreshold,
+  summarizeBudgetAlerts,
   getCrossedSavingsMilestones,
   groupAlertsByDate,
   groupUpcomingReminders,
@@ -112,6 +114,30 @@ describe('budget threshold crossings', () => {
   });
 });
 
+describe('budget threshold already reached when a limit is saved', () => {
+  it('reports the highest threshold the current spending has reached', () => {
+    expect(getReachedBudgetThreshold(387.1, 300)).toBe('exceeded');
+    expect(getReachedBudgetThreshold(600, 600)).toBe('exceeded');
+    expect(getReachedBudgetThreshold(480, 600)).toBe('warning');
+    expect(getReachedBudgetThreshold(479.99, 600)).toBeNull();
+    expect(getReachedBudgetThreshold(100, 0)).toBeNull();
+  });
+});
+
+describe('in-app budget alert summary', () => {
+  it('shows a single alert as-is and merges several into one dialog', () => {
+    expect(summarizeBudgetAlerts([])).toBeNull();
+    const overall = { type: 'budget_exceeded', title: 'Monthly budget exceeded', message: 'You have used 110% of this limit. Review your spending.' };
+    const food = { type: 'budget_warning', title: 'Food limit is almost reached', message: 'You have used 85% of this limit. RM 15.00 remains.' };
+    expect(summarizeBudgetAlerts([overall])).toEqual({ title: overall.title, message: overall.message });
+    expect(summarizeBudgetAlerts([overall, food])).toEqual({
+      title: 'Budget limits exceeded',
+      message: `${overall.title}. ${overall.message}\n\n${food.title}. ${food.message}`,
+    });
+    expect(summarizeBudgetAlerts([food, food])?.title).toBe('Budget limits almost reached');
+  });
+});
+
 describe('savings milestone crossings', () => {
   it('returns every newly crossed milestone in ascending order', () => {
     expect(getCrossedSavingsMilestones(200, 800, 1000)).toEqual([25, 50, 75]);
@@ -136,16 +162,25 @@ describe('stable alert dedupe keys', () => {
         sourceId: 'budget-1',
         month: '2026-07-01',
         threshold: 'warning',
+        limit: 1000,
       }),
-    ).toBe('budget:overall:budget-1:2026-07-01:warning');
+    ).toBe('budget:overall:budget-1:2026-07-01:warning:100000');
     expect(
       buildBudgetDedupeKey({
         scope: 'category',
         sourceId: 12,
         month: '2026-07-01',
         threshold: 'exceeded',
+        limit: 250.5,
       }),
-    ).toBe('budget:category:12:2026-07-01:exceeded');
+    ).toBe('budget:category:12:2026-07-01:exceeded:25050');
+  });
+
+  it('gives a changed limit a new budget alert identity', () => {
+    const key = (limit: number) =>
+      buildBudgetDedupeKey({ scope: 'overall', sourceId: 'b1', month: '2026-10-01', threshold: 'exceeded', limit });
+    expect(key(800)).not.toBe(key(8000));
+    expect(key(800)).toBe(key(800.001));
   });
 
   it('builds savings, spending, and bill occurrence identities', () => {

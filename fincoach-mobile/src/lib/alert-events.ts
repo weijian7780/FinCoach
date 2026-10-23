@@ -1,5 +1,5 @@
 import { createIdempotentAlert, ensureNotificationPreferences } from './alerts';
-import { buildBudgetDedupeKey, buildSavingsDedupeKey, getCrossedBudgetThreshold, getCrossedSavingsMilestones } from './alerts-domain';
+import { buildBudgetDedupeKey, buildSavingsDedupeKey, getCrossedBudgetThreshold, getCrossedSavingsMilestones, getReachedBudgetThreshold } from './alerts-domain';
 import { fetchBudgetMonth } from './budget';
 import { fetchTransactions } from './transactions';
 import type { AlertRecord, AlertWriteInput, BudgetMonthData, NotificationPreferences, SavingsGoal, TransactionWithCategory } from './types';
@@ -62,25 +62,26 @@ function budgetAlertInput(input: {
     savings_goal_id: null,
     reminder_id: null,
     source_data: { month: input.month, scope: input.scope, categoryName: input.categoryName ?? null },
-    dedupe_key: buildBudgetDedupeKey({ scope: input.scope, sourceId: input.sourceId, month: input.month, threshold: input.threshold }),
+    dedupe_key: buildBudgetDedupeKey({ scope: input.scope, sourceId: input.sourceId, month: input.month, threshold: input.threshold, limit: input.limit }),
     scheduled_for: null,
   };
 }
 
+/** Returns the budget alerts this change triggered so the caller can also show them in-app. */
 export async function emitBudgetAlertsAfterTransactionChange(
   userId: string,
   previousTransaction: TransactionWithCategory | null,
   currentTransaction: TransactionWithCategory,
   dependencies: BudgetEventDependencies = defaultDependencies,
-): Promise<number> {
+): Promise<AlertWriteInput[]> {
   const preferences = await dependencies.fetchPreferences(userId);
-  if (!preferences.budget_enabled || (!isExpense(previousTransaction) && !isExpense(currentTransaction))) return 0;
+  if (!preferences.budget_enabled || (!isExpense(previousTransaction) && !isExpense(currentTransaction))) return [];
 
   const months = new Set<string>();
   if (isExpense(previousTransaction)) months.add(transactionMonth(previousTransaction!));
   if (isExpense(currentTransaction)) months.add(transactionMonth(currentTransaction));
   const transactions = await dependencies.fetchTransactions(userId);
-  let created = 0;
+  const created: AlertWriteInput[] = [];
 
   for (const month of months) {
     const budget = await dependencies.fetchBudgetMonth(userId, month);
@@ -91,8 +92,9 @@ export async function emitBudgetAlertsAfterTransactionChange(
     if (budget.monthlyBudget) {
       const threshold = getCrossedBudgetThreshold(previousOverall, currentOverall, budget.monthlyBudget.limit_amount);
       if (threshold) {
-        await dependencies.createAlert(userId, budgetAlertInput({ budgetId: budget.monthlyBudget.id, categoryLimitId: null, currentUsed: currentOverall, limit: budget.monthlyBudget.limit_amount, month, scope: 'overall', sourceId: budget.monthlyBudget.id, threshold }));
-        created += 1;
+        const alert = budgetAlertInput({ budgetId: budget.monthlyBudget.id, categoryLimitId: null, currentUsed: currentOverall, limit: budget.monthlyBudget.limit_amount, month, scope: 'overall', sourceId: budget.monthlyBudget.id, threshold });
+        await dependencies.createAlert(userId, alert);
+        created.push(alert);
       }
     }
 
@@ -107,9 +109,48 @@ export async function emitBudgetAlertsAfterTransactionChange(
       const threshold = getCrossedBudgetThreshold(previousUsed, currentUsed, limit.amount);
       if (!threshold) continue;
       const categoryName = budget.categories.find((item) => item.id === categoryId)?.name;
-      await dependencies.createAlert(userId, budgetAlertInput({ budgetId: budget.monthlyBudget?.id ?? null, categoryLimitId: limit.id, categoryName, currentUsed, limit: limit.amount, month, scope: 'category', sourceId: limit.id, threshold }));
-      created += 1;
+      const alert = budgetAlertInput({ budgetId: budget.monthlyBudget?.id ?? null, categoryLimitId: limit.id, categoryName, currentUsed, limit: limit.amount, month, scope: 'category', sourceId: limit.id, threshold });
+      await dependencies.createAlert(userId, alert);
+      created.push(alert);
     }
+  }
+  return created;
+}
+
+/**
+ * A newly set or changed limit can already be at 80% or over. No later transaction
+ * "crosses" it in that case, so the month is evaluated as it stands when the budget is saved.
+ */
+export async function emitBudgetAlertsAfterBudgetChange(
+  userId: string,
+  month: string,
+  dependencies: BudgetEventDependencies = defaultDependencies,
+): Promise<AlertWriteInput[]> {
+  const preferences = await dependencies.fetchPreferences(userId);
+  if (!preferences.budget_enabled) return [];
+
+  const [transactions, budget] = await Promise.all([dependencies.fetchTransactions(userId), dependencies.fetchBudgetMonth(userId, month)]);
+  const monthTransactions = transactions.filter((item) => isExpense(item) && transactionMonth(item) === month);
+  const created: AlertWriteInput[] = [];
+
+  if (budget.monthlyBudget) {
+    const used = monthTransactions.reduce((sum, item) => sum + item.amount, 0);
+    const threshold = getReachedBudgetThreshold(used, budget.monthlyBudget.limit_amount);
+    if (threshold) {
+      const alert = budgetAlertInput({ budgetId: budget.monthlyBudget.id, categoryLimitId: null, currentUsed: used, limit: budget.monthlyBudget.limit_amount, month, scope: 'overall', sourceId: budget.monthlyBudget.id, threshold });
+      await dependencies.createAlert(userId, alert);
+      created.push(alert);
+    }
+  }
+
+  for (const limit of budget.categoryLimits) {
+    const used = monthTransactions.filter((item) => item.category_id === limit.category_id).reduce((sum, item) => sum + item.amount, 0);
+    const threshold = getReachedBudgetThreshold(used, limit.amount);
+    if (!threshold) continue;
+    const categoryName = budget.categories.find((item) => item.id === limit.category_id)?.name;
+    const alert = budgetAlertInput({ budgetId: budget.monthlyBudget?.id ?? null, categoryLimitId: limit.id, categoryName, currentUsed: used, limit: limit.amount, month, scope: 'category', sourceId: limit.id, threshold });
+    await dependencies.createAlert(userId, alert);
+    created.push(alert);
   }
   return created;
 }

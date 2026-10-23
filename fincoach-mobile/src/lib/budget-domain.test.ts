@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatBudgetMonth,
   formatBudgetMoney,
+  getBudgetLeftColor,
   getLimitMetrics,
   getLimitStatus,
   getUnbudgetedCategorySpending,
@@ -110,5 +111,21 @@ describe('budget validation', () => {
       icon: 'Choose an icon.',
       color: 'Choose a colour.',
     });
+  });
+});
+
+describe('category limit colour by budget left', () => {
+  it('runs green at 100% left, yellow at 50%, red at 0% and beyond', () => {
+    expect(getBudgetLeftColor(0, 600).bar).toBe('#2e9e5b');
+    expect(getBudgetLeftColor(300, 600).bar).toBe('#e5b400');
+    expect(getBudgetLeftColor(600, 600).bar).toBe('#d93025');
+    expect(getBudgetLeftColor(5000, 600).bar).toBe('#d93025');
+  });
+
+  it('blends between the stops and darkens the text shade', () => {
+    const quarterSpent = getBudgetLeftColor(150, 600);
+    expect(quarterSpent.bar).toBe('#8aa92e');
+    expect(quarterSpent.text).toBe('#637a21');
+    expect(getBudgetLeftColor(100, 0).bar).toBe('#d93025');
   });
 });
