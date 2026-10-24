@@ -30,6 +30,12 @@ class PartCoverage:
 
 def requested_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
     from app.rag.web_research import build_research_query
+    if getattr(plan, "part_domains", ()):
+        # Explicitly labelled parts (a mixed question) keep one permanent
+        # positional id each, even when two parts share the same wording; their
+        # domains and entities align with these positions.
+        return tuple(RequestedPart(f"p{i}", build_research_query(str(fact))[:100].strip() or str(fact)[:100])
+                     for i, fact in enumerate(plan.required_facts[:6], 1))
     labels = []
     seen = set()
     for fact in plan.required_facts or (plan.topic,):
@@ -54,6 +60,22 @@ def researchable_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
         return ()  # Older proposals cannot identify a safe independent part.
     blocked = set(clarification_part_ids(plan))
     return tuple(part for part in requested_parts(plan) if part.id not in blocked)
+
+
+def non_finance_part_ids(plan: QuestionPlan) -> tuple[str, ...]:
+    """Requested parts the interpreter labelled as having no financial aspect.
+
+    Mixed questions carry explicit per-part domains aligned by position with
+    requested_parts, so a part is identified by its position, never by its
+    wording (two parts may read the same)."""
+    domains = getattr(plan, "part_domains", ())
+    return tuple(f"p{i}" for i, domain in enumerate(domains[:6], 1) if domain == "non_finance")
+
+
+def web_research_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
+    """Researchable parts that may be searched on the web: financial ones only."""
+    blocked = set(non_finance_part_ids(plan))
+    return tuple(part for part in researchable_parts(plan) if part.id not in blocked)
 
 
 def clarification_part_ids(plan: QuestionPlan) -> tuple[str, ...]:

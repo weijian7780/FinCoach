@@ -2069,6 +2069,11 @@ _DOCUMENT_CHOICE_QUESTIONS = {
 }
 
 
+def _non_finance(plan) -> bool:
+    """A validated interpretation labelled the whole public question non-finance."""
+    return getattr(plan, "finance_scope", None) == "non_finance"
+
+
 def _document_only(plan) -> bool:
     """A question about a named document itself, answered from its content.
 
@@ -2888,8 +2893,11 @@ class CoachingService:
                         budget=research_work_budget(request_budget),
                         api_key=TAVILY_API_KEY,
                         # A question about a named published document itself is
-                        # answered from it, never from similarly named web pages.
-                        web_enabled=WEB_FALLBACK_ENABLED and not _document_only(research_plan),
+                        # answered from it, never from similarly named web pages;
+                        # a validated non-finance question uses published
+                        # knowledge only and is referred when it falls short.
+                        web_enabled=(WEB_FALLBACK_ENABLED and not _document_only(research_plan)
+                                     and not _non_finance(research_plan)),
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
                     )
@@ -2913,6 +2921,7 @@ class CoachingService:
                     and corpus_inadequate
                     and not allocation_injected
                     and not knowledge_analysis.clarification
+                    and not _non_finance(research_plan)
                 ):
                     # Privacy (invariant #7): only a de-identified topic query is
                     # sent to the web — never the raw message, history, or PII.
@@ -2970,7 +2979,8 @@ class CoachingService:
                     )
                 if evidence_assessment and evidence_assessment.status != "sufficient":
                     gaps = "; ".join(evidence_assessment.missing[:3]) or "the requested fact"
-                    search_failed = research_failure in _SEARCH_FAILURE_REASONS
+                    search_failed = (research_failure in _SEARCH_FAILURE_REASONS
+                                     and not _non_finance(research_plan))
                     coach_guidance += (
                         "\nResearch evidence is partial or insufficient. "
                         + ("Web search failed or could not run. " if search_failed else

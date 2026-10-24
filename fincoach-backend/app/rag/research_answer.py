@@ -23,7 +23,9 @@ from app.rag.grounding import (
 )
 from app.rag.evidence_text import allowed_generated_ending, complete_evidence_passages
 from app.rag.research_policy import QuestionPlan, ResearchDecision, SEARCH_FAILURE_REASONS
-from app.rag.research_coverage import RequestedPart, clarification_question, clarification_part_ids
+from app.rag.research_coverage import (
+    RequestedPart, clarification_question, clarification_part_ids, non_finance_part_ids,
+)
 from app.rag.prompts import RESEARCH_EXPLANATION_SYSTEM_PROMPT, build_research_recovery_prompt
 from app.rag.verifier import ResearchVerificationContext, verify_grounding_claims
 from app.rag.research_answer_budget import (
@@ -557,16 +559,54 @@ _INSUFFICIENT_EVIDENCE_MESSAGES = {
     "ta": "இதற்குத் துல்லியமாகப் பதிலளிக்கப் போதுமான நம்பகமான தகவல் கிடைக்கவில்லை, எனவே நான் ஊகிக்க மாட்டேன். "
           "கேள்வியை மாற்றிக் கேட்கலாம் அல்லது மேலும் குறிப்பிட்ட நிதித் தலைப்பைப் பற்றிக் கேட்கலாம்.",
 }
+_OUT_OF_SCOPE_MESSAGES = {
+    "en": "I don't have enough information to answer this topic. Please refer to learning resources on the subject.",
+    "ms": "Saya tidak mempunyai maklumat yang cukup untuk menjawab topik ini. Sila rujuk sumber pembelajaran "
+          "tentang subjek tersebut.",
+    "zh": "我没有足够的信息来回答这个话题。请参考该学科的学习资源。",
+    "ta": "இந்தத் தலைப்புக்குப் பதிலளிக்கப் போதுமான தகவல் என்னிடம் இல்லை. அந்தப் பாடம் தொடர்பான கற்றல் "
+          "வளங்களைப் பார்க்கவும்.",
+}
+_NON_FINANCE_PART_MESSAGES = {
+    "en": "For the part of your question outside financial topics, I don't have enough information. "
+          "Please refer to learning resources on the subject.",
+    "ms": "Bagi bahagian soalan anda di luar topik kewangan, saya tidak mempunyai maklumat yang cukup. "
+          "Sila rujuk sumber pembelajaran tentang subjek tersebut.",
+    "zh": "对于你问题中与理财无关的部分，我没有足够的信息。请参考该学科的学习资源。",
+    "ta": "உங்கள் கேள்வியில் நிதி அல்லாத பகுதிக்கு என்னிடம் போதுமான தகவல் இல்லை. அந்தப் பாடம் தொடர்பான "
+          "கற்றல் வளங்களைப் பார்க்கவும்.",
+}
+
+
+def non_finance_part_note(plan: QuestionPlan, parts) -> str | None:
+    """Short referral for a mixed question's non-finance part that published
+    knowledge did not cover; None when every such part was answered."""
+    if getattr(plan, "finance_scope", None) != "mixed":
+        return None
+    blocked = set(non_finance_part_ids(plan))
+    covered = {part.part_id for part in parts or () if part.complete}
+    if not blocked or blocked <= covered:
+        return None
+    language = (plan.response_language or "en").split("-")[0]
+    return _NON_FINANCE_PART_MESSAGES.get(language, _NON_FINANCE_PART_MESSAGES["en"])
+
+
 def no_evidence_message(plan: QuestionPlan, failure: str | None) -> str:
     """Public wording for a research turn that produced no approved evidence.
 
-    Fixed text only: a search that could not run gets the temporary-failure
-    wording; anything else says the evidence fell short. Provider and
+    Fixed text only. A technical failure comes first (temporary wording), so
+    an outage is never presented as out of scope; a non-finance question skips
+    the web on purpose, so its "search_disabled" is not one. Then a validated
+    non-finance question gets the referral (published knowledge was checked),
+    and anything else says the evidence fell short. Provider and
     configuration details never reach the user.
     """
     language = (plan.response_language or "en").split("-")[0]
-    if failure in SEARCH_FAILURE_REASONS:
+    non_finance = getattr(plan, "finance_scope", None) == "non_finance"
+    if failure in SEARCH_FAILURE_REASONS and not (non_finance and failure == "search_disabled"):
         messages = _TEMPORARY_FAILURE_MESSAGES
+    elif non_finance:
+        messages = _OUT_OF_SCOPE_MESSAGES
     else:
         messages = _INSUFFICIENT_EVIDENCE_MESSAGES
     return messages.get(language, messages["en"])
@@ -613,6 +653,9 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
                 content = content + "\n\n" + clarification
             complete = False
         used_indices = sorted({int(i) for i in _MARKER.findall(content)})
+        note = non_finance_part_note(plan, decision.assessment.parts)
+        if note and note not in content:
+            content = f"{content}\n\n{note}"
         if personal_facts:
             content = f"{personal_facts}\n\n{content}"
         wrapped = AgentLLMResult(content, result.model, result.prompt_tokens, result.completion_tokens)

@@ -169,10 +169,6 @@ def test_failure_wording_by_cause(language, failure, table):
     assert message == table[language] and "key" not in message.lower()
 
 
-def test_no_referral_wording_in_this_release():
-    assert not hasattr(answer, "_OUT_OF_SCOPE_MESSAGES") and not hasattr(answer, "non_finance_part_note")
-
-
 @pytest.mark.parametrize("name,code", [
     ("ForbiddenError", "auth_error"), ("InvalidAPIKeyError", "auth_error"), ("UsageLimitExceededError", "quota"),
     ("BadRequestError", "search_failed"),
@@ -232,13 +228,19 @@ def test_retry_never_replays_an_app_action():
     assert result.proposal.actions == [] and result.resolved.tool_name == "get_upcoming_reminders"
 
 
-@pytest.mark.parametrize("history", [
-    [], [{"id": "u1", "role": "user", "content": "remind me to pay rent"},
-         _assistant({"route": "personal_finance", "actions": [{"kind": "create_reminder", "title": "Pay rent"}]})],
-])
-def test_action_only_or_missing_request_is_explained_and_not_executed(history):
+def test_retry_with_no_earlier_question_says_so():
+    result = _interpret("try again", [], RETRY)
+    assert result.proposal is None
+    assert result.failure_message == intent._RETRY_NO_REQUEST_MESSAGES["en"]
+
+
+def test_retry_of_an_action_only_request_is_explained_and_not_executed(monkeypatch):
+    monkeypatch.setattr(intent, "COACH_WRITE_ACTIONS_ENABLED", False)
+    history = [{"id": "u1", "role": "user", "content": "remind me to pay rent"},
+               _assistant({"route": "personal_finance", "actions": [{"kind": "create_reminder", "title": "Pay rent"}]})]
     result = _interpret("try again", history, RETRY)
-    assert result.proposal is None and result.failure_message == intent._RETRY_UNAVAILABLE_MESSAGES["en"]
+    assert result.proposal is None
+    assert result.failure_message == "Creating reminders through the coach is currently unavailable."
 
 
 def test_chained_retry_keeps_the_original_wording():
@@ -509,7 +511,8 @@ def test_retry_of_an_action_turn_after_a_document_never_repeats_the_action():
     history = _doc_turns()[:2] + [{"id": "u2", "role": "user", "content": "remind me to submit the report"},
                                   _assistant(action, message_id="a2")]
     result = _interpret("try again", history, RETRY)
-    assert result.proposal is None and result.failure_message == intent._RETRY_UNAVAILABLE_MESSAGES["en"]
+    assert result.proposal is None
+    assert result.failure_message == intent._RETRY_ACTION_UNAVAILABLE_MESSAGES["create_reminder"]["en"]
 
 
 def test_retried_document_is_pinned_only_while_still_published(monkeypatch):
