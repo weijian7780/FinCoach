@@ -21,6 +21,8 @@ services:
       LLM_PRIMARY_MODEL: "gemini-3.5-flash-lite"
       LLM_PRIMARY_MAX_TOKENS: "4096"
       COACH_RESEARCH_POLICY_ENABLED: "true"
+      # LLM-first read interpretation (merged from the 2026-10-17 candidate).
+      COACH_LLM_INTERPRETATION_ENABLED: "true"
       COACH_REQUEST_DEADLINE_SECONDS: "120"
       # One structured call shares 15 seconds across providers: Gemini can use
       # up to 12 seconds, with 3 seconds reserved for DeepSeek if it times out.

@@ -18,4 +18,6 @@ def _no_live_network_side_effects(monkeypatch):
     from app import config
     monkeypatch.setattr(config, "COACH_DIRECT_FETCH_ENABLED", False, raising=False)
     monkeypatch.setattr(config, "COACH_SEARCH_RESULT_CACHE_ENABLED", False, raising=False)
+    # Published-title lookup reads Supabase; title tests supply their own list.
+    monkeypatch.setattr("app.rag.service.published_document_titles", lambda: ())
     yield

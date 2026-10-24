@@ -24,6 +24,9 @@ def _bounded_setting(name: str, default: float, minimum: float, maximum: float,
     return int(value) if integer else value
 
 
+# Enable only in the isolated acceptance environment until live gates pass.
+COACH_LLM_INTERPRETATION_ENABLED = _environment_flag("COACH_LLM_INTERPRETATION_ENABLED", False)
+
 # ---- Supabase (server-side) ----
 # Use the SERVICE ROLE key here. It is secret and must live ONLY on this server,
 # never in the mobile app.

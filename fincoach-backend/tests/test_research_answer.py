@@ -55,6 +55,36 @@ def test_supported_verdict_cannot_complete_a_dangling_negative_rule():
     assert 'obligations must not' not in (result.approved_text or '')
 
 
+@pytest.mark.parametrize("sentence", [
+    "Submit the documents through the official portal, which is what the portal is for [S1].",
+    "Check whether you qualify or not before you submit your application [S1].",
+])
+def test_complete_sentence_ending_on_a_preposition_is_not_truncated(sentence):
+    result = check(answer(sentence))
+    assert "answer_output_truncated" not in result.error_codes
+    assert "incomplete_statement" not in result.error_codes
+
+
+@pytest.mark.parametrize("sentence", [
+    "Applicants cannot [S1].",
+    "Submit the documents such as the [S1].",
+    "You can submit your application to [S1].",
+])
+def test_unfinished_generated_sentences_stay_rejected(sentence):
+    result = check(answer(sentence))
+    assert not result.is_valid
+    assert {"answer_output_truncated", "incomplete_statement"} & set(result.error_codes)
+
+
+def test_length_limited_draft_stays_truncated():
+    from app.rag import research_answer as module
+    completion = SimpleNamespace(finish_reason="length")
+    with patch.object(module, "verify_grounding_claims", side_effect=supported):
+        result = module.check_research_draft(answer(), public_question=QUESTION, decision=decision(),
+                                             budget=CoachRequestBudget.start(), completion=completion)
+    assert "answer_output_truncated" in result.error_codes
+
+
 def test_record_binding_union_is_narrowed_to_each_sentences_cited_source():
     from app.rag import research_answer as module
     from app.rag.research_fact_bindings import EvidenceFactBinding

@@ -226,12 +226,56 @@ class ProductSelectionRoutingTests(unittest.TestCase):
             "which of my funds performed best?",
             "how much did I spend at the bank?",
             "hi there",
+            "What's the best way to build an emergency fund?",
+            "How should I use my emergency fund?",
+            "How do I get my PTPTN funds disbursed?",
+            "How much did I use from my emergency fund this month?",
+            "Is it better to invest in stocks or pay off my PTPTN first?",
+            "Should I use my savings to pay off my credit card?",
         ):
             with self.subTest(message=message):
                 self.assertFalse(is_product_selection_request(message))
 
 
 class CasualPromptSafetyTests(unittest.TestCase):
+    def test_budget_plans_and_updates_are_not_save_commands(self):
+        from app.rag.routing import is_budget_save_command
+
+        for message in (
+            "Save a category budget for Food at RM300",
+            "Set a budget of RM500 for food",
+            "Can I change my food budget to RM300?",
+            "Set a budget for a new category Food RM300",
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(is_budget_save_command(message))
+        for message in (
+            "Create a budget plan for my RM1500 allowance",
+            "Set up a monthly budget for a student earning RM2000",
+            "Create a 50/30/20 budget for RM2500",
+            "Update me on my budget",
+        ):
+            with self.subTest(message=message):
+                self.assertFalse(is_budget_save_command(message))
+
+    def test_memory_and_status_questions_are_not_reminder_requests(self):
+        from app.rag.routing import required_agent_tool_names
+
+        for message in (
+            "What do you remember about my goals?",
+            "Can you give me a heads up on how my budget looks?",
+        ):
+            with self.subTest(message=message):
+                self.assertEqual(required_agent_tool_names(message), ())
+        for message in (
+            "Can you help me remember to pay PTPTN on 15 August?",
+            "Give me a heads-up to submit my assignment Friday at 5 PM",
+            "Please remember my rent is due tomorrow at 8 PM",
+            "Send me a heads up to call mum",
+        ):
+            with self.subTest(message=message):
+                self.assertEqual(required_agent_tool_names(message), ("prepare_reminder",))
+
     def test_casual_prompt_forbids_naming_a_specific_product(self):
         from app.rag.prompts import build_casual_prompt
 
@@ -242,3 +286,30 @@ class CasualPromptSafetyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FigureBindingTests(unittest.TestCase):
+    RECORD = ({"name": "get_budget_status", "result": {
+        "status": "ok", "monthly_limit": "RM600.00", "recorded_spending": "RM350.20", "remaining": "RM249.80"}},)
+
+    def test_amount_binds_to_its_nearest_cue_before_or_after(self):
+        from app.rag.grounding import recorded_money_claims_match_tools
+
+        for sentence in (
+            "For October 2026, your monthly budget limit is RM600.00, with RM350.20 spent so far.",
+            "For October 2026, you have spent RM350.20 of your RM600.00 monthly limit, leaving you with RM249.80.",
+            "You currently have RM249.80 remaining.",
+        ):
+            with self.subTest(sentence=sentence):
+                self.assertTrue(recorded_money_claims_match_tools(sentence, self.RECORD))
+
+    def test_amount_bound_to_the_wrong_field_still_fails(self):
+        from app.rag.grounding import recorded_money_claims_match_tools
+
+        for sentence in (
+            "You spent RM600.00, which is over your limit.",
+            "Your limit is RM350.20 and you spent RM600.00.",
+            "Your recorded total is RM600.00.",
+        ):
+            with self.subTest(sentence=sentence):
+                self.assertFalse(recorded_money_claims_match_tools(sentence, self.RECORD))

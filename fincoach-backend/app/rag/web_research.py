@@ -435,6 +435,12 @@ def _safe_error(error: Exception) -> str:
     if status == 429:
         return "rate_limited"
     name = type(error).__name__.lower()
+    # The Tavily SDK raises typed errors without a status code; its class names
+    # are the provider's own evidence of a rejected key or exhausted plan.
+    if name in ("forbiddenerror", "invalidapikeyerror", "missingapikeyerror"):
+        return "auth_error"
+    if name in ("usagelimitexceedederror", "tavilykeylesslimiterror"):
+        return "quota"
     if "timeout" in name:
         return "timeout"
     if "connection" in name or "network" in name:

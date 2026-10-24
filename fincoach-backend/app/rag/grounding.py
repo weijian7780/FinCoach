@@ -54,11 +54,55 @@ _EXAMPLE_SENTENCE_BOUNDARY = re.compile(r"[.!?](?:\s|$)|\n")
 _CALCULATION_BLOCK = re.compile(
     r"Calculation:\s*(.+?)(?:\n|$)", re.IGNORECASE
 )
-_SPECIFIC_PRODUCT_RECOMMENDATION = re.compile(
-    r"\b(?:open|choose|switch\s+to|sign\s+up\s+for|buy|use)\b"
-    r".{0,80}\b(?:account|app|wallet|provider|coin|stock|fund|policy|product)\b",
+# A product recommendation is an acquisition verb whose product phrase names a
+# provider. Detection stays case-insensitive ("open a maybank account"); only a
+# phrase made entirely of ordinary words or public schemes is plain advice.
+_PRODUCT_VERB = re.compile(
+    r"\b(?:open|choose|switch\s+to|sign\s+up\s+for|buy|use|get|apply\s+for)\b",
     re.IGNORECASE,
 )
+_PRODUCT_NOUN = re.compile(
+    r"\b(?:accounts?|apps?|e-?wallets?|wallets?|providers?|coins?|stocks?|funds?|"
+    r"polic(?:y|ies)|products?|cards?|loans?)\b",
+    re.IGNORECASE,
+)
+# A provider named after the product noun: "an account with Maybank",
+# "a card from CIMB", "an app like Money Lover".
+_PROVIDER_CLAUSE = re.compile(
+    r"\s*[,(]?\s*(?:with|from|at|through|via|by|like|such\s+as|called|named|e\.g\.)\s+"
+    r"(?P<provider>[^.!?;,\n()]{1,60})",
+    re.IGNORECASE,
+)
+_PROVIDER_CLAUSE_STOP = frozenset({"to", "for", "and", "so", "because", "if", "when", "only"})
+_PRODUCT_PHRASE_WORD = re.compile(r"[\w'’]+(?:-[\w'’]+)*")
+GENERIC_PRODUCT_WORDS = frozenset({
+    "a", "an", "the", "your", "my", "our", "their", "this", "that", "these", "those",
+    "one", "some", "any", "another", "own", "separate", "dedicated", "new", "second",
+    "joint", "basic", "simple", "free", "different", "suitable", "appropriate", "right",
+    "good", "best", "better", "high-yield", "high-interest", "interest-bearing", "low-cost",
+    "no-fee", "savings", "saving", "emergency", "fixed", "deposit", "current", "bank",
+    "banking", "digital", "online", "mobile", "phone", "budgeting", "budget", "expense",
+    "expenses", "spending", "tracking", "tracker", "official", "government", "education",
+    "student", "students", "debit", "credit", "personal", "secure", "trusted", "reputable",
+    "licensed", "regulated", "islamic", "shariah-compliant", "local",
+})
+# Public schemes and agencies are not commercial products to steer users away from.
+PUBLIC_SCHEME_NAMES = frozenset({
+    "epf", "kwsp", "i-akaun", "ptptn", "myptptn", "sspn", "sspn-i", "pidm", "bnm",
+    "negara", "malaysia", "akpk", "lhdn", "mytax", "jpa", "mara", "fincoach",
+})
+
+
+def _is_plain_product_word(word: str) -> bool:
+    token = word.casefold().strip("'’")
+    token = token.removesuffix("'s").removesuffix("’s")
+    return (
+        not token
+        or token.isdigit()
+        or token in GENERIC_PRODUCT_WORDS
+        or token in PUBLIC_SCHEME_NAMES
+        or bool(_PRODUCT_NOUN.fullmatch(token))
+    )
 _EXTERNAL_FACT_CUE = re.compile(
     r"\b(?:is|are|was|were|protect(?:s|ed)?|cover(?:s|ed)?|"
     r"require(?:s|d)?|allow(?:s|ed)?|provide(?:s|d)?|mean(?:s|t)?|"
@@ -287,7 +331,7 @@ def recorded_money_claims_match_tools(content: str, tool_records: tuple | list) 
         if _EXAMPLE_CUE.search(sentence) and not re.search(r"\b(?:recorded|verified|your|my|anda|rekod)\b", sentence, re.I):
             continue
         cues = [
-            (r"\b(?:remaining|left|baki)\b", ("remaining", "projected_remaining")),
+            (r"\b(?:remaining|left|leav(?:e|es|ing)|baki)\b", ("remaining", "projected_remaining")),
             (r"\b(?:allowance|elaun)\b", ("monthly_allowance",)),
             (r"\b(?:spent|spending|expenses?|belanja|perbelanjaan)\b", ("expense_total", "recorded_spending", "recorded_expenses", "spent", "amount", "projected_month_spending")),
             (r"\b(?:limit|had)\b", ("monthly_limit", "limit")),
@@ -307,16 +351,24 @@ def recorded_money_claims_match_tools(content: str, tool_records: tuple | list) 
             # because its amount occurs in an unrelated tool field.
             return False
         elif len(matching) > 1:
-            # Multiple fields in one sentence are difficult to bind reliably.
-            # Validate each amount against its nearest preceding field cue.
+            # Several fields in one sentence: bind each amount to its nearest
+            # field cue on either side ("RM350.20 spent", "your RM600.00
+            # monthly limit"); a tie goes to the preceding cue. The amount must
+            # belong to that field, so a value from another field still fails.
             for amount in _CURRENCY_AMOUNT.finditer(sentence):
-                preceding = []
+                candidates = []
                 for pattern, keys in matching:
-                    for cue in re.finditer(pattern, sentence[:amount.start()], re.I):
-                        preceding.append((cue.end(), keys))
-                if not preceding:
+                    for cue in re.finditer(pattern, sentence, re.I):
+                        if cue.end() <= amount.start():
+                            distance, after = amount.start() - cue.end(), 0
+                        elif cue.start() >= amount.end():
+                            distance, after = cue.start() - amount.end(), 1
+                        else:
+                            distance, after = 0, 0
+                        candidates.append((distance, after, keys))
+                if not candidates:
                     return False
-                keys = max(preceding, key=lambda item: item[0])[1]
+                keys = min(candidates, key=lambda item: (item[0], item[1]))[2]
                 allowed = set().union(*(fields.get(key, set()) for key in keys))
                 if not _numeric_values(amount.group(0)).issubset(allowed):
                     return False
@@ -335,7 +387,7 @@ def _support_tokens(text: str) -> set[str]:
 
 def _normalise_word(word: str) -> str:
     """Keep simple inflections from making evidence appear unrelated."""
-    token = word.casefold().removesuffix("'s").removesuffix("â€™s")
+    token = word.casefold().removesuffix("'s").removesuffix("’s")
     if token.endswith("ies") and len(token) > 4:
         return f"{token[:-3]}y"
     if token.endswith("es") and len(token) > 4:
@@ -432,7 +484,7 @@ def validate_coach_answer(
         if source_index < 1 or source_index > len(reference_contents):
             hard_errors.append(f"citation [S{source_index}] does not exist")
 
-    if _SPECIFIC_PRODUCT_RECOMMENDATION.search(text):
+    if contains_specific_product_recommendation(text):
         hard_errors.append("specific product recommendation is not allowed")
 
     section = ""
@@ -577,9 +629,32 @@ def contains_specific_product_recommendation(content: str) -> bool:
     Route-independent backstop: the education validator already blocks this, but
     casual, personal, and agent replies are not validated, so this lets the
     orchestrator scrub a leaked "open/use/buy this account/app/fund" from any
-    route before it ships.
+    route before it ships. The whole product phrase is inspected, including a
+    provider named after the noun; ordinary advice ("open a separate savings
+    account", "use your emergency fund", "use the myPTPTN app") is not flagged.
     """
-    return bool(_SPECIFIC_PRODUCT_RECOMMENDATION.search(str(content or "")))
+    text = str(content or "")
+    for verb in _PRODUCT_VERB.finditer(text):
+        window = text[verb.end():verb.end() + 80]
+        noun = _PRODUCT_NOUN.search(window)
+        if not noun or re.search(r"[.!?;\n]", window[:noun.start()]):
+            continue
+        words = _PRODUCT_PHRASE_WORD.findall(window[:noun.start()])
+        # A title-cased product name ("a Student Savings Account") is a named
+        # product even when each word is ordinary. Capitals only ever add a
+        # detection; lowercase provider names are caught by the word check.
+        if noun.group()[0].isupper() and words and words[-1][0].isupper() \
+                and words[-1].casefold() in GENERIC_PRODUCT_WORDS:
+            return True
+        clause = _PROVIDER_CLAUSE.match(window[noun.end():])
+        if clause:
+            for word in _PRODUCT_PHRASE_WORD.findall(clause.group("provider"))[:4]:
+                if word.casefold() in _PROVIDER_CLAUSE_STOP:
+                    break
+                words.append(word)
+        if not all(_is_plain_product_word(word) for word in words):
+            return True
+    return False
 
 
 def safe_product_redirect() -> str:

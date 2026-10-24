@@ -13,6 +13,9 @@ from app.config import (
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
+    LLM_PRIMARY_API_KEY,
+    LLM_PRIMARY_BASE_URL,
+    LLM_PRIMARY_MODEL,
 )
 from app.rag.grounding import GroundingClaim
 from app.rag.research_coverage import PartCoverage, RequestedPart
@@ -67,12 +70,26 @@ class GroundingVerification:
         )
 
 
+def _verifier_settings() -> tuple[str, str, str, dict]:
+    """(base_url, api_key, model, extra request options) for the answer checker.
+
+    The checker uses the primary provider when one is configured; deployments
+    without primary settings keep the existing LLM_* provider. The primary
+    (Gemini) rejects the DeepSeek-only thinking switch, so that option is sent
+    only to the LLM_* provider.
+    """
+    if LLM_PRIMARY_BASE_URL and LLM_PRIMARY_API_KEY and LLM_PRIMARY_MODEL:
+        return LLM_PRIMARY_BASE_URL, LLM_PRIMARY_API_KEY, LLM_PRIMARY_MODEL, {}
+    return LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, {"extra_body": {"thinking": {"type": "disabled"}}}
+
+
 def _create_verifier_client(*, timeout_seconds: float):
     from openai import OpenAI
 
+    base_url, api_key, _, _ = _verifier_settings()
     return OpenAI(
-        base_url=LLM_BASE_URL,
-        api_key=LLM_API_KEY,
+        base_url=base_url,
+        api_key=api_key,
         timeout=timeout_seconds,
         max_retries=0,
     )
@@ -172,7 +189,9 @@ Judge each claim as a complete independent statement; reject any missing qualifi
 If the evidence is conflicting, the draft must describe the disagreement, not
 silently choose a disputed rule or report either one as settled.
 Also include a required JSON field "quality_errors": [] or a list drawn ONLY from:
-"language_mismatch" (does not follow the question's language or explicit language request),
+"language_mismatch" (does not follow the question's language or explicit language request;
+the fixed English section headings and the fixed English educational-guidance disclaimer
+are mandatory in every language and are never a mismatch),
 "raw_reference_dump" (FAQ labels, navigation, copied excerpts replacing an explanation),
 "incomplete_supported_answer" (omits supported requested aspects, has misleading gap notes,
 or unfinished sentences/lists). Necessary official document/button names are acceptable.
@@ -264,14 +283,15 @@ def verify_grounding_claims(
     if not claims:
         return GroundingVerification({}, error_code="no_claims")
     started = monotonic()
-    metadata = {"model": LLM_MODEL}
+    _, _, model, extra_options = _verifier_settings()
+    metadata = {"model": model}
 
     def failure(code):
         return GroundingVerification({}, error_code=code,
             elapsed_ms=round((monotonic() - started) * 1000, 1), **metadata)
     try:
         response = _create_verifier_client(timeout_seconds=timeout_seconds).chat.completions.create(
-            model=LLM_MODEL,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -292,8 +312,8 @@ def verify_grounding_claims(
             temperature=0,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
-            extra_body={"thinking": {"type": "disabled"}},
             stream=False,
+            **extra_options,
         )
         # Capture billed usage before parsing: malformed paid responses still
         # consumed tokens and must remain visible in recovery diagnostics.
@@ -304,7 +324,7 @@ def verify_grounding_claims(
         metadata['finish_reason'] = completion['finish_reason']
         content = str(response.choices[0].message.content or "")
         logger.info(json.dumps({"event": "coach_provider_attempt", "stage": "answer_verification",
-            "role": "verifier", "model": LLM_MODEL, "outcome": "completed",
+            "role": "verifier", "model": model, "outcome": "completed",
             "elapsed_ms": round((monotonic() - started) * 1000, 1),
             "timeout_seconds": timeout_seconds, "finish_reason": getattr(response.choices[0], "finish_reason", None),
             "prompt_tokens": metadata.get("prompt_tokens"),
@@ -318,7 +338,7 @@ def verify_grounding_claims(
         return failure('verifier_invalid_json')
     except Exception as error:
         logger.warning(json.dumps({"event": "coach_verifier_failure", "stage": "answer_verification",
-            "model": LLM_MODEL, "error_type": type(error).__name__,
+            "model": model, "error_type": type(error).__name__,
             "elapsed_ms": round((monotonic() - started) * 1000, 1)}))
         return failure(provider_error_code(error))
 

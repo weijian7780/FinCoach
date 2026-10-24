@@ -117,6 +117,8 @@ def test_current_question_searches_even_when_corpus_is_related_and_recovers_once
     first = _chunk("BNM old", "Old OPR page", url="https://bnm.gov.my/old")
     second = _chunk("BNM current", "Latest dated OPR page", url="https://bnm.gov.my/new")
     with (
+        # Unit test: no live Tavily extraction with the fake key.
+        patch("app.rag.research_policy.extract_passages", return_value={}),
         patch("app.rag.research_policy.assess_evidence", side_effect=assessment),
         patch("app.rag.research_policy.research_evidence", side_effect=[
             ResearchOutcome([first], True, "ok"),
@@ -572,6 +574,8 @@ def test_stable_definition_second_search_never_escalates_to_news():
                            supported_quotes=((1, "more official detail on the scheme"),)),
     ])
     with (
+        # Unit test: no live Tavily extraction with the fake key.
+        patch("app.rag.research_policy.extract_passages", return_value={}),
         patch("app.rag.research_policy.assess_evidence", side_effect=assessments),
         patch("app.rag.research_policy.research_evidence", side_effect=[
             ResearchOutcome([first_hit], True, "ok"),

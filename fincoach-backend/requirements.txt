@@ -1,35 +1,35 @@
 # FinCoach AI backend (FastAPI + RAG)
-fastapi
-uvicorn[standard]
-pydantic
-python-dotenv
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+python-dotenv==1.2.4
 
 # Supabase (data + pgvector store)
 supabase==2.31.0
 
 # Embeddings (local, bge-m3)
-sentence-transformers
-torch
+sentence-transformers==6.1.0
+torch==2.14.1
 
 # Native document loading; chunking is custom Python code.
-pypdf
+pypdf==6.19.0
 
 # LLM (OpenAI-compatible client — works with NVIDIA NIM / Gemini / Groq / OpenAI)
-openai
+openai==3.24.0
 
 # Web-research fallback (used only when the corpus cannot answer). Optional at
 # runtime: imported lazily, and the coach degrades gracefully if it is absent.
-tavily-python
+tavily-python==0.8.4
 
 # Receipt visual OCR verification (server-side Gemini SDK; image + OCR text)
 google-genai==2.11.0
 
 # Receipt category classification (TypeSafe Jev; receipt text only, never the image)
-typesafe-sdk
+typesafe-sdk==0.7.2
 
 # Receipt OCR (Transaction and Receipt Capture module)
-python-multipart
+python-multipart==0.0.32
 # Validate declared image formats before handing upload bytes to native OCR.
-pillow
+pillow==12.3.0
 paddlepaddle==3.3.1
 paddleocr==3.7.0

@@ -92,6 +92,10 @@ class ResolvedReadRequest:
     invalid_fields: tuple[str, ...] = ()
     parameter_sources: dict[str, str] = field(default_factory=dict)
     clarify_reason: str | None = None
+    # A built-in category the interpreter matched to the user's phrase. Never a
+    # tool argument: the executor tries the user's own phrase against saved
+    # categories first and uses this only when nothing closer exists.
+    category_built_in: str | None = None
 
 
 _MONTH_NUMBERS = {
@@ -247,7 +251,9 @@ _REMINDER_NON_CREATE = re.compile(
     r"\b(?:do\s+not|don['’]?t|dont)\s+remind\b|"
     r"\bnot\s+now\b|"
     r"\bremind\s+(?:me|us|saya|aku)\s+(?:what|how|why|whether|if)\b|"
-    r"\bi\s+remember\b|\bremember\s+(?:when|what|how|why)\b|"
+    r"\bi\s+remember\b|\bremember\s+(?:when|what|how|why|about)\b|"
+    r"\b(?:what|do|did|does)\s+(?:do\s+|did\s+)?you\s+remember\b|"
+    r"\bheads?(?:-|\s)?up\s+(?:on|about)\s+(?:how|what|whether|where)\b|"
     r"\bjangan\s+(?:buat|cipta|tetapkan|jana)\b",
     re.IGNORECASE,
 )
@@ -974,12 +980,31 @@ def is_category_budget_recommendation_request(content: str) -> bool:
     return bool(_CATEGORY_BUDGET_RECOMMENDATION_QUERY.search(normalize_for_intent(content)))
 
 
+# Asking for a budgeting plan or method, a budget for a hypothetical person, or a
+# status update is not a command to save a limit ("Create a budget plan for my
+# RM1500 allowance", "Set up a budget for a student earning RM2000").
+_BUDGET_PLAN_NOT_SAVE = re.compile(
+    r"\bbudget(?:ing)?\s+plan\b|"
+    r"\bbudget\s+for\s+(?:a\s+|an\s+)?(?:students?|someone|somebody|persons?|people|"
+    r"famil(?:y|ies)|couples?|beginners?|fresh\s+graduates?)\b|"
+    r"\bupdate\s+me\b",
+    re.IGNORECASE,
+)
+
+
+def asks_for_budget_method(content: str) -> bool:
+    """Whether the user wants a budgeting plan or allocation, not a saved-limit change."""
+    message = normalize_for_intent(content)
+    return bool(_BUDGET_ALLOCATION_QUERY.search(message) or _BUDGET_PLAN_NOT_SAVE.search(message))
+
+
 def is_budget_save_command(content: str) -> bool:
     """Whether the user is commanding a budget write from the Coach chat."""
     message = normalize_for_intent(content)
     return bool(
         _BUDGET_SAVE_COMMAND.search(message)
         and not is_category_budget_recommendation_request(message)
+        and not asks_for_budget_method(message)
     )
 
 
@@ -991,13 +1016,6 @@ _MARKET_PRODUCT_NOUN = re.compile(
     r"savings?\s+accounts?|current\s+accounts?)\b",
     re.IGNORECASE,
 )
-# Ranking/recommendation asks ("best", "recommend") signal product selection.
-# Bare "what is"/"which" is deliberately excluded so a definitional question
-# ("what is an emergency fund?") stays on the educational path.
-_RANKING_CUE = re.compile(
-    r"\b(?:best|better|top|recommend(?:ation)?s?|suggest)\b",
-    re.IGNORECASE,
-)
 _ACQUISITION_VERB = re.compile(
     r"\b(?:open|get|choose|buy|use|pick|sign\s+up|subscribe|invest|"
     r"switch\s+to|apply\s+for)\b",
@@ -1007,22 +1025,65 @@ _PERSONAL_OWNERSHIP = re.compile(
     r"\b(?:my|mine|i\s+have|i\s+own|recorded)\b",
     re.IGNORECASE,
 )
+# Bare "what is"/"which" is never a ranking cue, so a definitional question
+# ("what is an emergency fund?") stays on the educational path.
+# Savings concepts that share a product word but are not market products.
+_PRODUCT_CONCEPT = re.compile(
+    r"\b(?:emergency|sinking|education|rainy[\s-]day)\s+funds?\b|\bptptn\s+(?:funds?|loans?)\b",
+    re.IGNORECASE,
+)
+# A ranking cue counts only when it qualifies a product ("best e-wallet",
+# "recommend a unit trust", "which fund is best"), not a method ("best way").
+_PRODUCT_RANKING = re.compile(
+    r"\b(?:best|better|top|cheapest|recommend(?:ed|ation)?s?|suggest(?:ed|ion)?s?)"
+    r"(?:\s+(?:me|a|an|the|some|any|good|\d+))*\s+(?:[\w-]+\s+){0,2}?"
+    + _MARKET_PRODUCT_NOUN.pattern
+    + r"|" + _MARKET_PRODUCT_NOUN.pattern
+    + r".{0,30}\b(?:best|better|top|recommended)\b",
+    re.IGNORECASE,
+)
+_PRODUCT_DETERMINER = frozenset({
+    "a", "an", "the", "this", "that", "which", "what", "some", "any", "best", "top",
+    "good", "new", "one",
+})
+
+
+def _specific_product_mentions(message: str) -> list[str]:
+    """Product nouns that name or determine a product to obtain.
+
+    The user's own product ("my credit card") and a bare generic plural ("invest
+    in stocks") are not a request to pick a market product.
+    """
+    mentions = []
+    for match in _MARKET_PRODUCT_NOUN.finditer(message):
+        previous = message[:match.start()].split()[-1:]
+        previous_word = previous[0].casefold().strip("?,.!") if previous else ""
+        if previous_word in {"my", "our", "mine"}:
+            continue
+        noun = match.group(0)
+        if noun.casefold().endswith("s") and previous_word not in _PRODUCT_DETERMINER:
+            continue
+        mentions.append(noun)
+    return mentions
 
 
 def is_product_selection_request(content: str) -> bool:
     """Whether the user is asking FinCoach to pick or rank a market product.
 
-    Fires only when a market-product noun is paired with a ranking cue or an
-    acquisition verb, so "which e-wallet is best?" or "should I buy this fund?"
-    is intercepted with a neutral redirect, while a definitional question ("what
-    is an emergency fund?") or one about the user's own recorded products
-    ("which of my funds performed best?") is left to the normal path.
+    Fires only when a market-product noun is paired with a ranking cue that
+    qualifies it, or with an acquisition verb for a specific product, so "which
+    e-wallet is best?" or "should I buy Bitcoin?" is intercepted with a neutral
+    redirect. A definitional question ("what is an emergency fund?"), a savings
+    method ("best way to build an emergency fund"), the user's own products
+    ("which of my funds performed best?", "use my credit card") and a generic
+    asset class ("invest in stocks") are left to the normal path.
     """
     message = " ".join((content or "").strip().split())
+    message = " ".join(_PRODUCT_CONCEPT.sub(" ", message).split())
     if not message or not _MARKET_PRODUCT_NOUN.search(message):
         return False
-    ranking = bool(_RANKING_CUE.search(message))
-    acquires = bool(_ACQUISITION_VERB.search(message))
+    ranking = bool(_PRODUCT_RANKING.search(message))
+    acquires = bool(_ACQUISITION_VERB.search(message) and _specific_product_mentions(message))
     if not (ranking or acquires):
         return False
     if bool(_PERSONAL_OWNERSHIP.search(message)) and not acquires:

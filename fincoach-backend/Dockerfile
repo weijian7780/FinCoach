@@ -1,4 +1,5 @@
-FROM python:3.12-slim-bookworm
+# Same Python patch release as the tested image; see constraints.txt.
+FROM python:3.12.15-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,15 +19,15 @@ RUN apt-get update \
         libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /tmp/requirements.txt
+COPY requirements.txt constraints.txt /tmp/
 
 # Install torch from the CPU wheel index BEFORE the rest of the requirements.
 # The default PyPI torch wheel for x86_64 Linux drags in ~2.5 GB of unused
 # nvidia-* CUDA libraries, which does not fit a small VPS boot disk. Installing
 # it first means the requirements file finds torch already satisfied.
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install --index-url https://download.pytorch.org/whl/cpu torch \
-    && python -m pip install -r /tmp/requirements.txt
+    && python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1+cpu \
+    && python -m pip install -r /tmp/requirements.txt -c /tmp/constraints.txt
 
 # Keep website settings below dependency installation so frontend rebuilds can
 # reuse the existing Torch/PaddleOCR dependency layers on Docker Desktop.

@@ -21,8 +21,8 @@ from app.rag.grounding import (
     DISCLAIMER, REQUIRED_HEADINGS, GroundingClaim, _numeric_values,
     contains_specific_product_recommendation,
 )
-from app.rag.evidence_text import complete_evidence_passages
-from app.rag.research_policy import QuestionPlan, ResearchDecision
+from app.rag.evidence_text import allowed_generated_ending, complete_evidence_passages
+from app.rag.research_policy import QuestionPlan, ResearchDecision, SEARCH_FAILURE_REASONS
 from app.rag.research_coverage import RequestedPart, clarification_question, clarification_part_ids
 from app.rag.prompts import RESEARCH_EXPLANATION_SYSTEM_PROMPT, build_research_recovery_prompt
 from app.rag.verifier import ResearchVerificationContext, verify_grounding_claims
@@ -281,6 +281,7 @@ def check_research_draft(draft: str, *, public_question: str,
     elif any(
         re.search(r"\b(?:and|or|of|for|with|the|a|an|your|their|not|dan|atau|untuk)\s*$",
                   _MARKER.sub("", sentence).strip().rstrip(".!?"), re.I)
+        and not allowed_generated_ending(_MARKER.sub("", sentence))
         for _, sentence, _ in _body_units(text) if not sentence.endswith(":")
     ):
         errors.append("answer_output_truncated")
@@ -375,7 +376,7 @@ def check_research_draft(draft: str, *, public_question: str,
         claim_text = _MARKER.sub("", sentence).strip()
         # A model verdict cannot supply a missing predicate or finish a rule.
         # Apply the same structural backstop used for retrieved quotations.
-        if complete_evidence_passages(claim_text) != (claim_text,):
+        if complete_evidence_passages(claim_text, generated=True) != (claim_text,):
             errors.append("incomplete_statement")
         if re.match(r"^(?:[-•▪]|\d+[.)])\s", sentence) and block in qualifications:
             claim_text = f"{qualifications[block]} {claim_text}"
@@ -458,7 +459,10 @@ def check_research_draft(draft: str, *, public_question: str,
                                   diagnostics=diagnostics)
     misapplied_ids = {claim_id for claim_id, verdict in verification.verdicts.items()
                       if verdict == "misapplied"}
-    rejected_blocks = {units[position][2] for position in notice_rejections}
+    # A gap note about something the request never asked is dropped on its
+    # own: it is not missing requested information, so it neither removes the
+    # verified sentences beside it nor triggers the partial-answer caveat.
+    rejected_blocks = set()
     for claim in claims:
         position = claim_units[claim.id]
         section, sentence, block = units[position]
@@ -496,7 +500,8 @@ def check_research_draft(draft: str, *, public_question: str,
         diagnostics["answered_part_ids"] = []
         diagnostics["unanswered_requested_parts"] = list(dict.fromkeys((
             *verification.unanswered_requested_parts, "requested details removed during verification")))[:6]
-        approved = [unit for unit in units if unit[2] not in rejected_blocks]
+        approved = [unit for position, unit in enumerate(units)
+                    if unit[2] not in rejected_blocks and position not in notice_rejections]
         # Never ship a fragments-only salvage; retain at least one independently
         # supported substantive block. Otherwise the one rewrite is the remedy.
         usable = any(unit[2] not in rejected_blocks and claim.cited_indices
@@ -515,11 +520,11 @@ def check_research_draft(draft: str, *, public_question: str,
             units[position][2] not in rejected_blocks for position in claim_units.values()) if usable else 0
         code = ("ambiguous_submission_channel" if channel_rejections else
                 "unsupported_number" if numeric_rejections else
-                "unrelated_notice" if notice_rejections else
                 "misapplied_claim" if misapplied_ids else "unsupported_claim")
         return ResearchDraftCheck(False, (code,), _render(approved) if usable else None,
                                   diagnostics=diagnostics)
     diagnostics["approved_claim_count"] = len(claims)
+    units = [unit for position, unit in enumerate(units) if position not in notice_rejections]
     if verification.requested_scope_covered is False:
         # Retain verified statements for the one grounded rewrite. Coverage is
         # independent of factual entailment; a useful partial need not disappear.
@@ -534,6 +539,37 @@ def check_research_draft(draft: str, *, public_question: str,
         return ResearchDraftCheck(honest_partial, () if honest_partial else ("requested_scope_incomplete",),
                                   _render(units), diagnostics)
     return ResearchDraftCheck(True, approved_text=_render(units), diagnostics=diagnostics)
+
+
+_TEMPORARY_FAILURE_MESSAGES = {
+    "en": "I could not retrieve the source details needed for this question. Please try again.",
+    "ms": "Saya tidak dapat mendapatkan maklumat sumber yang diperlukan kali ini. Sila cuba lagi.",
+    "zh": "这次未能获取所需的来源信息，请重试。",
+    "ta": "தேவையான ஆதாரத் தகவலை இம்முறை பெற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+}
+_INSUFFICIENT_EVIDENCE_MESSAGES = {
+    "en": "I couldn't find enough reliable information to answer that accurately, so I won't guess. "
+          "You could rephrase it or ask about a more specific financial topic.",
+    "ms": "Saya tidak menemui maklumat yang cukup boleh dipercayai untuk menjawabnya dengan tepat, "
+          "jadi saya tidak akan meneka. Cuba ubah soalan anda atau tanya tentang topik kewangan yang lebih khusus.",
+    "zh": "我没有找到足够可靠的信息来准确回答这个问题，所以不会妄加猜测。"
+          "你可以换个方式提问，或询问更具体的理财话题。",
+    "ta": "இதற்குத் துல்லியமாகப் பதிலளிக்கப் போதுமான நம்பகமான தகவல் கிடைக்கவில்லை, எனவே நான் ஊகிக்க மாட்டேன். "
+          "கேள்வியை மாற்றிக் கேட்கலாம் அல்லது மேலும் குறிப்பிட்ட நிதித் தலைப்பைப் பற்றிக் கேட்கலாம்.",
+}
+def no_evidence_message(plan: QuestionPlan, failure: str | None) -> str:
+    """Public wording for a research turn that produced no approved evidence.
+
+    Fixed text only: a search that could not run gets the temporary-failure
+    wording; anything else says the evidence fell short. Provider and
+    configuration details never reach the user.
+    """
+    language = (plan.response_language or "en").split("-")[0]
+    if failure in SEARCH_FAILURE_REASONS:
+        messages = _TEMPORARY_FAILURE_MESSAGES
+    else:
+        messages = _INSUFFICIENT_EVIDENCE_MESSAGES
+    return messages.get(language, messages["en"])
 
 
 def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
@@ -619,11 +655,7 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
         # Distinguish a source failure from a writer failure. The quotations are
         # still never copied into the body or replaced with unsupported memory.
         language = plan.response_language or "en"
-        source_message = {
-            "ms": "Saya tidak dapat mendapatkan maklumat sumber yang diperlukan kali ini. Sila cuba lagi.",
-            "zh": "这次未能获取所需的来源信息，请重试。",
-            "ta": "தேவையான ஆதாரத் தகவலை இம்முறை பெற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
-        }.get(language, "I could not retrieve the source details needed for this question. Please try again.")
+        source_message = no_evidence_message(plan, decision.failure)
         if plan.clarification_facts:
             # A concrete clarification can move the conversation forward even
             # when the independently requested source facts are unavailable.

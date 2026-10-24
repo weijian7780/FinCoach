@@ -86,6 +86,15 @@ _DEFINITIONAL_FACTS = (
 )
 
 
+def asks_for_current_facts(question: str) -> bool:
+    """Whether the user's own words ask for current, dated or searched facts.
+
+    A model's time-scope guess is not evidence of this; the user's text is.
+    """
+    q = str(question or "")
+    return bool(_CURRENT_CUE.search(q) or _YEAR.search(q) or _SEARCH_CUE.search(q))
+
+
 def _is_bare_definitional(question: str) -> bool:
     """True for a public 'what is X' / 'define X' with no other ask.
 
@@ -164,6 +173,24 @@ class QuestionPlan:
     clarification_facts: tuple[str, ...] = ()
     subject_kind: Literal["agency", "programme", "other", "unknown"] = "unknown"
     application_subject: str | None = None
+    # Set by code when the question is about a title-matched published document
+    # itself ("what is a1 group"), not about something inside it.
+    document_subject: bool = False
+    # The user asks whether information (e.g. a named guide) is still accurate
+    # under current rules; this is a current check, not a document summary.
+    verify_current: bool = False
+
+
+# Research decision failures that mean the search itself could not run, as
+# opposed to a search that ran but did not establish the answer. Shared by the
+# answer guidance and the user-facing failure wording.
+SEARCH_FAILURE_REASONS = frozenset({
+    "no_api_key", "sdk_unavailable", "search_failed",
+    "search_disabled", "search_deadline", "interpretation_unavailable",
+    "assessment_failed", "assessment_unavailable", "retrieval_failed",
+    "assessment_invalid_json", "assessment_invalid_schema", "assessment_timeout",
+    "auth_error", "quota", "rate_limited", "network_error", "timeout",
+})
 
 
 class _InterpretationProposal(BaseModel):
@@ -887,7 +914,47 @@ def assess_evidence(
               "agreeing on ALL requirements/categories; syndicated articles are one origin. "
               "Unknown/community sources cannot support requirements. Truncated lists, login-only "
               "steps and omitted qualifications have complete=false.")
-    if plan.definitional:
+    titled = sorted({index for index, chunk in usable if getattr(chunk, "match_reason", None) == "title"})
+    names = sorted({str(chunk.title) for index, chunk in usable if index in titled})
+    about_document = bool(titled) and plan.document_subject
+    if about_document:
+        # The question is about the named document itself; only its own
+        # content can say what it is and covers.
+        prompt += (
+            f"\nThe user's subject is the published document titled {json.dumps(names)} "
+            f"(evidence ids {titled}): asking what it is asks what this document is about, "
+            "even though its text may never repeat the title. Judge only "
+            "what that document itself states, for what the user requested (a summary, "
+            "an explanation or a specific fact). A summary is supported by the document's "
+            "actual content. The document itself is the subject, so "
+            "jurisdiction_matches is true for its own content. Its title and its own "
+            "stated content establish what it is: an identity or purpose part is covered "
+            "by what the document says it is for, without a fuller name, organisation or "
+            "outside use."
+        )
+    elif titled:
+        # A question answered from a named document keeps its own subject.
+        prompt += (
+            f"\nThe user named the published document titled {json.dumps(names)} "
+            f"(evidence ids {titled}) as the place to look. Judge the user's actual "
+            "question against it and any other evidence; the document being named "
+            "does not make it sufficient."
+        )
+    if titled:
+        prompt += ("\nA term the document only lists, names or requires is not an "
+                   "explanation of that term.")
+    # The named-document rules above replace the generic definition rules.
+    if plan.definitional and not about_document and plan.subject_kind != "agency":
+        # A concept, programme or unrecognised subject is explained, not
+        # profiled as an institution.
+        prompt += (
+            "\nThis is a bare definition of a concept, programme or other subject: "
+            "require a supported statement of what it is and a supported explanation "
+            "of its general purpose or how it works. Do not require an institution's "
+            "identity, full legal name or agency-level responsibilities. A passage that "
+            "only mentions, lists or requires the term does not explain it."
+        )
+    elif plan.definitional and not about_document:
         # A bare definition asks for an introduction, not an exhaustive charter.
         # Preserve subject/qualification checks while avoiding invented gaps for
         # daily operations that were never requested by the user.
