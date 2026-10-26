@@ -17,7 +17,9 @@ from app.rag.request_interpretation import (
     Category,
     InterpretedRequest,
     IntentProposal,
+    _display_amount,
     _latest_assistant_turn,
+    _listed_role,
     interpret_request,
 )
 from app.coaching_history import CoachingHistoryRepository
@@ -92,8 +94,10 @@ from app.rag.prompts import (
 from app.rag.research_answer import recover_research_answer, with_approved_evidence
 from app.rag.research_answer_budget import initial_writer_budget, research_work_budget
 from app.rag.research_coverage import (
+    calculated_part_ids,
     clarification_part_ids,
     clarification_question,
+    plan_without_parts,
     requires_full_clarification,
 )
 from app.rag.document_titles import clean_document_title, resolve_document_titles, topic_is_document
@@ -501,6 +505,128 @@ def _requested_framework(proposal, content: str) -> tuple[str, float | None]:
     if is_diagnostic_query(content):
         return "priority", amount
     return "none", amount
+
+
+_STATED_TARGET_LINES = {
+    "en": "Your savings target: **RM{amount}**.",
+    "ms": "Sasaran simpanan anda: **RM{amount}**.",
+    "zh": "你的储蓄目标：**RM{amount}**。",
+    "ta": "உங்கள் சேமிப்பு இலக்கு: **RM{amount}**.",
+}
+
+
+_TARGET_PLAN_LINES = {
+    "en": "To reach your savings target of **RM{target}** with your estimated savings of **RM{monthly}** a month, "
+          "you would need about **{months} {unit}** (RM{target} ÷ RM{monthly} ≈ {ratio}, rounded up). This assumes "
+          "you start from zero and your saving capacity stays the same; existing savings and any deadline are "
+          "not included.",
+    "ms": "Untuk mencapai sasaran simpanan **RM{target}** dengan anggaran simpanan **RM{monthly}** sebulan, anda "
+          "memerlukan kira-kira **{months} sumbangan bulanan** (RM{target} ÷ RM{monthly} ≈ {ratio}, dibundarkan "
+          "ke atas). Ini menganggap anda bermula dari sifar dan keupayaan menyimpan kekal sama; simpanan sedia ada "
+          "dan sebarang tarikh akhir tidak diambil kira.",
+    "zh": "以每月约 **RM{monthly}** 的预计储蓄，要达到 **RM{target}** 的储蓄目标，大约需要 **{months} 次每月储蓄**"
+          "（RM{target} ÷ RM{monthly} ≈ {ratio}，向上取整）。这假设你从零开始且储蓄能力不变；未计入现有储蓄和任何截止日期。",
+    "ta": "மாதம் **RM{monthly}** என்ற மதிப்பிடப்பட்ட சேமிப்பில் **RM{target}** சேமிப்பு இலக்கை அடைய சுமார் "
+          "**{months} மாதாந்திர பங்களிப்புகள்** தேவைப்படும் (RM{target} ÷ RM{monthly} ≈ {ratio}, மேல்நோக்கி "
+          "முழுமையாக்கப்பட்டது). நீங்கள் பூஜ்ஜியத்திலிருந்து தொடங்குவதாகவும் சேமிப்புத் திறன் மாறாது என்றும் "
+          "இது கருதுகிறது; தற்போதைய சேமிப்பும் காலக்கெடுவும் சேர்க்கப்படவில்லை.",
+}
+_TARGET_NO_SURPLUS_LINES = {
+    "en": "Your records show no surplus to save this month, so the RM{target} target cannot be reached from your "
+          "current saving capacity. Reducing spending or increasing income would need to come first.",
+    "ms": "Rekod anda tidak menunjukkan lebihan untuk disimpan bulan ini, jadi sasaran RM{target} tidak dapat dicapai "
+          "dengan keupayaan menyimpan semasa. Mengurangkan perbelanjaan atau menambah pendapatan perlu didahulukan.",
+    "zh": "你的记录显示本月没有可储蓄的盈余，因此按目前的储蓄能力无法达到 RM{target} 的目标。需要先减少开支或增加收入。",
+    "ta": "இந்த மாதம் சேமிக்க உபரி இல்லை என்று உங்கள் பதிவுகள் காட்டுகின்றன, எனவே தற்போதைய சேமிப்புத் திறனில் "
+          "RM{target} இலக்கை அடைய முடியாது. முதலில் செலவைக் குறைக்க அல்லது வருமானத்தை அதிகரிக்க வேண்டும்.",
+}
+
+
+def _listed_target(proposal) -> str | None:
+    """The price or savings target the interpreter listed and placed (typed fields only)."""
+    public = getattr(proposal, "public", None)
+    amount = public.stated_amount if public is not None else None
+    return amount if amount is not None and _listed_role(proposal, amount) == "target" else None
+
+
+def _target_plan(target: str, tool_results, language: str) -> tuple[str, str] | None:
+    """A savings plan for the target from the verified savings estimate: the plan
+    text, and the records facts block it follows. Deterministic; no web
+    research or model call is involved."""
+    for record in tool_results or ():
+        if record.get("name") != "predict_savings":
+            continue
+        result = record.get("result") or {}
+        if result.get("status") != "ok":
+            return None
+        saveable = _money_decimal(result.get("projected_saveable"))
+        remaining = _money_decimal(result.get("projected_remaining"))
+        goal = Decimal(target)
+        if saveable is None or remaining is None or goal <= 0:
+            return None
+        facts = _format_fast_verified_read("predict_savings", result)
+        if remaining <= 0 or saveable <= 0:
+            lines = _TARGET_NO_SURPLUS_LINES
+            return lines.get(language, lines["en"]).format(target=_display_amount(target)), facts
+        months = int((goal / saveable).to_integral_value(rounding="ROUND_CEILING"))
+        lines = _TARGET_PLAN_LINES
+        text = lines.get(language, lines["en"]).format(
+            target=_display_amount(target), monthly=f"{saveable:,.2f}", months=months,
+            unit="monthly contribution" if months == 1 else "monthly contributions",
+            ratio=f"{(goal / saveable):.2f}")
+        return text, facts
+    return None
+
+
+def _retrieve_remaining_parts(plan, chunks, title_sources):
+    """Published evidence for the parts left after a calculation answered one.
+
+    The first retrieval searched the whole question's topic. The remaining
+    parts are searched on their own facts, each a subquery built the same way
+    the service builds them from a topic (same thresholds and named-document
+    context). Their results come first; earlier evidence is kept after them,
+    so nothing the first search found is lost.
+    """
+    subqueries = []
+    for fact in plan.required_facts or (plan.topic,):
+        for subquery in analyze_knowledge_query(fact).subqueries:
+            if subquery not in subqueries:
+                subqueries.append(subquery)
+    analysis = replace(analyze_knowledge_query(plan.topic), clarification=None)
+    if subqueries:
+        analysis = replace(analysis, subqueries=tuple(subqueries[:3]))
+    try:
+        found = retrieve(plan.topic, analysis=analysis, title_sources=title_sources)
+    except Exception:
+        logger.warning("coach_remaining_part_retrieval_failed")
+        return chunks
+    seen = {chunk.id for chunk in found}
+    return [*found, *(chunk for chunk in chunks if chunk.id not in seen)][:10]
+
+
+def _target_line(target: str, language: str) -> str:
+    lines = _STATED_TARGET_LINES
+    return lines.get(language, lines["en"]).format(amount=_display_amount(target))
+
+
+def _target_block(target: str, plan: tuple[str, str], language: str) -> str:
+    """The completed savings answer: target, verified records, then the plan."""
+    plan_text, facts = plan
+    return f"{_target_line(target, language)}\n\n{facts}\n\n{plan_text}"
+
+
+def _with_stated_target(text: str, proposal) -> str:
+    """Keep an interpreted price or savings target in an answer that has no
+    calculated savings plan (no verified savings estimate), as a target.
+
+    Typed fields only: the amount the interpreter listed with role target and
+    placed in public.stated_amount; it is never shown as money to split.
+    """
+    target = _listed_target(proposal)
+    if not text or target is None:
+        return text
+    line = _target_line(target, (proposal.response_language or "en").split("-")[0])
+    return text if line in text else f"{line}\n\n{text}"
 
 
 def _implied_reminder_title(action, content: str) -> str:
@@ -2879,6 +3005,33 @@ class CoachingService:
                 corpus_inadequate = not chunks or (
                     chunks[0].similarity < WEB_FALLBACK_SIM_THRESHOLD
                 )
+                # Calculate first: a validated savings target is answered from
+                # the verified savings estimate before any research. The read
+                # runs now (the records step reuses it), the public part the
+                # calculation answers is tracked by its part ID, and research and
+                # the writer receive only the remaining parts (none -> no research).
+                target_plan = None
+                early_tool_result = None
+                answered_part_ids: tuple[str, ...] = ()
+                target = _listed_target(proposal) if semantic is not None else None
+                if (target is not None and route == CoachingRoute.COMBINED
+                        and resolved_read.tool_name == "predict_savings"
+                        and resolved_read.readiness == ReadReadiness.READY):
+                    early_tool_result = AgentToolExecutor(
+                        self.admin_client, user_id=self.repository.user_id,
+                        session_id=session_id, request_text=None,
+                    ).execute_read(resolved_read)
+                    target_language = (proposal.response_language or "en").split("-")[0]
+                    target_plan = _target_plan(
+                        target, ({"name": "predict_savings", "result": early_tool_result},), target_language)
+                    if target_plan is not None and research_plan is not None:
+                        answered_part_ids = calculated_part_ids(research_plan)
+                        remaining_plan = plan_without_parts(research_plan, answered_part_ids)
+                        if remaining_plan is not None and remaining_plan is not research_plan:
+                            # Search again for the unanswered parts themselves,
+                            # with search instructions rebuilt from their facts.
+                            chunks = _retrieve_remaining_parts(remaining_plan, chunks, title_sources)
+                        research_plan = remaining_plan
                 if (
                     COACH_RESEARCH_POLICY_ENABLED
                     and is_knowledge_route
@@ -3188,7 +3341,8 @@ class CoachingService:
                     # Compiled or server-saved reads run exactly as saved; only a
                     # fresh rule-router read is resolved against the message text.
                     tool_result = (
-                        executor.execute_read(resolved_read)
+                        early_tool_result if early_tool_result is not None
+                        else executor.execute_read(resolved_read)
                         if semantic is not None or resumed_read is not None
                         else executor.execute(required_read_tool_name, tool_arguments)
                     )
@@ -3221,9 +3375,23 @@ class CoachingService:
                             name for name in tool_result.get("suggestions") or []
                             if isinstance(name, str)
                         ]
+                    elif target_plan is not None and research_plan is None:
+                        # The calculation answers every requested part: one
+                        # code-written answer, no research and no writer.
+                        result = AgentLLMResult(
+                            content=_target_block(target, target_plan, target_language),
+                            model="fincoach-verified-read",
+                            tool_names=(required_read_tool_name,),
+                            tool_results=(tool_record,),
+                        )
+                        response_mode = "fast_verified_read"
+                        content_origin = "code"
                     elif research_explanation_owned:
+                        # The writer explains only the remaining parts; the
+                        # completed savings answer is assembled with it once.
                         result, response_mode = explain_public(
-                            _format_fast_verified_read(required_read_tool_name, tool_result))
+                            _target_block(target, target_plan, target_language) if target_plan is not None
+                            else _format_fast_verified_read(required_read_tool_name, tool_result))
                         result = replace(result, tool_names=(required_read_tool_name,),
                                          tool_results=(tool_record,))
                         content_origin = "model"
@@ -3554,6 +3722,8 @@ class CoachingService:
             assistant_id = str(uuid4())
             ui_payload = dict(getattr(result, "ui_payload", None) or {})
             answer_text = result.content
+            if not interaction_reply and not ui_payload.get("type") and semantic is not None:
+                answer_text = _with_stated_target(answer_text, semantic.proposal)
             # LLM-offered choice cards (opt-in): strip the tagged metadata block
             # from the visible answer, validate it independently of answer
             # validation, and attach a choice payload only when it is well-formed.

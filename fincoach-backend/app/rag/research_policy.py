@@ -189,6 +189,10 @@ class QuestionPlan:
     # part's domain ("finance"/"non_finance") and the entities it is about.
     part_domains: tuple[str, ...] = ()
     part_entities: tuple[tuple[str, ...], ...] = ()
+    # Existing IDs survive removal of a calculated part; the remaining p2 must
+    # not become p1 and inherit a different question's coverage.
+    part_ids: tuple[str, ...] = ()
+    savings_part_ids: tuple[str, ...] = ()
 
 
 # Research decision failures that mean the search itself could not run, as
@@ -1364,6 +1368,9 @@ def financial_search_plan(plan: QuestionPlan) -> QuestionPlan:
         required_facts=facts,
         part_domains=("finance",) * len(facts),
         part_entities=tuple(part_entities for _, part_entities in financial),
+        part_ids=tuple(part.id for part, domain in zip(requested_parts(plan), plan.part_domains)
+                       if domain == "finance"),
+        savings_part_ids=(),
         clarification_facts=tuple(f for f in plan.clarification_facts if f in facts),
         application_subject=(plan.application_subject if plan.application_subject in entities else None),
         original_question=text,
@@ -1374,9 +1381,9 @@ def financial_search_plan(plan: QuestionPlan) -> QuestionPlan:
 def search_part(plan: QuestionPlan, part: RequestedPart) -> RequestedPart:
     """A financial part as it is searched: its own label plus its entities,
     found by the part's position (never by matching its wording)."""
-    if not plan.part_domains or not part.id[1:].isdigit():
+    if not plan.part_domains:
         return part
-    index = int(part.id[1:]) - 1
+    index = next((i for i, requested in enumerate(requested_parts(plan)) if requested.id == part.id), -1)
     if not 0 <= index < len(plan.part_domains) or plan.part_domains[index] != "finance":
         return part
     entities = plan.part_entities[index] if index < len(plan.part_entities) else ()

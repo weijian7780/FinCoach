@@ -30,6 +30,9 @@ class PartCoverage:
 
 def requested_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
     from app.rag.web_research import build_research_query
+    if plan.part_ids:
+        return tuple(RequestedPart(part_id, build_research_query(str(fact))[:100].strip() or str(fact)[:100])
+                     for part_id, fact in zip(plan.part_ids, plan.required_facts or (plan.topic,)))
     if getattr(plan, "part_domains", ()):
         # Explicitly labelled parts (a mixed question) keep one permanent
         # positional id each, even when two parts share the same wording; their
@@ -47,6 +50,45 @@ def requested_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:
         if len(labels) == 6:
             break
     return tuple(RequestedPart(f"p{i}", label) for i, label in enumerate(labels, 1))
+
+
+def calculated_part_ids(plan: QuestionPlan) -> tuple[str, ...]:
+    """The requested part a verified savings calculation answers, by part ID.
+
+    Only the interpreter's explicit semantic binding counts. The only finance
+    part may be a separate PTPTN question, not a question about this target.
+    """
+    blocked = set(non_finance_part_ids(plan))
+    return tuple(part.id for part in requested_parts(plan)
+                 if part.id in plan.savings_part_ids and part.id not in blocked
+                 and plan.finance_scope != "non_finance")
+
+
+def plan_without_parts(plan: QuestionPlan, answered: tuple[str, ...]) -> QuestionPlan | None:
+    """The plan for the parts still to explain, or None when none remain.
+
+    Labelled parts are kept by position with their own domains and entities;
+    the remaining plan names only those parts, so research and the writer are
+    never asked about a part that is already answered.
+    """
+    from dataclasses import replace
+    from app.rag.web_research import build_research_query
+    parts = requested_parts(plan)
+    keep = [index for index, part in enumerate(parts) if part.id not in set(answered)]
+    if len(keep) == len(parts):
+        return plan
+    if not keep:
+        return None
+    facts = tuple((plan.required_facts or (plan.topic,))[index] for index in keep)
+    domains = tuple(plan.part_domains[index] for index in keep) if plan.part_domains else ()
+    entities = tuple(plan.part_entities[index] if index < len(plan.part_entities) else () for index in keep)
+    scope = domains[0] if len(set(domains)) == 1 else "mixed" if domains else plan.finance_scope
+    return replace(plan, topic=build_research_query("; ".join(facts))[:220] or plan.topic,
+                   required_facts=facts, part_domains=domains, part_entities=entities,
+                   part_ids=tuple(parts[index].id for index in keep),
+                   savings_part_ids=tuple(part_id for part_id in plan.savings_part_ids if part_id not in answered),
+                   clarification_facts=tuple(fact for fact in plan.clarification_facts if fact in facts),
+                   finance_scope=scope, needs_personal=True, definitional=False)
 
 
 def select_unresolved_part(parts: tuple[PartCoverage, ...], attempts: dict[str, int]) -> str | None:
@@ -69,7 +111,7 @@ def non_finance_part_ids(plan: QuestionPlan) -> tuple[str, ...]:
     requested_parts, so a part is identified by its position, never by its
     wording (two parts may read the same)."""
     domains = getattr(plan, "part_domains", ())
-    return tuple(f"p{i}" for i, domain in enumerate(domains[:6], 1) if domain == "non_finance")
+    return tuple(part.id for part, domain in zip(requested_parts(plan), domains[:6]) if domain == "non_finance")
 
 
 def web_research_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:

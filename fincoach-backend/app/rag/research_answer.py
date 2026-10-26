@@ -495,6 +495,21 @@ def check_research_draft(draft: str, *, public_question: str,
             clean = f"{clean} {cited}"
         units[position] = (section, clean, block)
     diagnostics["coverage_note_count"] = len(verification.assessment_supported_ids)
+    # A part has a displayed explanation only when the semantic verifier bound
+    # it to a positive claim that survives local checks. Shared document/source
+    # numbers carry evidence identity, not which question a sentence answers.
+    retained_claims = {
+        claim.id for claim in claims
+        if verification.verdicts.get(claim.id) == "supported"
+        and claim.id in verification.source_indices
+        and claim.id not in verification.assessment_supported_ids
+        and units[claim_units[claim.id]][2] not in rejected_blocks
+        and claim_units[claim.id] not in notice_rejections
+    }
+    diagnostics["addressed_part_ids"] = [
+        part_id for part_id, claim_ids in verification.answered_part_claims
+        if set(claim_ids) & retained_claims
+    ]
     if rejected_blocks:
         # The semantic coverage verdict described the original draft. Removing
         # a requested fact makes it unsafe to claim full displayed coverage.
@@ -579,12 +594,19 @@ _NON_FINANCE_PART_MESSAGES = {
 
 
 def non_finance_part_note(plan: QuestionPlan, parts) -> str | None:
-    """Short referral for a mixed question's non-finance part that published
-    knowledge did not cover; None when every such part was answered."""
-    if getattr(plan, "finance_scope", None) != "mixed":
+    """Short referral for a labelled non-finance part that the final answer
+    does not cover; None when every such part was answered.
+
+    ``parts`` is the final coverage: part IDs the checked answer actually
+    answers (or coverage rows with ``complete``). A source that was found but
+    did not support the explanation the user receives does not count.
+    """
+    scope = getattr(plan, "finance_scope", None)
+    if not (scope == "mixed" or (scope == "non_finance" and getattr(plan, "part_domains", ()))):
         return None
     blocked = set(non_finance_part_ids(plan))
-    covered = {part.part_id for part in parts or () if part.complete}
+    covered = {part if isinstance(part, str) else part.part_id for part in parts or ()
+               if isinstance(part, str) or part.complete}
     if not blocked or blocked <= covered:
         return None
     language = (plan.response_language or "en").split("-")[0]
@@ -605,6 +627,10 @@ def no_evidence_message(plan: QuestionPlan, failure: str | None) -> str:
     non_finance = getattr(plan, "finance_scope", None) == "non_finance"
     if failure in SEARCH_FAILURE_REASONS and not (non_finance and failure == "search_disabled"):
         messages = _TEMPORARY_FAILURE_MESSAGES
+    elif non_finance and getattr(plan, "part_domains", ()):
+        # The labelled non-finance part left after the rest of a mixed
+        # question was answered: its referral is the part note, given once.
+        return ""
     elif non_finance:
         messages = _OUT_OF_SCOPE_MESSAGES
     else:
@@ -653,11 +679,17 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
                 content = content + "\n\n" + clarification
             complete = False
         used_indices = sorted({int(i) for i in _MARKER.findall(content)})
-        note = non_finance_part_note(plan, decision.assessment.parts)
-        if note and note not in content:
-            content = f"{content}\n\n{note}"
-        if personal_facts:
-            content = f"{personal_facts}\n\n{content}"
+        # Referral coverage follows the semantic claim-to-part links of the
+        # displayed answer. A source number may support several unrelated
+        # topics, so citing it cannot grant coverage to every such topic.
+        shown_check = initial_check if initial_candidate and result is draft else checks[-1] if checks else {}
+        answered = () if mode == "research_explanation_unavailable" and not used_indices else tuple(
+            {*shown_check.get("answered_part_ids", ()), *shown_check.get("addressed_part_ids", ())})
+        note = non_finance_part_note(plan, answered)
+        if note and note in content:
+            note = None
+        # One assembly: verified personal answer, the explanation, the referral.
+        content = "\n\n".join(piece for piece in (personal_facts, content, note) if piece)
         wrapped = AgentLLMResult(content, result.model, result.prompt_tokens, result.completion_tokens)
         diagnostics = {"recovery_used": used, "error_codes": list(errors),
                        "cause_codes": list(cause_codes or errors), "verification": checks,
@@ -667,6 +699,7 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
         displayed_check = initial_check if initial_candidate and result is draft else checks[-1] if checks else {}
         diagnostics.update(requested_scope_covered=displayed_check.get("requested_scope_covered"),
             answered_part_ids=displayed_check.get("answered_part_ids", []),
+            addressed_part_ids=displayed_check.get("addressed_part_ids", []),
             unanswered_requested_parts=displayed_check.get("unanswered_requested_parts", []),
             terminal_reason=(decision.failure or "no_approved_evidence") if not decision.assessment.supported_quotes
                             else errors[0] if mode == "research_explanation_unavailable" and errors else None)
