@@ -20,6 +20,9 @@ openai==3.24.0
 # Web-research fallback (used only when the corpus cannot answer). Optional at
 # runtime: imported lazily, and the coach degrades gracefully if it is absent.
 tavily-python==0.8.4
+# Direct public-page fallback uses the validated socket with TLS verification.
+urllib3==2.8.0
+certifi==2026.7.22
 
 # Receipt visual OCR verification (server-side Gemini SDK; image + OCR text)
 google-genai==2.11.0
