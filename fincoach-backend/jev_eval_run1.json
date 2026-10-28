@@ -1,0 +1,1000 @@
+{
+  "summary": {
+    "cases": 55,
+    "topic_precision": 0.8793,
+    "topic_recall": 1.0,
+    "topic_f1": 0.9358,
+    "exact_set_match": 0.8727,
+    "negatives": 4,
+    "negative_abstain_ok": 4,
+    "route_below_gate_pct": 0.0909,
+    "latency_median_ms": 302,
+    "latency_p95_ms": 402,
+    "tokens_total": 91910,
+    "tokens_per_case": 1671,
+    "model": "jev-1.13.0"
+  },
+  "rows": [
+    {
+      "id": "en-akpk",
+      "query": "How can AKPK help me manage debt?",
+      "expected": [
+        "akpk"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.99,
+      "route_below_gate": false,
+      "selected": [
+        "akpk"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "akpk",
+      "latency_ms": 769.2593000028864,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-bnpl",
+      "query": "What are the risks of buy now pay later?",
+      "expected": [
+        "bnpl"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "bnpl"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "bnpl",
+      "latency_ms": 271.8088999972679,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-emergency",
+      "query": "How should a student build an emergency fund?",
+      "expected": [
+        "emergency_fund"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "emergency_fund"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "emergency_fund",
+      "latency_ms": 307.69280000095023,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-eccris",
+      "query": "How do CCRIS records affect a loan?",
+      "expected": [
+        "credit_records"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.98,
+      "route_below_gate": false,
+      "selected": [
+        "credit_records"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "credit_records",
+      "latency_ms": 314.45869999879505,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-crypto",
+      "query": "What are the risks of buying crypto in Malaysia?",
+      "expected": [
+        "digital_assets"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "digital_assets"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "digital_assets",
+      "latency_ms": 302.93360000359826,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-digital",
+      "query": "Are digital bank and e-wallet balances protected?",
+      "expected": [
+        "digital_banks"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.99,
+      "route_below_gate": false,
+      "selected": [
+        "digital_banks"
+      ],
+      "top_prob": 0.96,
+      "top_topic": "digital_banks",
+      "latency_ms": 266.1949999965145,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-kwsp",
+      "query": "What should students know about EPF or KWSP?",
+      "expected": [
+        "epf"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "epf"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "epf",
+      "latency_ms": 342.10479999455856,
+      "tokens": 1673,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-complaint",
+      "query": "Where can I complain about a financial service?",
+      "expected": [
+        "financial_complaints"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.9,
+      "route_below_gate": false,
+      "selected": [
+        "financial_complaints"
+      ],
+      "top_prob": 0.96,
+      "top_topic": "financial_complaints",
+      "latency_ms": 287.9162000026554,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-perkeso",
+      "query": "What protection does PERKESO provide workers?",
+      "expected": [
+        "perkeso"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "perkeso"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "perkeso",
+      "latency_ms": 274.9402999979793,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-pidm",
+      "query": "What deposits does PIDM protect?",
+      "expected": [
+        "pidm"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "pidm"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "pidm",
+      "latency_ms": 301.9598000028054,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-ptptn-purpose",
+      "query": "What does PTPTN do?",
+      "expected": [
+        "ptptn"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.99,
+      "route_below_gate": false,
+      "selected": [
+        "ptptn",
+        "student_aid"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "ptptn",
+      "latency_ms": 321.6487000026973,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-ptptn",
+      "query": "When and how should I repay PTPTN?",
+      "expected": [
+        "ptptn"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.82,
+      "route_below_gate": false,
+      "selected": [
+        "ptptn",
+        "student_aid"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "ptptn",
+      "latency_ms": 320.85579999693437,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-scam",
+      "query": "How can I avoid an investment scam?",
+      "expected": [
+        "scams"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "scams"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "scams",
+      "latency_ms": 291.03749999922,
+      "tokens": 1670,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-shariah",
+      "query": "What does Shariah-compliant investing mean?",
+      "expected": [
+        "shariah"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "shariah"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "shariah",
+      "latency_ms": 349.83829999691807,
+      "tokens": 1673,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-aid",
+      "query": "What financial aid and scholarships are available to students?",
+      "expected": [
+        "student_aid"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.97,
+      "route_below_gate": false,
+      "selected": [
+        "student_aid"
+      ],
+      "top_prob": 0.91,
+      "top_topic": "student_aid",
+      "latency_ms": 287.0984999972279,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-takaful",
+      "query": "What is the difference between takaful and insurance?",
+      "expected": [
+        "takaful"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "takaful"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "takaful",
+      "latency_ms": 293.5924000048544,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "en-tax",
+      "query": "What tax should I consider for part-time income?",
+      "expected": [
+        "tax"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.84,
+      "route_below_gate": false,
+      "selected": [
+        "tax"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "tax",
+      "latency_ms": 276.18989999609767,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-akpk",
+      "query": "Bagaimana AKPK boleh membantu saya mengurus hutang?",
+      "expected": [
+        "akpk"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.98,
+      "route_below_gate": false,
+      "selected": [
+        "akpk"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "akpk",
+      "latency_ms": 330.27469999797177,
+      "tokens": 1675,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-bnpl",
+      "query": "Apakah risiko menggunakan beli sekarang bayar kemudian?",
+      "expected": [
+        "bnpl"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "bnpl"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "bnpl",
+      "latency_ms": 328.67410000471864,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-emergency",
+      "query": "Bagaimana pelajar membina dana kecemasan?",
+      "expected": [
+        "emergency_fund"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.99,
+      "route_below_gate": false,
+      "selected": [
+        "emergency_fund"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "emergency_fund",
+      "latency_ms": 356.45130000193603,
+      "tokens": 1674,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-eccris",
+      "query": "Apakah kesan rekod CCRIS terhadap pinjaman?",
+      "expected": [
+        "credit_records"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.99,
+      "route_below_gate": false,
+      "selected": [
+        "credit_records"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "credit_records",
+      "latency_ms": 299.7264000005089,
+      "tokens": 1675,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-crypto",
+      "query": "Apakah risiko membeli aset kripto di Malaysia?",
+      "expected": [
+        "digital_assets"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "digital_assets"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "digital_assets",
+      "latency_ms": 299.42169999412727,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-digital",
+      "query": "Adakah wang dalam bank digital dan e-dompet dilindungi?",
+      "expected": [
+        "digital_banks"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "digital_banks"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "digital_banks",
+      "latency_ms": 299.4165999989491,
+      "tokens": 1676,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-kwsp",
+      "query": "Apakah yang pelajar perlu tahu tentang KWSP?",
+      "expected": [
+        "epf"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "epf"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "epf",
+      "latency_ms": 288.67539999919245,
+      "tokens": 1673,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-complaint",
+      "query": "Di mana saya boleh membuat aduan perkhidmatan kewangan?",
+      "expected": [
+        "financial_complaints"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.92,
+      "route_below_gate": false,
+      "selected": [
+        "financial_complaints"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "financial_complaints",
+      "latency_ms": 274.2673999964609,
+      "tokens": 1676,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-perkeso",
+      "query": "Apakah perlindungan PERKESO untuk pekerja?",
+      "expected": [
+        "perkeso"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.99,
+      "route_below_gate": false,
+      "selected": [
+        "perkeso"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "perkeso",
+      "latency_ms": 402.0518999968772,
+      "tokens": 1675,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-pidm",
+      "query": "Apakah perlindungan deposit PIDM?",
+      "expected": [
+        "pidm"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "pidm"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "pidm",
+      "latency_ms": 280.11500000138767,
+      "tokens": 1671,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-ptptn-purpose",
+      "query": "PTPTN buat apa?",
+      "expected": [
+        "ptptn"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.96,
+      "route_below_gate": false,
+      "selected": [
+        "ptptn",
+        "student_aid"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "ptptn",
+      "latency_ms": 288.6642000012216,
+      "tokens": 1668,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-ptptn",
+      "query": "Bila dan bagaimana perlu membayar balik PTPTN?",
+      "expected": [
+        "ptptn"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.92,
+      "route_below_gate": false,
+      "selected": [
+        "ptptn",
+        "student_aid"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "ptptn",
+      "latency_ms": 286.3391999999294,
+      "tokens": 1674,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-scam",
+      "query": "Bagaimana mengelakkan penipuan pelaburan?",
+      "expected": [
+        "scams"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "scams"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "scams",
+      "latency_ms": 292.73429999739164,
+      "tokens": 1676,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-shariah",
+      "query": "Apakah maksud pelaburan patuh Syariah?",
+      "expected": [
+        "shariah"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "shariah"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "shariah",
+      "latency_ms": 434.58300000202144,
+      "tokens": 1675,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-aid",
+      "query": "Apakah bantuan kewangan dan biasiswa untuk pelajar?",
+      "expected": [
+        "student_aid"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.84,
+      "route_below_gate": false,
+      "selected": [
+        "student_aid"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "student_aid",
+      "latency_ms": 329.588499997044,
+      "tokens": 1675,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-takaful",
+      "query": "Apakah perbezaan takaful dengan insurans?",
+      "expected": [
+        "takaful"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "takaful"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "takaful",
+      "latency_ms": 289.9355999979889,
+      "tokens": 1675,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "ms-tax",
+      "query": "Apakah cukai untuk pendapatan sambilan?",
+      "expected": [
+        "tax"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.96,
+      "route_below_gate": false,
+      "selected": [
+        "tax"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "tax",
+      "latency_ms": 377.258400003484,
+      "tokens": 1673,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-akpk",
+      "query": "akpk boleh tolong hutang saya ke",
+      "expected": [
+        "akpk"
+      ],
+      "route": "needs_clarification",
+      "route_conf": 0.32,
+      "route_below_gate": true,
+      "selected": [
+        "akpk"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "akpk",
+      "latency_ms": 292.7975000056904,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-bnpl",
+      "query": "bnpl bahaya ka utk student",
+      "expected": [
+        "bnpl"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.95,
+      "route_below_gate": false,
+      "selected": [
+        "bnpl"
+      ],
+      "top_prob": 0.96,
+      "top_topic": "bnpl",
+      "latency_ms": 289.67140000168,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-emergency",
+      "query": "nak buat emergency fund camne",
+      "expected": [
+        "emergency_fund"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.9,
+      "route_below_gate": false,
+      "selected": [
+        "emergency_fund"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "emergency_fund",
+      "latency_ms": 274.679100002686,
+      "tokens": 1668,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-eccris",
+      "query": "ccris effect loan ke",
+      "expected": [
+        "credit_records"
+      ],
+      "route": "needs_clarification",
+      "route_conf": 0.37,
+      "route_below_gate": true,
+      "selected": [
+        "credit_records"
+      ],
+      "top_prob": 0.9,
+      "top_topic": "credit_records",
+      "latency_ms": 323.53169999987585,
+      "tokens": 1668,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-crypto",
+      "query": "crypto kat msia selamat tak",
+      "expected": [
+        "digital_assets"
+      ],
+      "route": "needs_clarification",
+      "route_conf": 0.47,
+      "route_below_gate": true,
+      "selected": [
+        "digital_assets"
+      ],
+      "top_prob": 0.96,
+      "top_topic": "digital_assets",
+      "latency_ms": 310.83639999997104,
+      "tokens": 1670,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-digital",
+      "query": "duit ewallet dgn bank digital pidm cover tak",
+      "expected": [
+        "digital_banks"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.86,
+      "route_below_gate": false,
+      "selected": [
+        "digital_banks",
+        "pidm"
+      ],
+      "top_prob": 0.96,
+      "top_topic": "digital_banks",
+      "latency_ms": 563.7274000036996,
+      "tokens": 1673,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-kwsp",
+      "query": "student kena tau pasal kwsp apa",
+      "expected": [
+        "epf"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.92,
+      "route_below_gate": false,
+      "selected": [
+        "epf"
+      ],
+      "top_prob": 0.96,
+      "top_topic": "epf",
+      "latency_ms": 279.735799995251,
+      "tokens": 1670,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-complaint",
+      "query": "bank buat hal nak complain mana",
+      "expected": [
+        "financial_complaints"
+      ],
+      "route": "needs_clarification",
+      "route_conf": 0.41,
+      "route_below_gate": true,
+      "selected": [
+        "financial_complaints"
+      ],
+      "top_prob": 0.92,
+      "top_topic": "financial_complaints",
+      "latency_ms": 326.5594999975292,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-perkeso",
+      "query": "perkeso cover pekerja macam mana",
+      "expected": [
+        "perkeso"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.95,
+      "route_below_gate": false,
+      "selected": [
+        "perkeso"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "perkeso",
+      "latency_ms": 308.07500000082655,
+      "tokens": 1670,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-pidm",
+      "query": "pidm protect duit bank berapa",
+      "expected": [
+        "pidm"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.96,
+      "route_below_gate": false,
+      "selected": [
+        "pidm"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "pidm",
+      "latency_ms": 278.38169999449747,
+      "tokens": 1670,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-ptptn-purpose",
+      "query": "what ptptn do for",
+      "expected": [
+        "ptptn"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.94,
+      "route_below_gate": false,
+      "selected": [
+        "ptptn",
+        "student_aid"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "ptptn",
+      "latency_ms": 301.6328000012436,
+      "tokens": 1668,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-ptptn",
+      "query": "ptptn bila mula bayar balik",
+      "expected": [
+        "ptptn"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.81,
+      "route_below_gate": false,
+      "selected": [
+        "ptptn",
+        "student_aid"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "ptptn",
+      "latency_ms": 327.1930999981123,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-scam",
+      "query": "macam mana nak check investment scam",
+      "expected": [
+        "scams"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "scams"
+      ],
+      "top_prob": 0.99,
+      "top_topic": "scams",
+      "latency_ms": 316.5649000002304,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-shariah",
+      "query": "pelaburan shariah tu apa",
+      "expected": [
+        "shariah"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "shariah"
+      ],
+      "top_prob": 0.97,
+      "top_topic": "shariah",
+      "latency_ms": 294.01279999729013,
+      "tokens": 1670,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-aid",
+      "query": "student cari biasiswa bantuan duit kat mana",
+      "expected": [
+        "student_aid"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.93,
+      "route_below_gate": false,
+      "selected": [
+        "student_aid"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "student_aid",
+      "latency_ms": 357.5979999950505,
+      "tokens": 1672,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-takaful",
+      "query": "takaful beza dgn insurance",
+      "expected": [
+        "takaful"
+      ],
+      "route": "financial_education",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [
+        "takaful"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "takaful",
+      "latency_ms": 303.1771999958437,
+      "tokens": 1669,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "mix-tax",
+      "query": "income part time kena tax ke",
+      "expected": [
+        "tax"
+      ],
+      "route": "financial_education",
+      "route_conf": 0.89,
+      "route_below_gate": false,
+      "selected": [
+        "tax"
+      ],
+      "top_prob": 0.98,
+      "top_topic": "tax",
+      "latency_ms": 296.74559999693884,
+      "tokens": 1668,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "casual-hello",
+      "query": "hello",
+      "expected": [],
+      "route": "casual",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [],
+      "top_prob": 0.01,
+      "top_topic": "akpk",
+      "latency_ms": 331.35760000004666,
+      "tokens": 1661,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "casual-joke",
+      "query": "tell me a joke",
+      "expected": [],
+      "route": "casual",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [],
+      "top_prob": 0.01,
+      "top_topic": "akpk",
+      "latency_ms": 312.76799999614013,
+      "tokens": 1664,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "casual-weather",
+      "query": "cuaca hari ini macam mana",
+      "expected": [],
+      "route": "casual",
+      "route_conf": 1.0,
+      "route_below_gate": false,
+      "selected": [],
+      "top_prob": 0.01,
+      "top_topic": "akpk",
+      "latency_ms": 302.48060000303667,
+      "tokens": 1666,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "casual-code",
+      "query": "help me debug Python code",
+      "expected": [],
+      "route": "needs_clarification",
+      "route_conf": 0.58,
+      "route_below_gate": true,
+      "selected": [],
+      "top_prob": 0.01,
+      "top_topic": "akpk",
+      "latency_ms": 282.47389999887673,
+      "tokens": 1668,
+      "model": "jev-1.13.0"
+    }
+  ]
+}

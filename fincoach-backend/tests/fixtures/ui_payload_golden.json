@@ -1,0 +1,423 @@
+{
+  "action_card": {
+    "source_count": 0,
+    "ui_payload": {
+      "action_id": "<uuid>",
+      "action_type": "create_reminder",
+      "arguments": {
+        "amount": null,
+        "due_at": "2026-09-23T21:00:00+08:00",
+        "lead_days": 0,
+        "recurrence": "none",
+        "recurrence_anchor_day": 23,
+        "title": "Pay rent"
+      },
+      "confirm_label": "Create reminder",
+      "description": "FinCoach will add this to your reminders only after you confirm.",
+      "fields": [
+        {
+          "label": "Reminder",
+          "value": "Pay rent"
+        },
+        {
+          "label": "Due",
+          "value": "23 September 2026, 9:00 PM"
+        }
+      ],
+      "status": "pending",
+      "title": "Create reminder?",
+      "type": "action"
+    }
+  },
+  "ambiguous_reminder_card": {
+    "source_count": 0,
+    "ui_payload": {
+      "action_type": "create_reminder",
+      "allow_other": false,
+      "draft": {
+        "recurrence": "none",
+        "title": "Pay rent"
+      },
+      "field": "confirm_reminder_intent",
+      "input_type": "single_select",
+      "options": [
+        {
+          "id": "create_reminder",
+          "label": "Create reminder",
+          "value": "create_reminder"
+        },
+        {
+          "id": "not_now",
+          "label": "Not now",
+          "value": "not_now"
+        }
+      ],
+      "question": "Would you like me to create a reminder for \u201cPay rent\u201d?",
+      "type": "clarification"
+    }
+  },
+  "choices_card": {
+    "source_count": 0,
+    "ui_payload": {
+      "input_type": "single_select",
+      "options": [
+        {
+          "id": "c1",
+          "label": "Repayment options",
+          "query": "How do I repay PTPTN?"
+        },
+        {
+          "id": "c2",
+          "label": "Check my balance",
+          "query": "How much PTPTN do I still owe?"
+        }
+      ],
+      "state": {
+        "origin_message_id": "<uuid>",
+        "version": 1
+      },
+      "type": "coach_choices"
+    }
+  },
+  "interpreter_clarification": {
+    "source_count": 0,
+    "ui_payload": {
+      "allow_other": true,
+      "input_type": "text",
+      "intent_context": "<present>",
+      "question": "Which category do you mean?",
+      "type": "clarification"
+    }
+  },
+  "legacy_fast_budget": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Where can I cut spending?",
+          "query": "Where can I cut spending?"
+        },
+        {
+          "label": "Compare with last month",
+          "query": "Compare my spending with last month"
+        }
+      ]
+    }
+  },
+  "multi_action_reply": {
+    "source_count": 0,
+    "ui_payload": {}
+  },
+  "product_policy_reply": {
+    "source_count": 0,
+    "ui_payload": {}
+  },
+  "read_card_amount": {
+    "source_count": 0,
+    "ui_payload": {
+      "allow_other": true,
+      "field": "amount",
+      "input_type": "text",
+      "options": [],
+      "question": "Please provide one exact amount, with at most two decimal places.",
+      "state": {
+        "anchor_date": "2026-09-22",
+        "arguments": {
+          "category_name": "Rm25K"
+        },
+        "intent": "transaction_search",
+        "invalid_fields": [
+          "amount"
+        ],
+        "missing_required": [],
+        "origin_message_id": "m",
+        "parameter_sources": {
+          "category_name": "explicit"
+        },
+        "reason": "amount",
+        "route": "personal_finance",
+        "tool_name": "search_transactions",
+        "version": 1
+      },
+      "type": "read_clarification"
+    }
+  },
+  "read_card_month": {
+    "source_count": 0,
+    "ui_payload": {
+      "allow_other": true,
+      "field": "month",
+      "input_type": "single_select",
+      "options": [
+        {
+          "id": "this_month",
+          "label": "This month",
+          "value": "2026-09"
+        },
+        {
+          "id": "last_month",
+          "label": "Last month",
+          "value": "2026-08"
+        }
+      ],
+      "question": "Please specify the period as YYYY-MM-DD to YYYY-MM-DD.",
+      "state": {
+        "anchor_date": "2026-09-22",
+        "arguments": {},
+        "intent": "budget_status",
+        "invalid_fields": [
+          "month"
+        ],
+        "missing_required": [],
+        "origin_message_id": "m",
+        "parameter_sources": {},
+        "reason": null,
+        "route": "personal_finance",
+        "tool_name": "get_budget_status",
+        "version": 1
+      },
+      "type": "read_clarification"
+    }
+  },
+  "read_card_savings": {
+    "source_count": 0,
+    "ui_payload": {
+      "allow_other": false,
+      "field": "savings_intent",
+      "input_type": "single_select",
+      "options": [
+        {
+          "id": "goal_progress",
+          "label": "Savings-goal progress",
+          "value": "goal_progress"
+        },
+        {
+          "id": "saving_capacity",
+          "label": "How much I could save",
+          "value": "saving_capacity"
+        }
+      ],
+      "question": "Do you mean your savings-goal progress, or an estimate of how much you could save? Let me know which and I'll pull it up.",
+      "state": {
+        "anchor_date": "2026-09-22",
+        "arguments": {},
+        "intent": "savings_unspecified",
+        "invalid_fields": [],
+        "missing_required": [
+          "savings_intent"
+        ],
+        "origin_message_id": "m",
+        "parameter_sources": {},
+        "reason": null,
+        "route": "personal_finance",
+        "tool_name": null,
+        "version": 1
+      },
+      "type": "read_clarification"
+    }
+  },
+  "read_card_transaction": {
+    "source_count": 0,
+    "ui_payload": {
+      "allow_other": true,
+      "field": "transaction_filter",
+      "input_type": "text",
+      "options": [],
+      "question": "Which transaction do you mean? Share its date, the merchant, or a short description and I'll find it.",
+      "state": {
+        "anchor_date": "2026-09-22",
+        "arguments": {},
+        "intent": "transaction_reference",
+        "invalid_fields": [],
+        "missing_required": [
+          "transaction_filter"
+        ],
+        "origin_message_id": "m",
+        "parameter_sources": {},
+        "reason": "unresolved_reference",
+        "route": "personal_finance",
+        "tool_name": null,
+        "version": 1
+      },
+      "type": "read_clarification"
+    }
+  },
+  "research_answer_sources": {
+    "source_count": 1,
+    "ui_payload": {}
+  },
+  "semantic_read_budget": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Where can I cut spending?",
+          "query": "Where can I cut spending?"
+        },
+        {
+          "label": "Compare with last month",
+          "query": "Compare my spending with last month"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_cashflow": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        },
+        {
+          "label": "Am I on track for my goal?",
+          "query": "Am I on track for my savings goal?"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_comparison": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Where can I cut spending?",
+          "query": "Where can I cut spending?"
+        },
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_goals": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Make me a weekly saving plan",
+          "query": "Make me a weekly saving plan"
+        },
+        {
+          "label": "Am I on track for my goal?",
+          "query": "Am I on track for my savings goal?"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_overview": {
+    "source_count": 0,
+    "ui_payload": {
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_predict": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Make me a weekly saving plan",
+          "query": "Make me a weekly saving plan"
+        },
+        {
+          "label": "Am I on track for my goal?",
+          "query": "Am I on track for my savings goal?"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_profile": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_recommendation": {
+    "source_count": 0,
+    "ui_payload": {
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_reminders": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_report_summary": {
+    "source_count": 0,
+    "ui_payload": {
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_spending": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        },
+        {
+          "label": "Which category costs most?",
+          "query": "Which category am I spending the most on?"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_transactions": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        },
+        {
+          "label": "Which category costs most?",
+          "query": "Which category am I spending the most on?"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "semantic_read_weekly_plan": {
+    "source_count": 0,
+    "ui_payload": {
+      "follow_ups": [
+        {
+          "label": "Am I on track for my goal?",
+          "query": "Am I on track for my savings goal?"
+        },
+        {
+          "label": "Show my budget breakdown",
+          "query": "Show my budget breakdown"
+        }
+      ],
+      "intent_context": "<present>"
+    }
+  },
+  "write_disabled_reply": {
+    "source_count": 0,
+    "ui_payload": {}
+  }
+}

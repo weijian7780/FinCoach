@@ -1,7 +1,9 @@
 """Typed hybrid retrieval for shared Malaysian finance knowledge."""
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+import json
+import logging
+from time import monotonic
 from typing import Any
 
 from app.config import (
@@ -19,11 +21,7 @@ from app.rag.query_analysis import (
 
 
 RRF_K = 50
-
-# Upper bound on concurrent per-subquery Supabase RPCs. Each RPC is a
-# network-bound read, so a small pool is enough; the bound keeps a future
-# increase in subquery count from fanning out without limit.
-MAX_PARALLEL_HYBRID_RPCS = 4
+logger = logging.getLogger("uvicorn.error")
 
 
 def get_supabase() -> Any:
@@ -57,6 +55,8 @@ class RetrievedChunk:
     checked_at: str | None = None
     # Internal excerpt identity; canonical URL still owns origin and citation.
     evidence_window_id: str | None = None
+    # "title" when the user named this chunk's published document by title.
+    match_reason: str | None = None
 
 
 def select_retrieved_chunks(
@@ -156,43 +156,6 @@ def _hybrid_candidates(
     ])
 
 
-def _fetch_hybrid_candidates(
-    subqueries: list[SearchSubquery],
-    embeddings: list[list[float]],
-    match_count: int,
-) -> list[tuple[SearchSubquery, list[RetrievedChunk]]]:
-    """Fetch hybrid candidates for each subquery, preserving subquery order.
-
-    The per-subquery Supabase RPCs are independent, side-effect-free reads,
-    so they run concurrently in a bounded thread pool instead of one after
-    another. ``executor.map`` yields results in input order, and the first
-    exception in subquery order propagates -- exactly matching the previous
-    sequential behavior. Ranking, deduplication, authorization, user filters,
-    timeouts, and the dense-fallback error contract are unchanged: the same
-    client issues the same RPCs with the same arguments.
-    """
-    pairs = list(zip(subqueries, embeddings))
-    if len(pairs) <= 1:
-        # Single subquery: keep the exact sequential path (no thread overhead).
-        return [
-            (subquery, _hybrid_candidates(subquery, embedding, match_count))
-            for subquery, embedding in pairs
-        ]
-    workers = min(len(pairs), MAX_PARALLEL_HYBRID_RPCS)
-    with ThreadPoolExecutor(
-        max_workers=workers, thread_name_prefix="fincoach-hybrid-rpc"
-    ) as pool:
-        return list(
-            pool.map(
-                lambda pair: (
-                    pair[0],
-                    _hybrid_candidates(pair[0], pair[1], match_count),
-                ),
-                pairs,
-            )
-        )
-
-
 def _select_hybrid_chunks(
     per_subquery: list[tuple[SearchSubquery, list[RetrievedChunk]]],
     *,
@@ -254,6 +217,62 @@ def _select_hybrid_chunks(
     return selected[:result_limit]
 
 
+_TITLE_CACHE_SECONDS = 60.0
+_title_cache: tuple[float, tuple[tuple[str, str], ...]] | None = None
+
+
+def published_document_titles() -> tuple[tuple[str, str], ...]:
+    """(source, title) of every published document, refreshed every minute.
+
+    Read from the same published view as retrieval, so archived or unpublished
+    documents can never be resolved by title. A failed read degrades to no
+    title matching, which is the behaviour before titles were resolved.
+    """
+    global _title_cache
+    now = monotonic()
+    if _title_cache is not None and now - _title_cache[0] < _TITLE_CACHE_SECONDS:
+        return _title_cache[1]
+    try:
+        rows = get_supabase().table("published_knowledge_documents").select(
+            "source,title").limit(2000).execute().data or []
+    except Exception:
+        logger.warning("coach_title_lookup_failed")
+        return _title_cache[1] if _title_cache is not None else ()
+    titles = tuple(dict.fromkeys(
+        (str(row["source"]), str(row.get("title") or ""))
+        for row in rows if row.get("source")))
+    _title_cache = (now, titles)
+    return titles
+
+
+def _vector(value: Any) -> list[float]:
+    return [float(x) for x in (json.loads(value) if isinstance(value, str) else value or [])]
+
+
+def _title_document_chunks(
+    sources: tuple[str, ...],
+    embedding: list[float],
+) -> list[RetrievedChunk]:
+    """Every published section of the named documents, most relevant first.
+
+    A document the user named by title is already identified, so its sections
+    are ranked within it instead of facing the general similarity cutoff. The
+    evidence assessor still decides whether they answer the question.
+    """
+    chunks = []
+    for source in sources:
+        rows = get_supabase().table("published_knowledge_documents").select(
+            "id,title,content,source,page_number,chunk_index,embedding").eq(
+            "source", source).limit(50).execute().data or []
+        for row in rows:
+            vector = _vector(row.get("embedding"))
+            # bge-m3 vectors are stored normalised, so cosine is the dot product.
+            similarity = sum(a * b for a, b in zip(vector, embedding)) if len(vector) == len(embedding) else 0.0
+            chunks.append(replace(_chunk_from_row({**row, "similarity": similarity}, None),
+                                  match_reason="title"))
+    return sorted(chunks, key=lambda chunk: chunk.similarity, reverse=True)
+
+
 def _retrieve_dense_fallback(
     question: str,
     *,
@@ -287,20 +306,47 @@ def retrieve(
     score_margin: float = RETRIEVE_SCORE_MARGIN,
     analysis: KnowledgeQueryAnalysis | None = None,
     trace: dict[str, Any] | None = None,
+    title_sources: tuple[str, ...] = (),
 ) -> list[RetrievedChunk]:
-    """Return hybrid evidence with one source reserved per known topic."""
+    """Return hybrid evidence with one source reserved per known topic.
+
+    ``title_sources`` are published documents the question named by title:
+    their most relevant sections come first, then the usual thresholded
+    results fill any remaining slots.
+    """
     if trace is not None:
         trace.update({"mode": "hybrid", "ranked_sources": []})
     resolved_analysis = analysis or analyze_knowledge_query(question)
     if resolved_analysis.clarification or not resolved_analysis.subqueries:
         return []
     result_limit = max(1, min(10, int(k)))
+    if not title_sources:
+        return _retrieve_ranked(resolved_analysis, question, result_limit, threshold,
+                                candidate_k, score_margin, trace)
+    embedding = embed_texts([resolved_analysis.subqueries[0].text])[0]
+    titled = _title_document_chunks(title_sources, embedding)[:result_limit]
+    general = _retrieve_ranked(resolved_analysis, question, result_limit, threshold,
+                               candidate_k, score_margin, trace)
+    seen = {chunk.id for chunk in titled}
+    return (titled + [chunk for chunk in general if chunk.id not in seen])[:result_limit]
+
+
+def _retrieve_ranked(
+    resolved_analysis: KnowledgeQueryAnalysis,
+    question: str,
+    result_limit: int,
+    threshold: float,
+    candidate_k: int,
+    score_margin: float,
+    trace: dict[str, Any] | None,
+) -> list[RetrievedChunk]:
     match_count = max(result_limit, min(10, int(candidate_k)))
     embeddings = embed_texts([subquery.text for subquery in resolved_analysis.subqueries])
     try:
-        per_subquery = _fetch_hybrid_candidates(
-            list(resolved_analysis.subqueries), embeddings, match_count
-        )
+        per_subquery = [
+            (subquery, _hybrid_candidates(subquery, embedding, match_count))
+            for subquery, embedding in zip(resolved_analysis.subqueries, embeddings)
+        ]
     except Exception as error:
         if "match_knowledge_documents_hybrid" not in str(error):
             raise

@@ -14,6 +14,14 @@ class AuthenticatedUser:
     token: str
 
 
+def _is_auth_service_failure(exc: Exception) -> bool:
+    from supabase_auth.errors import AuthApiError, AuthRetryableError
+    if isinstance(exc, AuthRetryableError):
+        return True
+    status_code = getattr(exc, "status", None)
+    return isinstance(exc, AuthApiError) and isinstance(status_code, int) and (status_code == 429 or status_code >= 500)
+
+
 def require_authenticated_user(authorization: str | None) -> AuthenticatedUser:
     parts = authorization.split() if authorization else []
     if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
@@ -31,6 +39,10 @@ def require_authenticated_user(authorization: str | None) -> AuthenticatedUser:
         # A network outage must not be reported as invalid credentials.
         raise HTTPException(503, 'Authentication verification is temporarily unavailable.') from exc
     except Exception as exc:
+        # Supabase Auth outages and rate limits arrive as SDK errors, not
+        # transport errors. Reporting them as 401 makes clients sign out.
+        if _is_auth_service_failure(exc):
+            raise HTTPException(503, 'Authentication verification is temporarily unavailable.') from exc
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required.",

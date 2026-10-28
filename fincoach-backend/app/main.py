@@ -18,7 +18,6 @@ from app.receipt_routes import router as receipt_router
 from app.admin.routes import router as admin_router
 from app.admin.worker import run_worker
 from app.config import ADMIN_PANEL_ENABLED, ACCOUNT_ACCESS_ENFORCED, ADMIN_STATIC_DIR
-from app.config import COACH_WRITE_ACTIONS_ENABLED
 from app.report_cleanup import run_report_cleanup
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -55,7 +54,7 @@ async def lifespan(_app: FastAPI):
     await _warm_optional_component(_app, "embeddings", warm_embeddings)
     stop = asyncio.Event()
     worker = asyncio.create_task(run_worker(stop)) if ADMIN_PANEL_ENABLED and ACCOUNT_ACCESS_ENFORCED else None
-    report_cleanup = asyncio.create_task(run_report_cleanup(stop)) if COACH_WRITE_ACTIONS_ENABLED else None
+    report_cleanup = asyncio.create_task(run_report_cleanup(stop))
     try:
         yield
     finally:

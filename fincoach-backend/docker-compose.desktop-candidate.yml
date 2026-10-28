@@ -2,10 +2,14 @@
 # Use with docker-compose.yml and --context desktop-linux.
 services:
   backend:
-    image: fincoach-backend:research-20261007
+    image: fincoach-backend:interpretation-20261017
     build:
-      context: ../.deploy-stage/public-research-reliability-20261006-115500
+      context: ../.deploy-stage/llm-interpretation-20261017
       dockerfile: Dockerfile.desktop-candidate
+    environment:
+      COACH_LLM_INTERPRETATION_ENABLED: "true"
+    healthcheck:
+      interval: 120s
     volumes:
       # Replace the same container destination; keep canonical source untouched.
-      - ../.deploy-stage/public-research-reliability-20261006-115500/app:/app/app:ro
+      - ../.deploy-stage/receipt-default-rm-20261018/app:/app/app:ro

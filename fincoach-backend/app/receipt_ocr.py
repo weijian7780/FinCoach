@@ -622,11 +622,14 @@ def get_ocr_engine() -> Any:
         text_det_limit_side_len=_positive_int_env("PADDLE_OCR_MAX_SIDE", 1600),
         text_det_limit_type="max",
         cpu_threads=_positive_int_env("PADDLE_OCR_CPU_THREADS", min(4, os.cpu_count() or 1)),
+        # Without oneDNN, recognition dominates CPU time. One crop per batch avoids
+        # padding short receipt rows to the longest line (~22% faster than default).
+        text_recognition_batch_size=_positive_int_env("PADDLE_OCR_REC_BATCH_SIZE", 1),
         # Oracle Ampere uses Paddle's dynamic runner because the prebuilt ARM64
         # wheel can segfault while creating the static AnalysisPredictor.
         engine=os.environ.get("PADDLE_OCR_ENGINE") or None,
-        # PaddlePaddle 3.3.x on Windows CPU currently crashes in the oneDNN PIR
-        # converter for OCR detection. Standard CPU kernels are slower but stable.
+        # PaddlePaddle 3.3.x CPU (Windows and the Linux container) crashes in the
+        # oneDNN PIR converter for OCR. Standard CPU kernels are slower but stable.
         enable_mkldnn=False,
         # Quarter-turn correction must precede grouping boxes into receipt rows.
         use_doc_orientation_classify=os.environ.get("PADDLE_OCR_DOC_ORIENTATION", "true").lower() not in ("0", "false", "no"),

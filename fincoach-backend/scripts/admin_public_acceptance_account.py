@@ -29,3 +29,4 @@ elif sys.argv[1] == 'delete':
     print('Disposable acceptance account deleted.')
 else:
     raise RuntimeError('Expected create or delete.')
+

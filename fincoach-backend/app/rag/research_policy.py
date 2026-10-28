@@ -26,7 +26,8 @@ from app.rag.retrieval import RetrievedChunk
 from app.rag.evidence_text import complete_evidence_passages, match_evidence_quote
 from app.rag.research_source_scope import source_workflow_conflicts
 from app.rag.research_coverage import (PartCoverage, RequestedPart, requested_parts,
-    researchable_parts, requires_full_clarification, clarification_part_ids, select_unresolved_part)
+    researchable_parts, requires_full_clarification, clarification_part_ids, select_unresolved_part,
+    non_finance_part_ids, web_research_parts)
 from app.rag.web_research import (
     build_research_query,
     research_evidence,
@@ -84,6 +85,15 @@ _DEFINITIONAL_FACTS = (
     "what the topic is (identity, including its full name)",
     "what it does and what it is used for (purpose)",
 )
+
+
+def asks_for_current_facts(question: str) -> bool:
+    """Whether the user's own words ask for current, dated or searched facts.
+
+    A model's time-scope guess is not evidence of this; the user's text is.
+    """
+    q = str(question or "")
+    return bool(_CURRENT_CUE.search(q) or _YEAR.search(q) or _SEARCH_CUE.search(q))
 
 
 def _is_bare_definitional(question: str) -> bool:
@@ -164,6 +174,37 @@ class QuestionPlan:
     clarification_facts: tuple[str, ...] = ()
     subject_kind: Literal["agency", "programme", "other", "unknown"] = "unknown"
     application_subject: str | None = None
+    # Set by code when the question is about a title-matched published document
+    # itself ("what is a1 group"), not about something inside it.
+    document_subject: bool = False
+    # The user asks whether information (e.g. a named guide) is still accurate
+    # under current rules; this is a current check, not a document summary.
+    verify_current: bool = False
+    # The interpreter's validated scope label. "non_finance" means published
+    # knowledge only, then a referral (no web research); "mixed" adds a short
+    # referral note for uncovered non-finance parts; "unknown" (older chats,
+    # interpreter outages) keeps the existing path.
+    finance_scope: Literal["finance", "non_finance", "mixed", "unknown"] = "unknown"
+    # A mixed question's explicit parts, aligned with required_facts: each
+    # part's domain ("finance"/"non_finance") and the entities it is about.
+    part_domains: tuple[str, ...] = ()
+    part_entities: tuple[tuple[str, ...], ...] = ()
+    # Existing IDs survive removal of a calculated part; the remaining p2 must
+    # not become p1 and inherit a different question's coverage.
+    part_ids: tuple[str, ...] = ()
+    savings_part_ids: tuple[str, ...] = ()
+
+
+# Research decision failures that mean the search itself could not run, as
+# opposed to a search that ran but did not establish the answer. Shared by the
+# answer guidance and the user-facing failure wording.
+SEARCH_FAILURE_REASONS = frozenset({
+    "no_api_key", "sdk_unavailable", "search_failed",
+    "search_disabled", "search_deadline", "interpretation_unavailable",
+    "assessment_failed", "assessment_unavailable", "retrieval_failed",
+    "assessment_invalid_json", "assessment_invalid_schema", "assessment_timeout",
+    "auth_error", "quota", "rate_limited", "network_error", "timeout",
+})
 
 
 class _InterpretationProposal(BaseModel):
@@ -887,7 +928,47 @@ def assess_evidence(
               "agreeing on ALL requirements/categories; syndicated articles are one origin. "
               "Unknown/community sources cannot support requirements. Truncated lists, login-only "
               "steps and omitted qualifications have complete=false.")
-    if plan.definitional:
+    titled = sorted({index for index, chunk in usable if getattr(chunk, "match_reason", None) == "title"})
+    names = sorted({str(chunk.title) for index, chunk in usable if index in titled})
+    about_document = bool(titled) and plan.document_subject
+    if about_document:
+        # The question is about the named document itself; only its own
+        # content can say what it is and covers.
+        prompt += (
+            f"\nThe user's subject is the published document titled {json.dumps(names)} "
+            f"(evidence ids {titled}): asking what it is asks what this document is about, "
+            "even though its text may never repeat the title. Judge only "
+            "what that document itself states, for what the user requested (a summary, "
+            "an explanation or a specific fact). A summary is supported by the document's "
+            "actual content. The document itself is the subject, so "
+            "jurisdiction_matches is true for its own content. Its title and its own "
+            "stated content establish what it is: an identity or purpose part is covered "
+            "by what the document says it is for, without a fuller name, organisation or "
+            "outside use."
+        )
+    elif titled:
+        # A question answered from a named document keeps its own subject.
+        prompt += (
+            f"\nThe user named the published document titled {json.dumps(names)} "
+            f"(evidence ids {titled}) as the place to look. Judge the user's actual "
+            "question against it and any other evidence; the document being named "
+            "does not make it sufficient."
+        )
+    if titled:
+        prompt += ("\nA term the document only lists, names or requires is not an "
+                   "explanation of that term.")
+    # The named-document rules above replace the generic definition rules.
+    if plan.definitional and not about_document and plan.subject_kind != "agency":
+        # A concept, programme or unrecognised subject is explained, not
+        # profiled as an institution.
+        prompt += (
+            "\nThis is a bare definition of a concept, programme or other subject: "
+            "require a supported statement of what it is and a supported explanation "
+            "of its general purpose or how it works. Do not require an institution's "
+            "identity, full legal name or agency-level responsibilities. A passage that "
+            "only mentions, lists or requires the term does not explain it."
+        )
+    elif plan.definitional and not about_document:
         # A bare definition asks for an introduction, not an exhaustive charter.
         # Preserve subject/qualification checks while avoiding invented gaps for
         # daily operations that were never requested by the user.
@@ -1260,6 +1341,63 @@ def passage_windows(evidence: list[RetrievedChunk], passages: dict[str, str], ca
     return result
 
 
+def _financial_parts(plan: QuestionPlan) -> list[tuple[str, tuple[str, ...]]]:
+    """(fact, entities) of each part the interpreter labelled financial."""
+    return [(fact, entities) for fact, domain, entities in
+            zip(plan.required_facts, plan.part_domains, plan.part_entities) if domain == "finance"]
+
+
+def financial_search_plan(plan: QuestionPlan) -> QuestionPlan:
+    """The plan every outbound web search is built from.
+
+    For a mixed question it holds only the parts the interpreter labelled
+    financial and the entities those parts are about (so PTPTN stays even when
+    a part reads "eligibility requirements"). Nothing is inferred from shared
+    words. The full plan still drives knowledge retrieval and assessment.
+    """
+    if "non_finance" not in plan.part_domains:
+        return plan
+    financial = _financial_parts(plan)
+    entities = tuple(dict.fromkeys(e for _, part_entities in financial for e in part_entities if e))
+    facts = tuple(fact for fact, _ in financial)
+    text = build_research_query(" ".join((*entities, *facts)))
+    return replace(
+        plan,
+        topic=text or plan.topic,
+        entities=entities,
+        required_facts=facts,
+        part_domains=("finance",) * len(facts),
+        part_entities=tuple(part_entities for _, part_entities in financial),
+        part_ids=tuple(part.id for part, domain in zip(requested_parts(plan), plan.part_domains)
+                       if domain == "finance"),
+        savings_part_ids=(),
+        clarification_facts=tuple(f for f in plan.clarification_facts if f in facts),
+        application_subject=(plan.application_subject if plan.application_subject in entities else None),
+        original_question=text,
+        definitional=False,
+    )
+
+
+def search_part(plan: QuestionPlan, part: RequestedPart) -> RequestedPart:
+    """A financial part as it is searched: its own label plus its entities,
+    found by the part's position (never by matching its wording)."""
+    if not plan.part_domains:
+        return part
+    index = next((i for i, requested in enumerate(requested_parts(plan)) if requested.id == part.id), -1)
+    if not 0 <= index < len(plan.part_domains) or plan.part_domains[index] != "finance":
+        return part
+    entities = plan.part_entities[index] if index < len(plan.part_entities) else ()
+    if not entities:
+        return part
+    return replace(part, label=build_research_query(" ".join((*entities, plan.required_facts[index])))[:100].strip())
+
+
+def financial_gaps(plan: QuestionPlan, missing) -> tuple[str, ...]:
+    """Assessor gap text may be searched only for a question with no
+    non-finance part; a mixed question searches its financial parts alone."""
+    return () if "non_finance" in plan.part_domains else tuple(missing)
+
+
 def run_research_policy(
     plan: QuestionPlan,
     chunks: list[RetrievedChunk],
@@ -1280,7 +1418,10 @@ def run_research_policy(
                    "empty_evidence_recovery_used": 0,
                    "clarification_part_ids": list(clarification_part_ids(plan)),
                    "researchable_part_ids": [p.id for p in researchable_parts(plan)]}
-    eligible = {p.id for p in researchable_parts(plan)}
+    # Only financial parts are researched on the web; a mixed question's
+    # non-finance parts are judged on published knowledge alone.
+    eligible = {p.id for p in web_research_parts(plan)}
+    search_plan = financial_search_plan(plan)
 
     def unresolved_parts(assessed):
         return tuple(part for part in assessed.parts if part.part_id in eligible)
@@ -1368,8 +1509,8 @@ def run_research_policy(
             diagnostics["empty_evidence_recovery_used"] = 1
             active_id = select_unresolved_part(unresolved_parts(assessed), part_attempts)
             active = next((p for p in requested_parts(plan) if p.id == active_id), None)
-            query = (part_research_query(plan, active) if active else research_query(plan, missing=assessed.missing))
-            hosts = _official_domains(plan, evidence)
+            query = (part_research_query(search_plan, search_part(plan, active)) if active else research_query(search_plan, missing=financial_gaps(plan, assessed.missing)))
+            hosts = _official_domains(search_plan, evidence)
             urls = [c.url for c in evidence if c.url and (urlparse(c.url).hostname or "") in hosts][:4]
             allowance = min(timeout, budget.remaining_seconds() - answer_reserve - 1)
             cache.last_error = None
@@ -1377,7 +1518,7 @@ def run_research_policy(
             new = []
             if urls:
                 passages = extract_passages(urls, api_key=api_key, query=query, timeout=allowance,
-                    cache=cache, complete_context=True, subject_query=_research_subject(plan))
+                    cache=cache, complete_context=True, subject_query=_research_subject(search_plan))
                 new = passage_windows(evidence, passages, cache)
             # A free cache window that changes nothing has not spent the final
             # operation. Use a remaining search slot instead of exiting early.
@@ -1387,7 +1528,7 @@ def run_research_policy(
                 allowance = min(timeout, budget.remaining_seconds() - answer_reserve - 1)
                 recovered = research_evidence(query, api_key=api_key, max_results=min(4, max_results),
                     timeout=allowance, single_search=True, unrestricted=False, public_policy=True,
-                    official_domains=_discovery_domains(plan, evidence), cache=cache, subject_query=_research_subject(plan),
+                    official_domains=_discovery_domains(search_plan, evidence), cache=cache, subject_query=_research_subject(search_plan),
                     **({"discovery_mode": "broader"} if plan.part_tracking else {}))
                 new = recovered.chunks
                 web_used = web_used or recovered.web_ran
@@ -1502,7 +1643,7 @@ def run_research_policy(
         from app.rag.public_source_store import get_public_source_store, load_catalog
         from app.rag.research_windows import bootstrap_public_sources
         source_store = source_store if source_store is not None else get_public_source_store()
-        bootstrap = bootstrap_public_sources(plan, store=source_store,
+        bootstrap = bootstrap_public_sources(search_plan, store=source_store,
             catalog=load_catalog(Path(__file__).with_name("public_source_catalog.json")),
             cache=cache, budget=budget, api_key=api_key if web_enabled else "",
             timeout=timeout, reserve_after_seconds=answer_reserve)
@@ -1554,7 +1695,7 @@ def run_research_policy(
     permanent = {"no_api_key", "sdk_unavailable", "auth_error", "quota"}
     # Page selection uses the public subject separately from procedural gaps and
     # institution names; neither private data nor raw user history enters it.
-    subject_query = _research_subject(plan)
+    subject_query = _research_subject(search_plan)
     if plan.subject_kind != 'agency':
         for entity in plan.entities:
             for alias in _institution_aliases(entity):
@@ -1570,17 +1711,17 @@ def run_research_policy(
         # Empty/schema-failed assessments still have the interpreted requested
         # parts; no raw missing label is allowed to introduce guessed facts.
         if plan.part_tracking and round_index and active_id is None:
-            active_id = select_unresolved_part(tuple(PartCoverage(p.id, "missing") for p in researchable_parts(plan)), part_attempts)
+            active_id = select_unresolved_part(tuple(PartCoverage(p.id, "missing") for p in web_research_parts(plan)), part_attempts)
         active = next((p for p in requested_parts(plan) if p.id == active_id), None)
-        query = part_research_query(plan, active) if active and round_index else research_query(plan, missing=assessment.missing if round_index else ())
+        query = part_research_query(search_plan, search_part(plan, active)) if active and round_index else research_query(search_plan, missing=financial_gaps(plan, assessment.missing) if round_index else ())
         if active and round_index:
-            query = _institution_query(plan, query, merged)
+            query = _institution_query(search_plan, query, merged)
         # A failed identity lookup does not mean official duty/document pages
         # are exhausted. Each requested part gets its own institution attempt
         # before a previous part's stalled state can broaden its discovery.
         mode = ("broader" if institution_stalled and (
             not plan.definitional or active is None or part_attempts.get(active.id, 0) > 0) else "institution")
-        hosts = _official_domains(plan, merged)
+        hosts = _official_domains(search_plan, merged)
         allowance = min(timeout, budget.remaining_seconds() - answer_reserve)
         urls = tuple(c.url for c in merged if c.url
                      and (urlparse(c.url).hostname or "") in hosts)[:4]
@@ -1603,19 +1744,19 @@ def run_research_policy(
             cached_part_windows.update((url, active.id, cache.full_pages[url]) for url in cached_urls)
             if cached_urls:
                 passages = extract_passages(cached_urls, api_key=api_key, query=query, timeout=allowance,
-                    cache=cache, complete_context=True, subject_query=_research_subject(plan))
+                    cache=cache, complete_context=True, subject_query=_research_subject(search_plan))
                 new = passage_windows(merged, passages, cache)
             link_urls = []
             if not new and not followed_links and cache.extract_calls < 4:
                 visited = frozenset(c.url for c in merged if c.url)
                 for page in urls:
                     link_urls.extend(linked_guidance_urls(page, cache.full_pages.get(page, ""),
-                        subject_query=_research_subject(plan), part_label=active.label, visited=visited))
+                        subject_query=_research_subject(search_plan), part_label=search_part(plan, active).label, visited=visited))
             if link_urls:
                 followed_links = True
                 link_urls = list(dict.fromkeys(link_urls))[:4]
                 passages = extract_passages(link_urls, api_key=api_key, query=query, timeout=allowance,
-                    cache=cache, complete_context=True, subject_query=_research_subject(plan))
+                    cache=cache, complete_context=True, subject_query=_research_subject(search_plan))
                 new = to_retrieved_chunks([WebResult(active.label, url, content, .6) for url, content in passages.items()])
                 failure = cache.last_error
                 action = "linked_extract"
@@ -1628,8 +1769,8 @@ def run_research_policy(
                 searched.add(key)
                 outcome = research_evidence(query, api_key=api_key, max_results=min(4, max_results),
                     timeout=allowance, single_search=True, unrestricted=False, public_policy=True,
-                    official_domains=_discovery_domains(plan, merged), cache=cache,
-                    subject_query=_research_subject(plan), discovery_mode=mode)
+                    official_domains=_discovery_domains(search_plan, merged), cache=cache,
+                    subject_query=_research_subject(search_plan), discovery_mode=mode)
                 web_used = web_used or outcome.web_ran
                 new = outcome.chunks
                 failure = outcome.reason if not new else outcome.extraction_reason
@@ -1655,7 +1796,7 @@ def run_research_policy(
                 query, api_key=api_key, max_results=min(4, max_results),
                 timeout=allowance, single_search=True,
                 unrestricted=False, public_policy=True,
-                official_domains=_discovery_domains(plan, merged), cache=cache,
+                official_domains=_discovery_domains(search_plan, merged), cache=cache,
                 subject_query=subject_query,
             )
             web_used = web_used or outcome.web_ran
@@ -1735,8 +1876,8 @@ def run_research_policy(
                 allowance = min(timeout, budget.remaining_seconds() - answer_reserve - 1)
                 outcome = research_evidence(query, api_key=api_key, max_results=min(4, max_results),
                     timeout=allowance, single_search=True, unrestricted=False, public_policy=True,
-                    official_domains=_discovery_domains(plan, merged), cache=cache,
-                    subject_query=_research_subject(plan), discovery_mode=mode)
+                    official_domains=_discovery_domains(search_plan, merged), cache=cache,
+                    subject_query=_research_subject(search_plan), discovery_mode=mode)
                 web_used = web_used or outcome.web_ran
                 failure = outcome.reason if not outcome.chunks else outcome.extraction_reason
                 diagnostics.setdefault("source_operations", []).append(

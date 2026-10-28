@@ -201,6 +201,26 @@ class PaddleAdapterTests(unittest.TestCase):
             4,
         )
 
+    def test_recognizes_one_crop_per_batch_unless_configured(self):
+        # None = unset; an invalid value falls back to the fast default.
+        for configured, expected in ((None, 1), ("6", 6), ("bad", 1)):
+            with self.subTest(configured=configured):
+                paddleocr_module = SimpleNamespace(PaddleOCR=Mock(return_value=object()))
+                get_ocr_engine.cache_clear()
+                try:
+                    with (
+                        patch.dict("sys.modules", {"paddleocr": paddleocr_module}),
+                        patch.dict("os.environ", {"PADDLE_OCR_REC_BATCH_SIZE": configured or ""}, clear=False),
+                    ):
+                        get_ocr_engine()
+                finally:
+                    get_ocr_engine.cache_clear()
+
+                self.assertEqual(
+                    paddleocr_module.PaddleOCR.call_args.kwargs["text_recognition_batch_size"],
+                    expected,
+                )
+
     def test_normalizes_v3_rec_texts_and_scores(self):
         class Result:
             json = {"res": {"rec_texts": ["SHOP", "TOTAL 4.20"], "rec_scores": [0.9, 0.95]}}

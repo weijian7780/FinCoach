@@ -27,6 +27,13 @@ RESEARCH_EXPLANATION_SYSTEM_PROMPT = (
     "unambiguous application channels and supporting documents instead."
     " If the question names an applicant category, restrict the document list "
     "to that category; do not repeat other categories' status alternatives."
+    " When the evidence is a published document (such as an assignment brief, "
+    "guide or notice), describe what it says in the third person ('The document "
+    "describes...', 'The assignment requires participants to...'). Never assume "
+    "the user is its audience: do not say 'your course', 'your group' or 'you "
+    "must' for the document's requirements."
+    " Report a gap only for something the user asked; never add a note about "
+    "unrequested details, such as why a document has its title."
 )
 
 
