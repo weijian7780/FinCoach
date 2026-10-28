@@ -91,8 +91,9 @@ Omit `--apply` to check the selected account without changing its password.
 After changing this script locally, rebuild the backend image before running it
 in Docker: `docker compose up -d --build backend`.
 
-Google sign-in uses the existing Supabase provider. Add the deployed
-`https://YOUR_HOST/admin/` to the Supabase redirect allowlist before testing it.
+The admin login page uses the provisioned administrator's username/email and
+password. It does not offer Google sign-in. Mobile Google authentication is
+configured separately.
 
 ## Knowledge workflow
 
@@ -121,6 +122,19 @@ verification exceeds 90 days. Files above 10 MiB are rejected before upload.
 Edits preserve the original private upload; PDF editing uses extracted text and
 does not invent page citations. Original downloads use 60-second signed URLs.
 
+Existing legacy documents whose current saved revision has neither a source URL
+nor an original-file reference can still be reviewed and edited. The server verifies
+this exception against the current revision under its source lock; new documents
+still require a file or webpage import, and recorded provenance cannot be removed
+without replacement. Apply the function-only migration
+`20261020081645_fix_existing_knowledge_editor_validation.sql` for this behavior.
+It does not change tables, columns, keys, or the ERD.
+
+Preview chunks validates the entered text independently of saving and displays any
+preview error inside Advanced details. Missing original-file metadata is labelled
+explicitly rather than claiming an original upload exists. Continuing an unchanged
+published revision shows its existing published state without creating a draft.
+
 Older revision history can be loaded in pages rather than being limited to the
 first 50 versions.
 Each save creates a revision. Preparation leases jobs and validates 1024-dimensional
@@ -132,6 +146,24 @@ dates stay unknown until reviewed. Tavily remains live web retrieval; its result
 are not automatically added to this curated corpus.
 
 ## Validation evidence and limits
+
+The 20 October 2026 legacy-editor repair has separate current evidence in
+`fincoach-backend/docs/admin/legacy-editor-verification-20261020.md`: 17 frontend
+tests, 10 API tests, local and hosted PostgreSQL regressions, and public-browser
+checks of the Compound interest and PIDM documents. The historical results below
+describe broader earlier checks and should not be read as a new full-system audit.
+
+From `fincoach-admin`, run the focused frontend checks with:
+
+```powershell
+node --experimental-strip-types --test tests/knowledge-editor.test.ts tests/request-gate.test.ts
+npm run build
+```
+
+For the database regression, start the dedicated `fincoach-admin-test` container
+described below, then run `python docs/admin/test_legacy_editor.py` from
+`fincoach-backend`. It creates its own randomly named local database, runs the
+transactional assertions, and drops that same database on completion.
 
 - Backend: 519 tests passed, including legacy-schema ingestion and admin/auth/upload checks.
 - Mobile/notification: 311 tests passed; TypeScript check passed.

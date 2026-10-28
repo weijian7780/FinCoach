@@ -1,4 +1,5 @@
 import { LatestRequestGate } from './request-gate';
+import { canPublish, knowledgeProvenanceLabel, knowledgeSaveNotice, validateKnowledgeContent, validateKnowledgeSave } from './knowledge-editor';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 
@@ -48,6 +49,7 @@ export function App() {
   // Remember a committed save even if the following read or preparation fails.
   const savedTarget = useRef<{ source_id: string; revision_id: string } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewError, setPreviewError] = useState('');
   const [historyComplete, setHistoryComplete] = useState(false);
   const [accountAction, setAccountAction] = useState<Account | null>(null);
   const [reason, setReason] = useState('');
@@ -108,7 +110,7 @@ export function App() {
     pageRequests.current.invalidate();
     // Drop previously loaded admin data whenever the authenticated identity
     // changes; authorization is still enforced independently by the server.
-    setAccounts([]); setSources([]); setDetail(null); setEditing(false);
+    setAccounts([]); setSources([]); setDetail(null); setEditing(false); setPreviewError('');
     if (!session || !client || !config?.enabled) { setChecking(false); return; }
     setChecking(true);
     api('/me').then(() => { if (!disposed) { setAllowed(true); setError(''); } }).catch(caught => { if (!disposed) setError(caught.message); }).finally(() => { if (!disposed) setChecking(false); });
@@ -165,7 +167,7 @@ export function App() {
     setHistoryComplete(data.revisions.length < 50);
     if (!preserveEditor) {
       setEditor({ title: data.latest?.title || data.source.title, content: data.latest?.content || '', urls: (data.latest?.source_urls || []).join('\n'), checked_at: data.latest?.checked_at || '', expected_revision_id: data.source.latest_revision_id });
-      setDirty(false); setPreview(null);
+      setDirty(false); setPreview(null); setPreviewError('');
       savedTarget.current = null;
       setSaveUncertain(false);
       setInputMode('paste');
@@ -190,12 +192,12 @@ export function App() {
   }, [allowed, detail?.source.id, detail?.latest?.status, api]);
 
   const body = () => ({ title: editor.title, content: editor.content, source_urls: editor.urls.split('\n').map(value => value.trim()).filter(Boolean), checked_at: editor.checked_at || null, expected_revision_id: editor.expected_revision_id || null, upload_id: editor.upload_id || null });
-  const edit = (field: keyof Editor, value: string) => { setEditor(old => ({ ...old, [field]: value })); setDirty(true); setPreview(null); setEditorStep('review'); };
+  const edit = (field: keyof Editor, value: string) => { setEditor(old => ({ ...old, [field]: value })); setDirty(true); setPreview(null); setPreviewError(''); setEditorStep('review'); };
   const leaveEditor = () => !dirty || window.confirm('Discard unsaved document changes?');
   const closeEditor = () => {
     if (!leaveEditor()) return;
     detailRequest.current++;
-    setEditing(false); setDetail(null); setEditor(emptyEditor()); setDirty(false); setPreview(null);
+    setEditing(false); setDetail(null); setEditor(emptyEditor()); setDirty(false); setPreview(null); setPreviewError('');
     savedTarget.current = null; setInputMode(null); setEditorStep('add');
     setSaveUncertain(false);
     setError(''); setNotice('');
@@ -210,16 +212,22 @@ export function App() {
   }
 
   function validateEditor() {
-    if (!editor.title.trim()) throw new Error('Enter a document title.');
-    if (!editor.content.trim()) throw new Error('Upload a document or paste its text first.');
-    const urls = body().source_urls;
-    if (!urls.length && !editor.upload_id && !detail?.latest?.file_path) throw new Error('Import a file or webpage first.');
-    for (const value of urls) {
-      let url: URL;
-      try { url = new URL(value); } catch { throw new Error('Enter valid source links beginning with https:// or http://.'); }
-      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Source links must use HTTP or HTTPS and contain no login details.');
-    }
-    if (editor.checked_at && editor.checked_at > today()) throw new Error('Choose a source check date that is today or earlier.');
+    validateKnowledgeSave(editor, detail, today());
+  }
+
+  async function previewChunks() {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setBusy(true); setPreviewError('');
+    try {
+      validateKnowledgeContent(editor, today());
+      setPreview(await api<Preview>('/preview', { method: 'POST', body: JSON.stringify(body()) }));
+    } catch (caught) {
+      // Keep preview failures beside their control. Global save errors retain
+      // their existing focus/scroll behaviour and lost-response protection.
+      setPreview(null);
+      setPreviewError(caught instanceof Error ? caught.message : 'Unable to preview chunks. Please retry.');
+    } finally { actionInFlight.current = false; setBusy(false); }
   }
 
   async function importContent(value: { title: string; content: string; source_urls: string[]; upload_id?: string }) {
@@ -290,9 +298,9 @@ export function App() {
         setNotice('Your draft is saved.');
         throw new Error('Processing could not start. Your draft is saved; use Retry processing to try again.');
       }
-      await openSource(target.source_id, true);
+      current = await openSource(target.source_id, true);
     }
-    setNotice('Draft saved. Publish when processing is complete.');
+    setNotice(knowledgeSaveNotice(current?.latest?.status));
     await loadPage();
   }
 
@@ -308,7 +316,6 @@ export function App() {
       <label>Username or email<input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} required /></label>
       <label>Password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label>
       <button className="primary full" disabled={busy || !client || !config?.enabled}>{busy ? 'Signing in…' : 'Sign in'}</button>
-      <div className="divider">or</div><button type="button" className="full" disabled={busy || !client || !config?.enabled} onClick={() => run(async () => { const result = await client!.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/admin/` } }); if (result.error) throw result.error; })}>Continue with Google</button>
     </form>}
     <p className="login-foot">Restricted to provisioned administrators.</p>
   </div></main>;
@@ -325,7 +332,7 @@ export function App() {
   </aside><main className="workspace"><header className="page-header"><div><p className="eyebrow">FINCOACH WORKSPACE</p><h1>{tab}</h1><p className="muted">{({ Accounts: 'Manage student access while preserving their records.', 'Knowledge base': 'Maintain reviewed financial guidance for the AI coach.' })[tab]}</p></div><button disabled={busy} onClick={() => run(async () => { await loadPage(); if (detail) await openSource(detail.source.id, true); })}>↻ Refresh</button></header>
     {error && <div ref={errorMessage} className="alert error" role="alert" tabIndex={-1}>{error}</div>}{notice && <div className="alert success" role="status">{notice}</div>}
     {tab === 'Accounts' && <section className="panel"><div className="panel-toolbar"><h2>Student accounts</h2><label className="search-input">Search email<input value={searchEmail} onChange={event => { setSearchEmail(event.target.value); setPage(0); }} placeholder="student@example.com" /></label></div><div className="table-scroll"><table><thead><tr><th>Account</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Access</th></tr></thead><tbody>{accounts.map(account => <tr key={account.user_id}><td><strong>{account.display_name || 'FinCoach user'}</strong><span className="cell-sub">{account.email}</span></td><td>{account.role}</td><td>{badge(account.status)}</td><td>{fmt(account.last_sign_in_at)}</td><td>{account.role === 'student' ? <button disabled={busy} onClick={() => { setAccountAction(account); setReason(''); }}>{account.status === 'active' ? 'Suspend' : 'Restore access'}</button> : <span className="muted small">Protected admin</span>}</td></tr>)}</tbody></table>{!accounts.length && <p className="empty">No matching accounts.</p>}</div></section>}
-    {tab === 'Knowledge base' && <>{!editing && <section className="panel"><div className="panel-toolbar"><h2>Knowledge documents</h2><button className="primary" disabled={busy} onClick={() => { detailRequest.current++; savedTarget.current = null; setSaveUncertain(false); setInputMode(null); setImportUrl(''); setEditorStep('add'); setDetail(null); setEditor(emptyEditor()); setEditing(true); setDirty(false); setPreview(null); setError(''); setNotice(''); }}>+ New document</button></div><div className="table-scroll"><table><thead><tr><th>Document</th><th>Availability</th><th>Updated</th><th /></tr></thead><tbody>{sources.map(source => <tr key={source.id}><td><strong>{source.title}</strong><span className="cell-sub">{source.source_key}</span></td><td>{badge(source.archived ? 'archived' : source.published_revision_id ? 'published' : 'draft')}</td><td>{fmt(source.updated_at)}</td><td><button disabled={busy} onClick={() => run(async () => { setOpeningSource(source.id); try { await openSource(source.id); } finally { setOpeningSource(null); } })}>{openingSource === source.id ? 'Opening…' : 'Open'}</button></td></tr>)}</tbody></table>{!sources.length && <p className="empty">No knowledge documents yet. Add your first reviewed source.</p>}</div></section>}
+    {tab === 'Knowledge base' && <>{!editing && <section className="panel"><div className="panel-toolbar"><h2>Knowledge documents</h2><button className="primary" disabled={busy} onClick={() => { detailRequest.current++; savedTarget.current = null; setSaveUncertain(false); setInputMode(null); setImportUrl(''); setEditorStep('add'); setDetail(null); setEditor(emptyEditor()); setEditing(true); setDirty(false); setPreview(null); setPreviewError(''); setError(''); setNotice(''); }}>+ New document</button></div><div className="table-scroll"><table><thead><tr><th>Document</th><th>Availability</th><th>Updated</th><th /></tr></thead><tbody>{sources.map(source => <tr key={source.id}><td><strong>{source.title}</strong><span className="cell-sub">{source.source_key}</span></td><td>{badge(source.archived ? 'archived' : source.published_revision_id ? 'published' : 'draft')}</td><td>{fmt(source.updated_at)}</td><td><button disabled={busy} onClick={() => run(async () => { setOpeningSource(source.id); try { await openSource(source.id); } finally { setOpeningSource(null); } })}>{openingSource === source.id ? 'Opening…' : 'Open'}</button></td></tr>)}</tbody></table>{!sources.length && <p className="empty">No knowledge documents yet. Add your first reviewed source.</p>}</div></section>}
     {editing && <section ref={editorPanel} className="panel editor-panel">
       <div className="panel-toolbar"><div><h2 ref={editorHeading} tabIndex={-1}>{detail ? 'Edit document' : 'New document'}</h2><p className="muted small">Add your content, review it, then publish when you are ready.</p></div><button disabled={busy} onClick={closeEditor}>← Back to documents</button></div>
       <ol className="editor-steps" aria-label="Document steps">{(['add', 'review', 'publish'] as const).map((step, index) => <li key={step} aria-current={editorStep === step ? 'step' : undefined} className={editorStep === step ? 'current' : ''}><span>{index + 1}</span>{['Add content', 'Review', 'Publish'][index]}</li>)}</ol>
@@ -342,19 +349,20 @@ export function App() {
         <div className="status-row"><span>Search preparation</span>{detail?.source.archived ? badge('archived') : revisionBadge(detail?.latest?.status || 'draft')}</div>
         {['queued', 'processing'].includes(detail?.latest?.status || '') && <p role="status">Preparing searchable content in the background. You can leave and return later.</p>}
         {detail?.latest?.error_message && <div className="alert error">{detail.latest.error_message}</div>}
-        <div className="content-review"><h3>Content preview</h3><pre>{editor.content.slice(0, 2000)}{editor.content.length > 2000 ? '\n…' : ''}</pre><p className="muted small">{editor.content.length.toLocaleString()} characters · {editor.urls || 'Uploaded original retained in version history'}</p></div>
+        <div className="content-review"><h3>Content preview</h3><pre>{editor.content.slice(0, 2000)}{editor.content.length > 2000 ? '\n…' : ''}</pre><p className="muted small">{editor.content.length.toLocaleString()} characters · {knowledgeProvenanceLabel(editor, detail)}</p></div>
         <details className="advanced-details"><summary>Edit extracted content</summary><label>Knowledge content<textarea className="content-editor" rows={10} disabled={busy} maxLength={200000} value={editor.content} onChange={event => edit('content', event.target.value)} spellCheck /></label></details>
         <details className="advanced-details"><summary>Reference details (optional)</summary><label>Source links<textarea rows={2} disabled={busy} value={editor.urls} onChange={event => edit('urls', event.target.value)} /><span className="muted small">Uploaded files do not need a website link. Imported links are recorded automatically.</span></label><label>Source accuracy checked on<input type="date" disabled={busy} max={today()} value={editor.checked_at} onChange={event => edit('checked_at', event.target.value)} /><span className="muted small">Leave blank unless you independently checked the source.</span></label></details>
         <div className="actions"><button disabled={busy} onClick={() => setEditorStep('add')}>← Back to add content</button><button className="primary" disabled={busy || saveUncertain} onClick={() => run(() => saveDocument(true))}>{busy ? 'Saving…' : 'Next → Publish'}</button><button disabled={busy || saveUncertain || (!dirty && !!detail)} onClick={() => run(() => saveDocument(false))}>Save draft</button></div>
       </>}
       {editorStep === 'publish' && detail && <div className="publish-review">
         <div className="panel-toolbar"><h3>{detail.latest?.title || detail.source.title}</h3>{detail.source.archived ? badge('archived') : revisionBadge(detail.latest?.status || 'draft')}</div>
-        {detail.source.archived ? <p>This document is archived and excluded from new knowledge searches.</p> : ['queued', 'processing'].includes(detail.latest?.status || '') ? <p role="status">Processing your document. You can leave this page and return later. Publication still needs your confirmation.</p> : detail.latest?.status === 'ready' ? <p>Ready to publish. Confirm below to make this version available to the AI coach.</p> : detail.latest?.status === 'published' ? <p>This version is published and available to the AI coach.</p> : <p>Your draft is saved. Retry processing before publishing.</p>}
+        {detail.source.archived ? (canPublish(detail) ? <p>This document is archived. Publish to make this version available to the AI coach again.</p> : <p>This document is archived and excluded from new knowledge searches.</p>) : ['queued', 'processing'].includes(detail.latest?.status || '') ? <p role="status">Processing your document. You can leave this page and return later. Publication still needs your confirmation.</p> : detail.latest?.status === 'ready' ? <p>Ready to publish. Confirm below to make this version available to the AI coach.</p> : detail.latest?.status === 'published' ? <p>This version is published and available to the AI coach.</p> : <p>Your draft is saved. Retry processing before publishing.</p>}
         {detail.latest?.error_message && <div className="alert error">{detail.latest.error_message}</div>}
         <details className="content-review"><summary>Review saved content</summary><pre>{detail.latest?.content}</pre><p className="muted small">{detail.latest?.source_urls?.join(' · ')} · {detail.latest?.checked_at ? `Accuracy checked ${detail.latest.checked_at}` : 'Accuracy not independently checked'}</p></details>
-        <div className="actions"><button disabled={busy} onClick={() => setEditorStep('review')}>← Back to review</button><button className="primary" disabled={busy || dirty || detail.source.archived || detail.latest?.status !== 'ready'} onClick={() => setConfirmation({ action: 'publish', revisionId: detail.source.latest_revision_id })}>Publish</button>{!detail.source.archived && ['draft', 'failed'].includes(detail.latest?.status || '') && <button disabled={busy} onClick={() => run(() => saveDocument(true))}>Retry processing</button>}</div>
+        <div className="actions"><button disabled={busy} onClick={() => setEditorStep('review')}>← Back to review</button><button className="primary" disabled={busy || dirty || !canPublish(detail)} onClick={() => setConfirmation({ action: 'publish', revisionId: detail.source.latest_revision_id })}>Publish</button>{!detail.source.archived && ['draft', 'failed'].includes(detail.latest?.status || '') && <button disabled={busy} onClick={() => run(() => saveDocument(true))}>Retry processing</button>}</div>
       </div>}
-      {editorStep !== 'add' && <details className="advanced-details"><summary>Advanced details</summary><p className="muted small">Inspect how this content will be split for knowledge search.</p><button disabled={busy} onClick={() => run(async () => { validateEditor(); setPreview(await api<Preview>('/preview', { method: 'POST', body: JSON.stringify(body()) })); })}>Preview chunks</button>
+      {editorStep !== 'add' && <details className="advanced-details"><summary>Advanced details</summary><p className="muted small">Inspect how this content will be split for knowledge search.</p><button disabled={busy} onClick={() => void previewChunks()}>Preview chunks</button>
+        {previewError && <div className="alert error" role="alert">{previewError}</div>}
         {preview && <div className="preview"><h3>{preview.chunk_count} retrieval chunks</h3>{preview.stale && <div className="alert">Source verification is more than 90 days old. Review its current accuracy.</div>}{preview.excerpts.map((excerpt, index) => <details key={index} open={index === 0}><summary>Chunk {index + 1}</summary><pre>{excerpt}</pre></details>)}{preview.chunk_count > 5 && <p className="muted small">Showing the first five chunks.</p>}</div>}
       </details>}
       {detail && <details className="revision-list"><summary>Version history</summary><p className="muted small">Restore a previous prepared version or download its original file.</p>{detail.revisions.map(revision => <div className="revision-row" key={revision.id}><div><strong>{revision.title}</strong><span className="cell-sub">{fmt(revision.created_at)} · {revision.chunk_count} chunks</span></div>{revisionBadge(revision.status)}<div className="actions">{revision.file_path && <button disabled={busy} onClick={() => run(async () => { const result = await api<{ url: string }>(`/knowledge/${detail.source.id}/revisions/${revision.id}/original`); window.open(result.url, '_blank', 'noopener,noreferrer'); })}>Original</button>}{['ready', 'published'].includes(revision.status) && (detail.source.archived || detail.source.published_revision_id !== revision.id) && <button disabled={busy || dirty} onClick={() => setConfirmation({ action: 'restore', revisionId: revision.id })}>Restore version</button>}</div></div>)}
