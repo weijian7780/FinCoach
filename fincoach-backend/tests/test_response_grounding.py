@@ -462,6 +462,35 @@ class ProductRedirectTests(unittest.TestCase):
             )
         )
 
+    def test_detects_a_provider_in_any_case_or_position(self):
+        from app.rag.grounding import contains_specific_product_recommendation
+
+        for text in (
+            "open a maybank account",
+            "Open a savings account with maybank.",
+            "Get a credit card from CIMB.",
+            "Use a budgeting app like Money Lover to track spending.",
+            "Open a savings account (e.g. GXBank) this week.",
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(contains_specific_product_recommendation(text))
+
+    def test_ordinary_advice_and_public_schemes_are_not_products(self):
+        from app.rag.grounding import contains_specific_product_recommendation
+
+        for text in (
+            "Open a separate savings account to save for emergencies.",
+            "Use your emergency fund only for real emergencies.",
+            "Use the myPTPTN app to check your outstanding balance.",
+            "You can open an SSPN account to save for education.",
+            "Members can use Account 2 savings for housing withdrawals.",
+            "Choose a high-yield savings account that is PIDM-protected.",
+            "Apply for the loan through the myPTPTN app.",
+            "Use the FinCoach app to log every purchase this week.",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(contains_specific_product_recommendation(text))
+
     def test_safe_product_redirect_is_a_neutral_coach_answer(self):
         from app.rag.grounding import (
             DISCLAIMER,

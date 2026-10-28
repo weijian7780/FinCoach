@@ -32,5 +32,7 @@ def admin_rpc(name: str, values: dict):
         if "ADMIN_INVALID" in message:
             raise HTTPException(422, "This action is not valid for the current record state.") from exc
         if "ADMIN_FORBIDDEN" in message:
-            raise HTTPException(403, "Administrator action is not permitted.") from exc
+            # The route already verified the administrator. Here it means the
+            # target is protected or gone; a 403 would sign the panel out.
+            raise HTTPException(409, "This record can no longer be changed here. Reload before continuing.") from exc
         raise HTTPException(503, "Administrative operation failed. Please retry.") from exc

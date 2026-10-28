@@ -1,0 +1,373 @@
+{
+  "summary": {
+    "cases": 8,
+    "task_recall": 0.8889,
+    "task_precision": 1.0,
+    "task_exact": 0.875,
+    "topic_recall": 1.0,
+    "topic_precision": 1.0,
+    "personal_access_acc": 1.0,
+    "cadence_acc": 1.0,
+    "cadence_cases": 2,
+    "unneeded_clarify": 1,
+    "missed_clarify": 0,
+    "latency_median_ms": 314,
+    "latency_p95_ms": 345,
+    "in_tok_total": 11271,
+    "out_tok_total": 5096,
+    "tok_per_case": 2046,
+    "model": "jev-1.13.0"
+  },
+  "rows": [
+    {
+      "id": "multi-plan-predict-en",
+      "category": "multi_action",
+      "query": "Make a weekly savings plan and predict my month-end savings",
+      "exp_actions": [
+        "get_weekly_savings_plan",
+        "predict_savings"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_weekly_savings_plan",
+        "predict_savings"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "predict_savings",
+          0.97
+        ],
+        [
+          "get_weekly_savings_plan",
+          0.9
+        ],
+        [
+          "prepare_report",
+          0.47
+        ],
+        [
+          "get_savings_goals",
+          0.34
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.03
+      },
+      "latency_ms": 876.9625999993877,
+      "in_tok": 1411,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "comb-plan-compound-en",
+      "category": "combined",
+      "query": "Make me a savings plan and explain how compound interest works",
+      "exp_actions": [
+        "education",
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [
+        "compound_interest"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [
+        "compound_interest"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.94
+        ],
+        [
+          "education",
+          0.93
+        ],
+        [
+          "predict_savings",
+          0.53
+        ],
+        [
+          "get_financial_overview",
+          0.32
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.07
+      },
+      "latency_ms": 307.5879000025452,
+      "in_tok": 1411,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "plan-weekly-ms",
+      "category": "planning",
+      "query": "Buat pelan simpanan mingguan untuk saya",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.95
+        ],
+        [
+          "prepare_reminder",
+          0.68
+        ],
+        [
+          "prepare_report",
+          0.43
+        ],
+        [
+          "predict_savings",
+          0.34
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.02
+      },
+      "latency_ms": 314.36829999438487,
+      "in_tok": 1411,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "neg-explain-noplan-en",
+      "category": "negation",
+      "query": "Explain weekly saving to me, but don't make a plan",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "education",
+          0.96
+        ],
+        [
+          "get_financial_overview",
+          0.12
+        ],
+        [
+          "predict_savings",
+          0.07
+        ],
+        [
+          "get_savings_goals",
+          0.06
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.05
+      },
+      "latency_ms": 300.47380000178237,
+      "in_tok": 1413,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "cashflow-basis-en",
+      "category": "output_vs_mention",
+      "query": "Make a weekly savings plan based on my cashflow",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.01,
+      "top_actions": [
+        [
+          "get_weekly_savings_plan",
+          0.97
+        ],
+        [
+          "get_financial_profile",
+          0.58
+        ],
+        [
+          "prepare_report",
+          0.5
+        ],
+        [
+          "predict_savings",
+          0.46
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.02
+      },
+      "latency_ms": 344.71320000011474,
+      "in_tok": 1410,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "edu-akpk-saya-ms",
+      "category": "education",
+      "query": "akpk boleh tolong hutang saya ke",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "akpk"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [],
+      "got_topics": [
+        "akpk"
+      ],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.02,
+      "top_actions": [
+        [
+          "get_financial_profile",
+          0.15
+        ],
+        [
+          "get_financial_overview",
+          0.12
+        ],
+        [
+          "get_upcoming_reminders",
+          0.12
+        ],
+        [
+          "education",
+          0.09
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.09
+      },
+      "latency_ms": 307.50580000312766,
+      "in_tok": 1409,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "casual-joke-en",
+      "category": "casual",
+      "query": "Tell me a joke",
+      "exp_actions": [
+        "casual"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.96,
+      "top_actions": [
+        [
+          "get_spending_summary",
+          0.01
+        ],
+        [
+          "get_budget_status",
+          0.01
+        ],
+        [
+          "get_savings_goals",
+          0.01
+        ],
+        [
+          "predict_savings",
+          0.01
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.16
+      },
+      "latency_ms": 283.8791999965906,
+      "in_tok": 1404,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    },
+    {
+      "id": "amb-help-en",
+      "category": "ambiguous",
+      "query": "Help me",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": true,
+      "got_actions": [],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": true,
+      "casual_p": 0.33,
+      "top_actions": [
+        [
+          "get_financial_overview",
+          0.24
+        ],
+        [
+          "get_upcoming_reminders",
+          0.14
+        ],
+        [
+          "prepare_reminder",
+          0.1
+        ],
+        [
+          "education",
+          0.09
+        ]
+      ],
+      "param_probs": {
+        "plan_monthly_cadence": 0.1
+      },
+      "latency_ms": 323.3574999976554,
+      "in_tok": 1402,
+      "out_tok": 637,
+      "model": "jev-1.13.0"
+    }
+  ]
+}

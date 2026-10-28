@@ -109,6 +109,8 @@ FILLERS = frozenset({
     "can", "could", "should", "would", "cut", "reduce", "plan", "need", "needs",
     "limit", "limits", "add", "set", "save", "create", "recommend", "suggest",
     "deserve", "help", "decide", "choose", "pick", "put", "another", "new",
+    # Hesitation and conversational particles ("erm spend", "how much lah").
+    "erm", "um", "umm", "uh", "uhh", "er", "hmm", "ah", "eh", "lah", "leh", "meh",
 })
 _CATEGORY_RANKING_QUERY = re.compile(
     r"\b(?:most|highest|top|biggest|largest)\s+(?:(?:spending|expense)\s+)?categor(?:y|ies)\b|"
@@ -305,3 +307,30 @@ def extract_category_candidate(message: str) -> str | None:
 
 
 
+
+
+def category_suggestions(phrase: str, names: Iterable[str], limit: int = 3) -> list[str]:
+    """Closest saved category names for a phrase that matched none exactly.
+
+    Pure and catalog-bound: close spellings ("foods" -> "Food") and whole-word
+    containment ("food" -> "Food & Dining"). A name saved more than once is
+    never offered, because naming it cannot pick one. The caller only ever
+    asks with these names; it never selects one on the user's behalf.
+    """
+    key = " ".join(str(phrase or "").split()).casefold()
+    if not key:
+        return []
+    catalog = [str(name) for name in names if name]
+    counts = Counter(" ".join(name.split()).casefold() for name in catalog)
+    unique = {}
+    for name in catalog:
+        normalised = " ".join(name.split()).casefold()
+        if counts[normalised] == 1:
+            unique[normalised] = name
+    words = {word for word in re.findall(r"\w+", key) if word not in FILLERS}
+    close = [unique[match] for match in get_close_matches(key, list(unique), n=limit, cutoff=0.6)]
+    contained = [
+        name for normalised, name in unique.items()
+        if words & {word for word in re.findall(r"\w+", normalised) if word not in FILLERS}
+    ]
+    return list(dict.fromkeys([*close, *contained]))[:limit]

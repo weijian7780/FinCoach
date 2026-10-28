@@ -13,6 +13,7 @@ from app.agent_actions import (
 from app.auth import AuthenticatedUser, require_authenticated_user
 from app.coaching_history import (
     ActionProtocolError,
+    ActionStateConflict,
     CoachingHistoryRepository,
     CoachingRateLimitExceeded,
     ConversationNotFound,
@@ -198,6 +199,11 @@ def _run_action(operation):
         raise HTTPException(404, "Action not found.") from exc
     except AgentActionConflict as exc:
         raise HTTPException(409, str(exc)) from exc
+    except ActionStateConflict as exc:
+        raise HTTPException(409, {
+            'code': 'report_state_conflict',
+            'message': 'This report action changed or its category is unavailable. Reopen the chat or ask for a new report.',
+        }) from exc
 
 
 def _required_uuid(value: str, detail: str) -> str:

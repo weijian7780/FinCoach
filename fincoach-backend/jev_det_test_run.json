@@ -1,0 +1,937 @@
+{
+  "summary": {
+    "cases": 36,
+    "task_recall": 0.675,
+    "task_precision": 0.587,
+    "task_exact": 0.4444,
+    "topic_recall": 0.7273,
+    "topic_precision": 0.8889,
+    "personal_access_acc": 0.7778,
+    "cadence_acc": 0.8,
+    "cadence_cases": 5,
+    "unneeded_clarify": 0,
+    "missed_clarify": 3,
+    "latency_median_ms": 0,
+    "latency_p95_ms": 0,
+    "in_tok_total": null,
+    "out_tok_total": null,
+    "tok_per_case": null,
+    "model": "deterministic (regex router, repaired multi-read)"
+  },
+  "rows": [
+    {
+      "id": "t-spend-food-en",
+      "category": "personal_single",
+      "query": "What did I spend on groceries in July?",
+      "exp_actions": [
+        "get_spending_summary"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_spending_summary"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-budget-ms",
+      "category": "personal_single",
+      "query": "Bajet saya okay tak bulan ni?",
+      "exp_actions": [
+        "get_budget_status"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_budget_status"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-goals-progress-en",
+      "category": "personal_single",
+      "query": "How close am I to my laptop savings goal?",
+      "exp_actions": [
+        "get_savings_goals"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-reminders-ms",
+      "category": "personal_single",
+      "query": "Ada bil apa yang saya kena bayar minggu depan?",
+      "exp_actions": [
+        "get_upcoming_reminders"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-search-en",
+      "category": "personal_single",
+      "query": "List all my Grab rides last month",
+      "exp_actions": [
+        "search_transactions"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_financial_overview"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-profile-ms",
+      "category": "personal_single",
+      "query": "Apa sumber pendapatan yang saya dah set?",
+      "exp_actions": [
+        "get_financial_profile"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-plan-weekly-en",
+      "category": "planning",
+      "query": "Set up a weekly savings schedule for me",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals",
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-predict-ms",
+      "category": "planning",
+      "query": "Boleh ramal berapa saya boleh simpan bulan depan?",
+      "exp_actions": [
+        "predict_savings"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-cashflow-en",
+      "category": "planning",
+      "query": "Will I run out of money before payday?",
+      "exp_actions": [
+        "get_cashflow_forecast"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-plan-monthly-ms",
+      "category": "planning",
+      "query": "Buat pelan simpanan, sekali bayar setiap bulan",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": true,
+      "got_actions": [
+        "get_savings_goals"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-plan-nextmonth-period-en",
+      "category": "planning",
+      "query": "Draw up a savings plan for the coming month",
+      "exp_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-multi-spend-goals-en",
+      "category": "multi_action",
+      "query": "Show my spending this month and my savings goals",
+      "exp_actions": [
+        "get_savings_goals",
+        "get_spending_summary"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals",
+        "get_spending_summary"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-multi-cashflow-plan-en",
+      "category": "multi_action",
+      "query": "Check if my cash lasts the month and set me a weekly savings plan",
+      "exp_actions": [
+        "get_cashflow_forecast",
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_savings_goals",
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-multi-report-predict-en",
+      "category": "multi_action",
+      "query": "Generate a PDF report and predict my month-end savings",
+      "exp_actions": [
+        "predict_savings",
+        "prepare_report"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "predict_savings",
+        "prepare_report"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-multi-overview-reminder-ms",
+      "category": "multi_action",
+      "query": "Macam mana kewangan saya secara keseluruhan, dan ingatkan saya bayar sewa 5hb",
+      "exp_actions": [
+        "get_financial_overview",
+        "prepare_reminder"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_upcoming_reminders",
+        "prepare_reminder"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-comb-budget-emergency-en",
+      "category": "combined",
+      "query": "Am I over budget, and how much should I keep as an emergency fund?",
+      "exp_actions": [
+        "education",
+        "get_budget_status"
+      ],
+      "exp_topics": [
+        "emergency_fund"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "emergency_fund"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-comb-spend-bnpl-ms",
+      "category": "combined",
+      "query": "Berapa saya belanja bulan ni, dan BNPL ni selamat tak?",
+      "exp_actions": [
+        "education",
+        "get_spending_summary"
+      ],
+      "exp_topics": [
+        "bnpl"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_spending_summary"
+      ],
+      "got_topics": [
+        "bnpl"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-comb-plan-tax-en",
+      "category": "combined",
+      "query": "Make me a savings plan and tell me whether I pay tax on side income",
+      "exp_actions": [
+        "education",
+        "get_weekly_savings_plan"
+      ],
+      "exp_topics": [
+        "tax"
+      ],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_savings_goals"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-edu-ccris-en",
+      "category": "education",
+      "query": "What is CCRIS and how do I check my record?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "credit_records"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education",
+        "get_financial_overview"
+      ],
+      "got_topics": [
+        "credit_records"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-edu-pidm-ms",
+      "category": "education",
+      "query": "PIDM lindungi duit simpanan ke?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "pidm"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "pidm"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-edu-shariah-en",
+      "category": "education",
+      "query": "How does Shariah-compliant investing actually work?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "shariah"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "shariah"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-edu-akpk-complaints-en",
+      "category": "education",
+      "query": "What's the difference between AKPK help and filing a financial complaint?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "akpk",
+        "financial_complaints"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "akpk"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-edu-scam-en",
+      "category": "education",
+      "query": "How can I tell if an investment offer is a scam?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "scams"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-edu-ptptn-ms",
+      "category": "education",
+      "query": "Macam mana nak mohon pinjaman PTPTN?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "ptptn"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "ptptn"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-neg-noreminder-en",
+      "category": "negation",
+      "query": "Just show my upcoming bills, don't create any reminder",
+      "exp_actions": [
+        "get_upcoming_reminders"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_upcoming_reminders"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-neg-noplan-ms",
+      "category": "negation",
+      "query": "Terangkan simpanan mingguan sahaja, jangan buat sebarang pelan",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_weekly_savings_plan"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-casual-bye-en",
+      "category": "casual",
+      "query": "Alright, talk to you later!",
+      "exp_actions": [
+        "casual"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-casual-howareyou-mix",
+      "category": "casual",
+      "query": "Apa khabar, you okay tak today?",
+      "exp_actions": [
+        "casual"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-act-report-ms",
+      "category": "write_action",
+      "query": "Buatkan laporan kewangan dalam bentuk PDF",
+      "exp_actions": [
+        "prepare_report"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_financial_overview"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-act-reminder-en",
+      "category": "write_action",
+      "query": "Set a reminder for my car insurance renewal on the 20th",
+      "exp_actions": [
+        "prepare_reminder"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_upcoming_reminders",
+        "prepare_reminder"
+      ],
+      "got_topics": [
+        "takaful"
+      ],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-amb-vague-en",
+      "category": "ambiguous",
+      "query": "I need help with some stuff",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": true,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-amb-money-ms",
+      "category": "ambiguous",
+      "query": "Tolong uruskan duit saya sikit",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": true,
+      "got_actions": [
+        "casual"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 1.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-unsup-sellstock-en",
+      "category": "unsupported",
+      "query": "Sell my Tenaga shares now",
+      "exp_actions": [],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_financial_overview"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-unsup-robo-en",
+      "category": "unsupported",
+      "query": "Which robo-advisor is the best to invest with?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-fu-nextmonth-en",
+      "category": "follow_up",
+      "query": "And what about next month?",
+      "exp_actions": [
+        "get_spending_summary"
+      ],
+      "exp_topics": [],
+      "exp_personal": true,
+      "exp_clarify": false,
+      "got_actions": [
+        "get_spending_summary"
+      ],
+      "got_topics": [],
+      "got_personal": true,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    },
+    {
+      "id": "t-fu-topicchange-en",
+      "category": "follow_up",
+      "query": "Wait, what is compound interest anyway?",
+      "exp_actions": [
+        "education"
+      ],
+      "exp_topics": [
+        "compound_interest"
+      ],
+      "exp_personal": false,
+      "exp_clarify": false,
+      "got_actions": [
+        "education"
+      ],
+      "got_topics": [
+        "compound_interest"
+      ],
+      "got_personal": false,
+      "got_uncertain": false,
+      "casual_p": 0.0,
+      "top_actions": [],
+      "param_probs": {},
+      "latency_ms": 0.0,
+      "in_tok": null,
+      "out_tok": null,
+      "model": "deterministic"
+    }
+  ]
+}

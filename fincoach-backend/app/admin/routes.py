@@ -1,14 +1,16 @@
 """Admin website API. No endpoint returns students' financial records."""
 from collections import defaultdict, deque
 from datetime import datetime
+from ipaddress import ip_address
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from time import monotonic
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field, SecretStr
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile as FormFile
 from supabase import ClientOptions, create_client
 
 from app import config
@@ -19,6 +21,8 @@ from app.supabase_client import get_supabase
 
 router = APIRouter(prefix="/api/admin", tags=["administration"])
 _login_attempts: dict[str, deque] = defaultdict(deque)
+# Room for multipart boundaries and part headers around a maximum-size file.
+UPLOAD_ENVELOPE_BYTES = 64 * 1024
 
 
 def require_enabled() -> None:
@@ -43,21 +47,44 @@ class LoginInput(BaseModel):
     password: SecretStr = Field(min_length=1, max_length=256)
 
 
+def _client_address(request: Request) -> str:
+    peer = request.client.host if request.client else "unknown"
+    # Public traffic arrives through the Cloudflare tunnel and the Docker
+    # gateway, so every visitor shares one peer address. Trust the tunnel's
+    # client header only from a private/loopback peer, never from the internet.
+    forwarded = request.headers.get("cf-connecting-ip", "").strip()
+    try:
+        if forwarded and ip_address(peer).is_private:
+            return str(ip_address(forwarded))
+    except ValueError:
+        pass
+    return peer
+
+
 @router.post("/login")
 def login(body: LoginInput, request: Request):
     require_enabled()
     # In-process protection complements Supabase Auth's rate limits. Production
-    # uses a single worker; never trust arbitrary X-Forwarded-For values here.
-    key = request.client.host if request.client else "unknown"
+    # uses a single worker. Only failed attempts count toward the limit.
+    key = _client_address(request)
     now = monotonic()
     if len(_login_attempts) > 1000:
-        _login_attempts.clear()
+        for stale in [name for name, times in _login_attempts.items() if not times or times[-1] < now - 60]:
+            del _login_attempts[stale]
     attempts = _login_attempts[key]
     while attempts and attempts[0] < now - 60:
         attempts.popleft()
     if len(attempts) >= 10:
         raise HTTPException(429, "Too many sign-in attempts. Wait a minute.")
-    attempts.append(now)
+    try:
+        return _sign_in_administrator(body)
+    except HTTPException as exc:
+        if exc.status_code in (401, 403):
+            attempts.append(now)
+        raise
+
+
+def _sign_in_administrator(body: LoginInput):
     username = body.username.strip()
     email = config.ADMIN_LOGIN_EMAIL if username.lower() == "admin" else username
     if "@" not in email:
@@ -181,20 +208,47 @@ def knowledge_detail(source_id: UUID, user=Depends(administrator)):
 
 
 @router.post("/uploads")
-async def upload(file: UploadFile = File(...), user=Depends(administrator)):
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
+async def upload(request: Request, user=Depends(administrator)):
+    # A File(...) parameter makes FastAPI read the whole body before any
+    # dependency runs. Authenticate first, then parse a size-bounded body.
+    limit = MAX_UPLOAD_BYTES + UPLOAD_ENVELOPE_BYTES
+    too_large = HTTPException(413, "Choose a file no larger than 10 MiB.")
     try:
-        content = await run_in_threadpool(extract_document, file.filename or "", data)
+        if int(request.headers.get("content-length", "0")) > limit:
+            raise too_large
+    except ValueError:
+        raise HTTPException(400, "Invalid upload request.") from None
+    received = 0
+
+    async def bounded_receive():
+        # Also covers bodies without Content-Length (chunked transfer).
+        nonlocal received
+        message = await request.receive()
+        if message["type"] == "http.request":
+            received += len(message.get("body", b""))
+            if received > limit:
+                raise too_large
+        return message
+
+    form = await Request(request.scope, bounded_receive).form(max_files=1, max_fields=0)
+    try:
+        file = form.get("file")
+        if not isinstance(file, FormFile):
+            raise HTTPException(422, "Choose a document to upload.")
+        filename = file.filename or ""
+        data = await file.read(MAX_UPLOAD_BYTES + 1)
+    finally:
+        await form.close()
+    try:
+        content = await run_in_threadpool(extract_document, filename, data)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    finally:
-        await file.close()
     upload_id = uuid4()
-    suffix = Path(file.filename or "").suffix.lower()
+    suffix = Path(filename).suffix.lower()
     mime = {".md": "text/markdown", ".txt": "text/plain", ".pdf": "application/pdf"}[suffix]
     path = f"{user.user_id}/{upload_id}/original{suffix}"
     await run_in_threadpool(lambda: get_supabase().storage.from_("knowledge-originals").upload(path, data, {"content-type": mime}))
-    return dict(upload_id=str(upload_id), content=content, filename=Path(file.filename or "Document").name)
+    return dict(upload_id=str(upload_id), content=content, filename=Path(filename or "Document").name)
 
 
 @router.get("/knowledge/{source_id}/revisions")

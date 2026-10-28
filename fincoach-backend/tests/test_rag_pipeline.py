@@ -2315,7 +2315,10 @@ class CoachingServiceTests(unittest.TestCase):
             )
 
         content = result["assistant_message"]["content"]
-        self.assertIn("PTPTN provides education loans [S1].", content)
+        # The salvaged draft ships; its [S1] marker is stripped from the reply
+        # text because sources ride the "View sources" card.
+        self.assertIn("PTPTN provides education loans.", content)
+        self.assertNotIn("[S1]", content)
         self.assertNotIn("could not safely validate", content)
         self.assertNotIn("could not find an official source", content)
         retry_generate.assert_called_once()

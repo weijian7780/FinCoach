@@ -19,6 +19,22 @@ _OPEN_END = re.compile(
     r"(?:must|should|shall|may|can|could|will|would)(?:\s+not)?|"
     r"tidak|bukan|perlu|mesti|wajib|boleh|hendaklah)\s*$", re.I,
 )
+# Two complete endings a generated sentence may have although its last word is
+# otherwise a dangling one: "…whether you qualify or not." and a preposition
+# closing an earlier what/which/that clause ("…what the grace period is for.").
+# Unfinished modal or negative rules ("Applicants cannot.") stay incomplete.
+_CLOSING = r"\s*[\"')*]*[.!?][\"')*]*\s*$"
+_COMPLETE_OR_NOT = re.compile(r"\b(?:or\s+not|atau\s+tidak)" + _CLOSING, re.I)
+_COMPLETE_STRANDED_PREPOSITION = re.compile(
+    r"\b(?:what|which|who|whom|where|that)\b[^.!?]*\s"
+    r"(?:for|with|of|on|about|from|in|at|into)" + _CLOSING, re.I,
+)
+
+
+def allowed_generated_ending(sentence: str) -> bool:
+    """Whether a finished generated sentence legitimately ends on a dangling word."""
+    text = str(sentence or "").strip()
+    return bool(_COMPLETE_OR_NOT.search(text) or _COMPLETE_STRANDED_PREPOSITION.search(text))
 
 
 def _visible_text_with_offsets(text: str) -> tuple[str, list[int]]:
@@ -76,14 +92,16 @@ def match_evidence_quote(quote: str, source: str) -> str | None:
     return source[offsets[start]:offsets[start + len(visible_quote) - 1] + 1]
 
 
-def complete_evidence_passages(text: str) -> tuple[str, ...]:
+def complete_evidence_passages(text: str, *, generated: bool = False) -> tuple[str, ...]:
     """Keep exact complete passages; discard obvious snippet/list cutoffs.
 
     This is a structural backstop, not a semantic verifier. The checker still
     establishes relevance and applicability. Never finish an instruction using
     guessed words, and never remove a dangling qualification to broaden a rule.
     Extraction gaps separate independent passages, rather than joining words
-    from different parts of a page into one apparent statement.
+    from different parts of a page into one apparent statement. A generated
+    answer sentence (``generated=True``) may also end with one of the complete
+    endings in ``allowed_generated_ending``; source passages never may.
     """
     pieces = _GAP.split(text)
     kept = []
@@ -102,7 +120,10 @@ def complete_evidence_passages(text: str) -> tuple[str, ...]:
             if not _LIST_ITEM.search(value[intro.end():]):
                 value = "" if _OPEN_CONDITION.search(intro.group()) else value[:intro.start()].rstrip()
                 break
-        if not value or _OPEN_END.search(value.rstrip("* .!?\"')")):
+        if not value or (
+            _OPEN_END.search(value.rstrip("* .!?\"')"))
+            and not (generated and allowed_generated_ending(value))
+        ):
             continue
         if len(pieces) > 1 and not re.search(r"[.!?][\"')*]*$", value):
             # A gap cut a prose sentence. Salvage only preceding independent

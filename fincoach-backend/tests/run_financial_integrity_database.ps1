@@ -30,7 +30,7 @@ try {
     Start-Sleep -Seconds 3
     Invoke-TestDocker cp $temporarySql "${containerName}:/tmp/schema.sql"
     Invoke-TestDocker exec -e PGOPTIONS='-c client_min_messages=warning' $containerName psql -U postgres -v ON_ERROR_STOP=1 -q -f /tmp/schema.sql
-    foreach ($name in @('financial_integrity_assertions.sql','receipt_restore_assertions.sql','coaching_action_assertions.sql','report_attempt_assertions.sql')) {
+    foreach ($name in @('financial_integrity_assertions.sql','receipt_restore_assertions.sql','backup_report_category_assertions.sql','coaching_action_assertions.sql','report_attempt_assertions.sql')) {
         Invoke-TestDocker cp (Join-Path $PSScriptRoot $name) "${containerName}:/tmp/assertions.sql"
         Invoke-TestDocker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 -q -f /tmp/assertions.sql | Out-Null
         Write-Output "$name passed"
@@ -48,7 +48,7 @@ try {
     Invoke-TestDocker cp (Join-Path $PSScriptRoot 'report_attempt_confirmation_concurrency.sql') "${containerName}:/tmp/report_confirm.sql"
     Invoke-TestDocker exec $containerName pgbench -U postgres -d postgres -n -c 8 -j 8 -t 1 -f /tmp/report_confirm.sql
     Invoke-TestDocker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 -q -c 'select public.test_assert((select ui_payload->>$$status$$=$$executed$$ from public.coaching_messages where id=$$00000000-0000-0000-0000-000000001112$$) and (select count(*)=1 from public.report_attempts where action_id=$$00000000-0000-0000-0000-000000002112$$ and status=$$completed$$) and (select count(*)=1 from public.report_attempts a join public.reports r on r.id=a.report_id and r.report_key=$$coach:$$||a.attempt_id::text and r.storage_path=a.storage_path where a.action_id=$$00000000-0000-0000-0000-000000002112$$), $$eight concurrent confirmations yield one attempt and one history row$$);' | Out-Null
-    Write-Output 'Eight concurrent claims: one winner. Concurrent action decisions and persisted effects agree. Concurrent report confirmations and cancellations keep one attempt and one history row. All database checks passed.'
+    Write-Output 'Eight concurrent claims: one winner. Concurrent action decisions and persisted effects agree. Concurrent report confirmations and cancellations keep one attempt and one history row. All database checks passed.' 
 } finally {
     if ($created) { Invoke-TestDocker rm -f -v $containerName | Out-Null }
     if (Test-Path -LiteralPath $temporarySql) { Remove-Item -LiteralPath $temporarySql }

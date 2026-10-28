@@ -20,7 +20,11 @@ from pydantic import (
     model_validator,
 )
 
-from app.category_resolution import CategoryResolution, resolve_category_phrase
+from app.category_resolution import (
+    CategoryResolution,
+    category_suggestions,
+    resolve_category_phrase,
+)
 from app.config import COACH_CATEGORY_INTERPRETATION_ENABLED
 
 
@@ -139,6 +143,19 @@ def _category_clarification_ambiguous(requested: str | None = None) -> dict:
         "message": (
             f"More than one category{detail} matches, or you named several at once. "
             "Please choose one exact category name from FinCoach."
+        ),
+    }
+
+
+def _category_suggestion_clarification(suggestions: list[str]) -> dict:
+    names = list(suggestions)
+    listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" or {names[-1]}"
+    return {
+        "status": "needs_clarification",
+        "suggestions": names,
+        "message": (
+            f"I couldn't find that category. Did you mean {listed}? "
+            "Please use an exact category name from FinCoach."
         ),
     }
 
@@ -545,10 +562,14 @@ class AgentToolExecutor:
         session_id: str,
         now: Callable[[], datetime] | None = None,
         request_text: str | None = None,
+        permitted_write_tools: tuple[str, ...] | None = None,
     ):
         self.admin_client = admin_client
         self.user_id = user_id
         self.session_id = session_id
+        # The write-preparation tools the validated decision allows this turn.
+        # None keeps the rule-router check of the request text.
+        self.permitted_write_tools = permitted_write_tools
         # Financial months and reminder dates are presented in Malaysia time.
         # Do not let a UTC date boundary silently omit a user's early-morning
         # reminder or place it in the wrong financial month.
@@ -580,17 +601,77 @@ class AgentToolExecutor:
             raise RuntimeError("A FinCoach data tool is temporarily unavailable.")
         return getattr(response, "data", None)
 
+    def execute_read(self, request) -> dict:
+        """Consume a server-compiled read without interpreting the sentence again.
+
+        Use a fresh executor so a concurrent/failed call cannot mutate another
+        call's raw-text policy. Catalog and consent checks remain in execute().
+        """
+        from app.rag.routing import ReadReadiness, ResolvedReadRequest
+        from app.rag.request_interpretation import Operation
+        from typing import get_args
+
+        if (not isinstance(request, ResolvedReadRequest)
+                or request.readiness != ReadReadiness.READY
+                or request.clarification or request.tool_name not in get_args(Operation)):
+            return {"status": "not_allowed", "message": "Please clarify the requested read."}
+        scoped = AgentToolExecutor(self.admin_client, user_id=self.user_id,
+                                   session_id=self.session_id, now=self.now)
+        category = request.arguments.get("category_name")
+        if not category:
+            return scoped.execute(request.tool_name, request.arguments)
+        names = scoped._available_category_names()
+
+        def exact(phrase):
+            key = " ".join(str(phrase).split()).casefold()
+            return [n for n in names if " ".join(n.split()).casefold() == key]
+
+        # 1. The user's own phrase decides first: a saved "Lunch" is Lunch,
+        #    whatever built-in it might also resemble.
+        matches = exact(category)
+        if len(matches) > 1:
+            return _category_clarification_ambiguous(category)
+        chosen = matches[0] if matches else None
+        suggestions = category_suggestions(category, names) if chosen is None else []
+        # 2. Otherwise the interpreter's built-in match, only when it is the one
+        #    saved name and no other saved category is close to the phrase.
+        built_in = getattr(request, "category_built_in", None)
+        if chosen is None and built_in:
+            built_matches = exact(built_in)
+            if len(built_matches) > 1:
+                return _category_clarification_ambiguous(built_in)
+            if len(built_matches) == 1 and all(
+                " ".join(name.split()).casefold() == " ".join(built_matches[0].split()).casefold()
+                for name in suggestions
+            ):
+                chosen = built_matches[0]
+        if chosen is None:
+            # 3. Ask with the closest real names; never pick one for the user.
+            return (_category_suggestion_clarification(suggestions) if suggestions
+                    else _category_clarification())
+        result = scoped.execute(request.tool_name, {**request.arguments, "category_name": chosen})
+        if result.get("status") == "ok" and request.tool_name != "get_period_comparison":
+            # State the applied filter, so an alias is never silent.
+            result = {**result, "category_filter": chosen}
+        return result
+
     def execute(self, name: str, arguments: dict[str, Any]) -> dict:
         handler = self._handlers.get(name)
         if not handler:
             return {"status": "not_allowed", "message": "That action is not available."}
-        if name in {"prepare_reminder", "prepare_report"} and self.request_text:
+        if name in {"prepare_reminder", "prepare_report"}:
             # A provider may voluntarily select a write-preparation tool even
             # when the user asked to view, cancel, explain, or disable data.
-            # Re-check the original request at the execution boundary.
-            from app.rag.routing import required_agent_tool_names
+            # Only the tool the validated decision permits may run.
+            if self.permitted_write_tools is not None:
+                allowed = name in self.permitted_write_tools
+            elif self.request_text:
+                from app.rag.routing import required_agent_tool_names
 
-            if name not in required_agent_tool_names(self.request_text):
+                allowed = name in required_agent_tool_names(self.request_text)
+            else:
+                allowed = True
+            if not allowed:
                 return {
                     "status": "not_allowed",
                     "message": "That preparation tool does not match the user's request.",
@@ -689,8 +770,19 @@ class AgentToolExecutor:
                 continue
             seen.add(key)
             names.append(str(name))
+        self._shared_category_names_cache = list(dict.fromkeys(
+            str(row["name"]) for row in shared if row.get("name")
+        ))
         self._category_names_cache = names
         return self._category_names_cache
+
+    def built_in_category_names(self) -> list[str]:
+        """The app's shared category names (no owner): constants, not user data.
+
+        Read through the same two scoped queries as the full catalog.
+        """
+        self._available_category_names()
+        return list(getattr(self, "_shared_category_names_cache", []))
 
     def _interpret_category(self, resolution: Any) -> str | None:
         """Bounded AI fallback for an unfamiliar category phrase.
