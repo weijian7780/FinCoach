@@ -12,6 +12,7 @@ import { ReceiptImageViewer } from '@/components/transactions/receipt-image-view
 import { malaysiaToday } from '@/lib/transaction-date';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { emitBudgetAlertsAfterTransactionChange } from '@/lib/alert-events';
+import { summarizeBudgetAlerts } from '@/lib/alerts-domain';
 import { useAuth } from '@/lib/auth-context';
 import { clearReceiptDraft, getReceiptDraft } from '@/lib/receipt-ocr';
 import { receiptInitialDate, receiptReviewWarnings } from '@/lib/receipt-review-domain';
@@ -60,7 +61,8 @@ export default function ReviewReceiptScreen() {
 
   async function syncBudgetAlerts(saved: Awaited<ReturnType<typeof saveReceiptTransaction>>) {
     try {
-      await emitBudgetAlertsAfterTransactionChange(userId!, null, saved);
+      const summary = summarizeBudgetAlerts(await emitBudgetAlertsAfterTransactionChange(userId!, null, saved));
+      if (summary) await appDialog.open(summary.title, summary.message);
       clearReceiptDraft();
       router.replace('/transactions' as never);
     } catch {

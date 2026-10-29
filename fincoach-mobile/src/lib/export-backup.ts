@@ -370,9 +370,8 @@ export async function restoreFinancialBackup(
   } catch (error) {
     // A network timeout has an unknown commit outcome. Do not delete files that
     // may now be referenced by a committed restore; database errors roll back.
-    const definitive = error && typeof error === 'object' && 'code' in error &&
-      /^\d{5}$|^P\d{4}$/.test(String((error as { code: unknown }).code));
-    if (definitive) {
+    const { isDefinitiveDatabaseError } = await import('./export-backup-domain');
+    if (isDefinitiveDatabaseError(error)) {
       if (prepared) await prepared.cleanup();
       throw error;
     }
@@ -402,11 +401,17 @@ export async function reconcileStaleRecords(
     .in('status', ['pending', 'processing'])
     .lte('created_at', cutoffIso);
   throwIfError(exportResult.error);
-  const backupResult = await client
+  // An unfinished backup past the cutoff can no longer complete. Delete it so
+  // its full server snapshot copy and any uploaded files do not accumulate.
+  const stale = await client
     .from('backups')
-    .update({ status: 'failed' })
+    .select('*')
     .eq('user_id', userId)
-    .in('status', ['pending', 'processing'])
-    .lte('created_at', cutoffIso);
-  throwIfError(backupResult.error);
+    .in('status', ['pending', 'processing', 'failed'])
+    .lte('created_at', cutoffIso)
+    .limit(50);
+  throwIfError(stale.error);
+  for (const record of (stale.data ?? []) as BackupRecord[]) {
+    await deleteBackup(record, client);
+  }
 }

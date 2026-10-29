@@ -11,6 +11,7 @@ import {
   setCurrentExport,
   shareExportFile,
   writeCsvExport,
+  writeNamedPdfExport,
   writePdfExport,
   type ExportFilePlatform,
 } from './export-files';
@@ -20,6 +21,7 @@ function platform(): ExportFilePlatform {
     writeText: vi.fn().mockReturnValue({ uri: 'file:///cache/exports/report.csv', size: 18 }),
     readBytes: vi.fn().mockResolvedValue(new ArrayBuffer(12)),
     printHtml: vi.fn().mockResolvedValue({ uri: 'file:///cache/report.pdf', numberOfPages: 2 }),
+    moveToExports: vi.fn(),
     isSharingAvailable: vi.fn().mockResolvedValue(true),
     share: vi.fn().mockResolvedValue(undefined),
     remove: vi.fn(),
@@ -92,6 +94,38 @@ describe('export file platform', () => {
 
     expect(getCurrentExport()?.fileName).toBe('FinCoach_2026-07-01_to_2026-07-31.csv');
     clearCurrentExport();
+    expect(getCurrentExport()).toBeNull();
+  });
+});
+
+describe('export file lifecycle', () => {
+  test('moves a printed PDF to the export name and reports its size', async () => {
+    const adapter = platform();
+    vi.mocked(adapter.moveToExports).mockResolvedValue({ uri: 'file:///cache/fincoach-exports/FinCoach.pdf', size: 2048 });
+    await expect(writeNamedPdfExport('FinCoach.pdf', '<html/>', adapter)).resolves.toEqual({
+      uri: 'file:///cache/fincoach-exports/FinCoach.pdf', size: 2048, mimeType: 'application/pdf',
+    });
+    expect(adapter.moveToExports).toHaveBeenCalledWith('file:///cache/report.pdf', 'FinCoach.pdf');
+  });
+
+  test('removes the printed PDF when it cannot be renamed', async () => {
+    const adapter = platform();
+    vi.mocked(adapter.moveToExports).mockRejectedValue(new Error('disk full'));
+    await expect(writeNamedPdfExport('FinCoach.pdf', '<html/>', adapter)).rejects.toThrow('disk full');
+    expect(adapter.remove).toHaveBeenCalledWith('file:///cache/report.pdf');
+  });
+
+  test('deletes the previous export file when replaced or finished', () => {
+    const adapter = platform();
+    clearCurrentExport(adapter);
+    const file = (uri: string) => ({ fileName: 'x', format: 'csv' as const, uri, size: 1, mimeType: 'text/csv' as const });
+    setCurrentExport(file('file:///a.csv'), adapter);
+    setCurrentExport(file('file:///a.csv'), adapter);
+    expect(adapter.remove).not.toHaveBeenCalled();
+    setCurrentExport(file('file:///b.csv'), adapter);
+    expect(adapter.remove).toHaveBeenCalledWith('file:///a.csv');
+    clearCurrentExport(adapter);
+    expect(adapter.remove).toHaveBeenCalledWith('file:///b.csv');
     expect(getCurrentExport()).toBeNull();
   });
 });

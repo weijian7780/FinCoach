@@ -20,7 +20,7 @@ import {
   updateDataExport,
 } from '@/lib/export-backup';
 import { buildExportCsv, buildExportHtml, createExportFileName, createExportPreset } from '@/lib/export-backup-domain';
-import { setCurrentExport, writeCsvExport, writePdfExport } from '@/lib/export-files';
+import { setCurrentExport, writeCsvExport, writeNamedPdfExport } from '@/lib/export-files';
 import { useAuth } from '@/lib/auth-context';
 import type { BackupRecord, ExportFormat, ExportSelection } from '@/lib/types';
 
@@ -81,7 +81,7 @@ export default function ExportBackupScreen() {
       const source = await fetchExportSourceData(userId, selection);
       const generated = selection.format === 'csv'
         ? writeCsvExport(fileName, buildExportCsv(source, selection))
-        : await writePdfExport(buildExportHtml(source, selection));
+        : await writeNamedPdfExport(fileName, buildExportHtml(source, selection));
       await updateDataExport(record.id, userId, {
         status: 'completed',
         file_size_bytes: generated.size,

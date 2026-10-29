@@ -25,7 +25,7 @@ from app.llm import CoachRequestBudget, research_answer_reserve_seconds
 from app.rag.retrieval import RetrievedChunk
 from app.rag.evidence_text import complete_evidence_passages, match_evidence_quote
 from app.rag.research_source_scope import source_workflow_conflicts
-from app.rag.research_coverage import (PartCoverage, RequestedPart, requested_parts,
+from app.rag.research_coverage import (EvidenceRequirement, PartCoverage, RequestedPart, requested_parts,
     researchable_parts, requires_full_clarification, clarification_part_ids, select_unresolved_part,
     non_finance_part_ids, web_research_parts)
 from app.rag.web_research import (
@@ -118,6 +118,21 @@ def _is_bare_definitional(question: str) -> bool:
     )
 
 
+def definition_intent(declared: bool | None, question: str, *, time_scope: str,
+                      period: str | None = None, explicit_search: bool = False,
+                      verify_current: bool = False) -> bool:
+    """Use the interpreter's meaning; retain text matching for older proposals.
+
+    A semantic definition label cannot discard a requested date or current-rule
+    check. No subject vocabulary or language-specific patterns are needed for
+    proposals that carry the label, including an explicit False.
+    """
+    if declared is None:
+        return _is_bare_definitional(question)
+    return declared and time_scope == "stable" and not (
+        period or explicit_search or verify_current)
+
+
 def definitional_corpus_hit(plan: QuestionPlan, chunks) -> tuple[int, str] | None:
     """The curated corpus passage that defines a bare-definition question.
 
@@ -165,9 +180,8 @@ class QuestionPlan:
     original_question: str = ""
     # The interpreter's de-identified standalone question ("" when absent).
     question: str = ""
-    # Set by the deterministic guard for a bare "what is X" with no other ask.
-    # A definitional plan with a corpus hit is answered from the corpus without the
-    # LLM answerability gate or any web escalation (see run_research_policy).
+    # Semantic definition intent (a text guard supports older proposals).
+    # Part-tracked definitions still pass the evidence and answer checkers.
     definitional: bool = False
     response_language: str | None = None
     scope: Literal["general", "contextual"] = "general"
@@ -230,6 +244,7 @@ class _InterpretationProposal(BaseModel):
     clarification_facts: list[str] = Field(default_factory=list, max_length=6)
     subject_kind: Literal["agency", "programme", "other", "unknown"] = "unknown"
     application_subject: str | None = Field(default=None, max_length=100)
+    definitional: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -264,6 +279,9 @@ class _CoverageProposal(BaseModel):
     support_indices: list[Annotated[int, Field(ge=1, le=10)]] = Field(max_length=10)
     resolution: Literal["direct", "not_required"]
     complete: bool
+    # The assessor judges the kind of evidence this requested part needs.
+    # Missing on older responses: keep the existing stricter policy.
+    evidence_requirement: EvidenceRequirement = "authoritative"
 
 
 class _EvidenceProposal(BaseModel):
@@ -472,6 +490,12 @@ def interpret_question(
         "or that is indispensable to answer it. A general how-it-works question "
         "needs the mechanism, but does not require a formula, numerical example, "
         "product comparison or regulation unless the user requests one. "
+        "Always return definitional (boolean): true only when the whole public "
+        "request asks what a subject is and its general purpose; false for "
+        "reasons, mechanisms, procedures, comparisons or specific rules. Judge "
+        "meaning in any language, including informal/reversed wording and "
+        "contextual follow-ups, not the opening words. A definition has stable "
+        "time_scope unless the user requests dated or current facts. "
         "Current means recently changed, latest, today, or present rates/rules. "
         "Historical means a requested past period. Do not place private names, "
         "amounts, accounts, or transaction details in topic/entities.\n"
@@ -528,13 +552,13 @@ def interpret_question(
     # Explicit search is user intent, not a model's guess that public facts
     # need research. Ordinary procedural questions can use fresh known pages.
     explicit_search = fallback.explicit_search
-    # Input-side scope guard: a bare public definition is normalised to a stable
-    # identity plan (and flagged definitional) so the corpus answers it directly —
-    # no trending-news search is forced. Narrows scope only; a personal or temporal
-    # turn (needs_personal, 'latest', a year, 'how to') is never treated this way.
+    # New proposals supply meaning; the legacy text guard is only a compatibility
+    # path. The typed temporal/search constraints survive definition intent.
     definitional = (
         bool(raw["needs_external"]) and not raw["needs_personal"]
-        and _is_bare_definitional(question)
+        and definition_intent(raw["definitional"], question, time_scope=scope,
+                              period=fallback.period or period or None,
+                              explicit_search=explicit_search)
     )
     if definitional:
         scope = "stable"
@@ -782,6 +806,9 @@ def _validated_coverage(plan, proposal, chunks, quotes):
         if row is None or invalid_ids:
             result.append(PartCoverage(part.id, "missing"))
             continue
+        requirement = row.evidence_requirement
+        if plan.time_scope != "stable" or plan.period or plan.verify_current:
+            requirement = "authoritative"
         indices = []
         for original in row.support_indices:
             if not 0 < original <= len(proposal.support):
@@ -803,7 +830,8 @@ def _validated_coverage(plan, proposal, chunks, quotes):
         if row.status == "reported" and basis == "confirmed":
             basis = "reported"
         if row.status in {"missing", "conflicting"} or not indices or basis == "insufficient":
-            result.append(PartCoverage(part.id, "conflicting" if row.status == "conflicting" else "missing"))
+            result.append(PartCoverage(part.id, "conflicting" if row.status == "conflicting" else "missing",
+                                       evidence_requirement=requirement))
             continue
         complete = row.complete and len(set(row.support_indices)) == len(indices)
         passage = " ".join(quotes[i - 1][1] for i in indices)
@@ -843,13 +871,19 @@ def _validated_coverage(plan, proposal, chunks, quotes):
                         and (not application_part or no_application)
                         and (not document_part or no_documents))
             if not explicit:
-                result.append(PartCoverage(part.id, "missing"))
+                result.append(PartCoverage(part.id, "missing", evidence_requirement=requirement))
                 continue
-        if basis == "reported" and not _independent_reports(plan, indices, quotes, chunks):
+        # A trusted secondary source can completely explain a stable concept.
+        # "Reported" describes its authority, not a missing part of the answer.
+        # Institutional requirements still need first-party or corroborated
+        # evidence; the assessor assigns this standard per requested part.
+        if (basis == "reported" and requirement == "authoritative"
+                and not _independent_reports(plan, indices, quotes, chunks)):
             complete = False
         if not proposal.period_matches or not proposal.jurisdiction_matches or proposal.conflicting:
             complete = False
-        result.append(PartCoverage(part.id, basis, indices, row.resolution, complete))
+        result.append(PartCoverage(part.id, basis, indices, row.resolution, complete,
+                                   evidence_requirement=requirement))
     return tuple(result)
 
 
@@ -922,11 +956,21 @@ def assess_evidence(
         prompt += ("\nRequested parts: " + json.dumps([p.__dict__ for p in requested_parts(plan)])
             + "\nReturn one coverage row per requested part: part_id, status, support_indices "
               "(one-based positions in support, NOT source IDs), resolution (direct/not_required), "
-              "complete (boolean). Judge only these requested parts. An explicit statement that "
+              "complete (boolean), evidence_requirement (explanatory/authoritative). "
+              "Choose evidence_requirement by the meaning of EACH requested part, not keywords "
+              "or the publisher's name. Explanatory is a stable concept's definition, purpose, "
+              "reasoning or mechanism; a relevant trusted educational source can fully establish "
+              "it even when status is reported. Authoritative is an institution-specific fact, "
+              "policy, eligibility condition, application requirement, fee, rate, deadline or "
+              "dated/current claim; also use it when uncertain. Definitions of concepts used in "
+              "a programme are distinct from that programme's actual rules. Classify each part "
+              "separately in mixed requests. Do not invent a confirmation gap for a complete "
+              "explanatory part merely because its source is secondary. "
+              "Judge only these requested parts. An explicit statement that "
               "no separate application is required answers an application part; absent instructions "
               "do not. Do not demand an unrequested prerequisite programme's full tutorial/documents. "
               "A relevant primary source confirms its own rules; a bank discussing another scheme "
-              "is reported. A complete reported part requires independent applicable sources "
+              "is reported. A complete reported authoritative part requires independent applicable sources "
               "agreeing on ALL requirements/categories; syndicated articles are one origin. "
               "Unknown/community sources cannot support requirements. Truncated lists, login-only "
               "steps and omitted qualifications have complete=false.")

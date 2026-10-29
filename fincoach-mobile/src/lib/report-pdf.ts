@@ -284,7 +284,8 @@ export function buildFinancialReportHtml(
     100,
     Math.max(0, report.budget.progressPercentage),
   );
-  const budgetStatus = report.budget.exceeded > 0
+  const hasBudget = report.budget.limit > 0;
+  const budgetStatus = !hasBudget ? 'No budget saved for this period' : report.budget.exceeded > 0
     ? `${formatReportMoney(report.budget.exceeded)} over budget`
     : `${formatReportMoney(report.budget.remaining)} remaining`;
   const budgetLabel = report.budget.limit > 0
@@ -354,9 +355,9 @@ body{width:210mm;min-height:297mm;font-size:10px}
     <section class="two-column">
       <div class="panel">
         <h2>Monthly budget</h2>
-        <div class="budget-line"><span><strong class="budget-amount">${escapeHtml(formatReportMoney(report.budget.spent))}</strong> of ${escapeHtml(formatReportMoney(report.budget.limit))}</span><span class="status">${escapeHtml(budgetLabel)}</span></div>
+        <div class="budget-line"><span><strong class="budget-amount">${escapeHtml(formatReportMoney(report.budget.spent))}</strong> ${hasBudget ? `of ${escapeHtml(formatReportMoney(report.budget.limit))}` : 'spent'}</span><span class="status">${escapeHtml(budgetLabel)}</span></div>
         <div class="track"><span style="width:${budgetPercentage}%"></span></div>
-        <div class="between"><span>${escapeHtml(budgetStatus)}</span><span class="${report.budget.exceeded > 0 ? 'bad' : 'good'}">${report.budget.exceeded > 0 ? 'Over budget' : 'Within budget'}</span></div>
+        <div class="between"><span>${escapeHtml(budgetStatus)}</span><span class="${!hasBudget ? '' : report.budget.exceeded > 0 ? 'bad' : 'good'}">${!hasBudget ? 'No budget' : report.budget.exceeded > 0 ? 'Over budget' : 'Within budget'}</span></div>
       </div>
       <div class="panel"><h2>Spending by category</h2>${categoryRows(report)}</div>
     </section>

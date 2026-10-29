@@ -1,5 +1,5 @@
 import { fetchAllRows } from '@/lib/pagination';
-import { monthKeysForRange } from '@/lib/report-domain';
+import { monthKeysForRange, requireValidReportSelection } from '@/lib/report-domain';
 import { supabase } from '@/lib/supabase';
 import type {
   CategoryLimit,
@@ -60,6 +60,42 @@ export async function fetchReportSourceData(
   selection: ReportSelection,
   client: ReportDataClient = defaultClient,
 ): Promise<ReportSourceData> {
+  requireValidReportSelection(selection);
+  let previous: string | undefined;
+  // Agreement detects ordinary pagination/edit races, not a database snapshot.
+  // Three full reads bound traffic when records continue changing.
+  for (let pass = 0; pass < 3; pass++) {
+    const source = await fetchReportSourceOnce(userId, selection, client);
+    const fingerprint = await reportFingerprint(userId, selection, source);
+    if (fingerprint === previous) return source;
+    previous = fingerprint;
+  }
+  throw new ReportDataChangedError();
+}
+
+export class ReportDataChangedError extends Error {
+  constructor() { super('Financial data changed while loading. Please retry.'); this.name = 'ReportDataChangedError'; }
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonical(record[key])]));
+  }
+  return value;
+}
+
+async function reportFingerprint(userId: string, selection: ReportSelection, source: ReportSourceData) {
+  const normalized = Object.fromEntries(Object.entries(source).map(([key, rows]) => [key,
+    [...rows].sort((a, b) => String(a.id).localeCompare(String(b.id))).map(canonical),
+  ]));
+  const Crypto = await import('expo-crypto');
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256,
+    JSON.stringify(canonical({ userId, selection, source: normalized })));
+}
+
+async function fetchReportSourceOnce(userId: string, selection: ReportSelection, client: ReportDataClient): Promise<ReportSourceData> {
   const months = monthKeysForRange(selection.startDate, selection.endDate);
   if (!months.length) throw new Error('The report period is invalid.');
   const firstMonth = months[0];
@@ -152,8 +188,8 @@ export async function createReportSignedUrl(
   return result.signedUrl;
 }
 
-// Reports generated before the coach card carried `storage_path` only recorded a
-// report id, so the path is looked up from the owner-scoped history row instead.
+// Resolve the current owner-scoped history path: restore may relocate its PDF
+// while preserving the report id and the original embedded coach-card payload.
 export async function fetchReportStoragePath(
   reportId: number,
   client: ReportDataClient = defaultClient,

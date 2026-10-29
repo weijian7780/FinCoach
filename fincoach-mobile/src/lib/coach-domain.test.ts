@@ -10,6 +10,12 @@ import {
   sortConversations,
 } from './coach-domain';
 import type { CoachConversation, CoachMessage, CoachTurnResponse } from './types';
+import { ReportCalculationError } from './report-domain';
+
+it('shows actionable report conflicts and local validation in the existing error area', () => {
+  expect(coachErrorMessage({ code: 'report_state_conflict', status: 409 })).toMatch(/Reopen.*new report/);
+  expect(coachErrorMessage(new ReportCalculationError('Choose no more than 120 calendar months.'))).toContain('120');
+});
 
 const conversation = (id: string, last_message_at: string): CoachConversation => ({
   id,

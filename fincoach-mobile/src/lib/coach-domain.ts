@@ -132,9 +132,13 @@ export function coachErrorMessage(error: unknown): string {
     attempt_expired: 'The report session expired. Retry to resume it safely.',
     attempt_id_reused: 'This report attempt has ended. Retry to start a new attempt.',
     report_artifact_invalid: 'The uploaded PDF could not be verified. Retry to check the report again.',
+    report_state_conflict: 'This report action changed or its category is unavailable. Reopen the chat or ask for a new report.',
   };
   const reportError = reportErrors[codeOf(error) ?? ''];
   if (reportError) return reportError;
+  if (error instanceof Error && ['ReportCalculationError', 'ReportDataChangedError'].includes(error.name)) {
+    return error.message;
+  }
   if (codeOf(error) === 'network') {
     return 'FinCoach could not reach its server. Try again shortly or switch networks.';
   }

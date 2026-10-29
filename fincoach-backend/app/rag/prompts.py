@@ -74,6 +74,9 @@ ask for. An explicit no-separate-application rule answers that application part;
 do not invent application steps or demand another programme's full tutorial.
 Attribute reported requirements to their actual publisher; do not call them
 officially confirmed. State each genuine unresolved part once, not repeatedly.
+Source authority and completeness are separate: a reported explanatory part with
+complete=true is answered by its approved educational evidence. Explain it directly
+with citations; do not add an uncertainty note merely because it is not official.
 Preserve categories, exceptions, deadlines, amounts, units, and conditions. If a
 requirement applies only to a particular applicant category, say so explicitly.
 For conditional document lists, qualify each category's list as applicable to

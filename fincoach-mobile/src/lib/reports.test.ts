@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 import {
   createReportSignedUrl,
@@ -12,6 +13,7 @@ import {
 import type { ReportSelection } from './types';
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('expo-crypto', () => ({ CryptoDigestAlgorithm: { SHA256: 'SHA-256' }, digestStringAsync: async (_algorithm: string, value: string) => createHash('sha256').update(value).digest('hex') }));
 
 type Result = { data: unknown; error: unknown; count?: number };
 

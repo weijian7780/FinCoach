@@ -13,7 +13,7 @@ import { NotificationBell } from '@/components/notifications/notification-bell';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { fetchBudgetMonth } from '@/lib/budget';
-import { formatBudgetMoney, getLimitMetrics, getLimitStatus, getUnbudgetedCategorySpending, monthKey, shiftMonth } from '@/lib/budget-domain';
+import { formatBudgetMoney, getBudgetLeftColor, getLimitMetrics, getLimitStatus, getUnbudgetedCategorySpending, monthKey, shiftMonth } from '@/lib/budget-domain';
 import { useAuth } from '@/lib/auth-context';
 import { fetchTransactions } from '@/lib/transactions';
 import type { BudgetMonthData, Category, TransactionWithCategory } from '@/lib/types';
@@ -36,15 +36,15 @@ function CategoryBudgetCard({ category, limitAmount, usedAmount }: { category: C
   const metrics = getLimitMetrics(usedAmount, limitAmount);
   const status = getLimitStatus(usedAmount, limitAmount);
   const categoryColor = category.color ?? authColors.primary;
-  const color = status.tone === 'danger' ? authColors.error : status.tone === 'warning' ? '#B26A00' : categoryColor;
+  const leftColor = getBudgetLeftColor(usedAmount, limitAmount);
   return (
     <View style={prototypeCard}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <CategoryIcon category={category} size={40} glyphSize={21} tintColor={categoryColor} />
         <View style={{ flex: 1, gap: 3 }}><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 16, color: authColors.onSurface }}>{category.name}</Text>{status.tone !== 'success' ? <StatusBadge status={status} /> : null}</View>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 14, color: authColors.onSurface }}>{formatBudgetMoney(metrics.usedAmount)} <Text style={{ fontFamily: authFont.regular, color: authColors.onSurfaceVariant }}>/ {formatBudgetMoney(metrics.limitAmount)}</Text></Text><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 13, color, fontVariant: ['tabular-nums'] }}>{metrics.percentage}%</Text></View>
-      <BudgetProgress ratio={metrics.ratio} color={color} height={7} />
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 14, color: authColors.onSurface }}>{formatBudgetMoney(metrics.usedAmount)} <Text style={{ fontFamily: authFont.regular, color: authColors.onSurfaceVariant }}>/ {formatBudgetMoney(metrics.limitAmount)}</Text></Text><Text selectable style={{ fontFamily: authFont.semibold, fontSize: 13, color: leftColor.text, fontVariant: ['tabular-nums'] }}>{metrics.percentage}% used</Text></View>
+      <BudgetProgress ratio={metrics.ratio} color={leftColor.bar} height={7} />
     </View>
   );
 }

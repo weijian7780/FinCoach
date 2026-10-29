@@ -62,4 +62,11 @@ describe('Financial Report and Analytics UI', () => {
     expect(components).toContain('YYYY-MM-DD');
     expect(components).not.toContain('react-native-svg');
   });
+
+  test('labels budget and savings as overall when a category filter is active', () => {
+    const components = read('src', 'components', 'reports', 'report-components.tsx');
+    expect(components).toContain("report.selection.categoryId == null ? '' : 'Overall '");
+    expect(components).toContain('${overallPrefix(report)}Budget vs Actual');
+    expect(components).toContain('${overallPrefix(report)}Savings Progress');
+  });
 });

@@ -20,7 +20,9 @@ export async function blobBytes(blob: Blob): Promise<ArrayBuffer> {
 }
 
 export async function hashAttachment(bytes: ArrayBuffer) {
-  const hash = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
+  // Android's native digest only accepts a typed array; a raw ArrayBuffer fails
+  // with "no ArrayBuffer attached" even though the TS type allows it.
+  const hash = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes));
   return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
 }
 

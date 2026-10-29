@@ -11,6 +11,37 @@ import type {
 } from './types';
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MAX_REPORT_CENTS = 2 ** 51 - 1;
+
+export class ReportCalculationError extends Error {
+  constructor(message: string) { super(message); this.name = 'ReportCalculationError'; }
+}
+
+// Stay below the precision boundary of the existing numeric display contract.
+// Every addition uses integer cents, including grouped and summary totals.
+function cents(value: number) {
+  const result = Math.round(value * 100);
+  if (!Number.isFinite(value) || !Number.isSafeInteger(result) || Math.abs(result) > MAX_REPORT_CENTS) {
+    throw new ReportCalculationError('The report amount exceeds the supported range. Choose a smaller period.');
+  }
+  return result;
+}
+
+function addCents(left: number, right: number) {
+  const result = left + right;
+  if (!Number.isSafeInteger(result) || Math.abs(result) > MAX_REPORT_CENTS) {
+    throw new ReportCalculationError('The report amount exceeds the supported range. Choose a smaller period.');
+  }
+  return result;
+}
+
+function sumMoney(values: number[]) {
+  return values.reduce((sum, value) => addCents(sum, cents(value)), 0) / 100;
+}
+
+function subtractMoney(left: number, right: number) {
+  return addCents(cents(left), -cents(right)) / 100;
+}
 
 function pad(value: number) {
   return String(value).padStart(2, '0');
@@ -53,8 +84,8 @@ function ratioMetrics(used: number, limit: number) {
   return {
     limit: round(limit),
     spent: round(used),
-    remaining: round(Math.max(0, limit - used)),
-    exceeded: round(Math.max(0, used - limit)),
+    remaining: Math.max(0, subtractMoney(limit, used)),
+    exceeded: Math.max(0, subtractMoney(used, limit)),
     percentage,
     progressPercentage: Math.min(100, Math.max(0, percentage)),
   };
@@ -109,7 +140,14 @@ export function validateReportSelection(selection: ReportSelection) {
   const end = parseLocalDate(selection.endDate);
   if (!start || !end) return 'Enter valid start and end dates.';
   if (start.getTime() > end.getTime()) return 'Start date must be on or before end date.';
+  const months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1;
+  if (months > 120) return 'Choose a report period covering no more than 120 calendar months.';
   return null;
+}
+
+export function requireValidReportSelection(selection: ReportSelection) {
+  const error = validateReportSelection(selection);
+  if (error) throw new ReportCalculationError(error);
 }
 
 export function monthKeysForRange(startDate: string, endDate: string) {
@@ -174,14 +212,15 @@ function compileCategoryTotals(expenses: TransactionWithCategory[]): ReportCateg
       percentage: 0,
       transactionCount: 0,
     };
-    current.amount = round(current.amount + transaction.amount);
+    current.amount = addCents(current.amount, cents(transaction.amount));
     current.transactionCount += 1;
     grouped.set(transaction.category_id, current);
   }
-  const total = [...grouped.values()].reduce((sum, item) => sum + item.amount, 0);
+  const total = [...grouped.values()].reduce((sum, item) => addCents(sum, item.amount), 0);
   return [...grouped.values()]
     .map((item) => ({
       ...item,
+      amount: item.amount / 100,
       percentage: total > 0 ? round((item.amount / total) * 100) : 0,
     }))
     .sort((left, right) => right.amount - left.amount || left.name.localeCompare(right.name));
@@ -199,30 +238,39 @@ function compileTrend(
     const month = `${transaction.transaction_date.slice(0, 7)}-01`;
     const point = byMonth.get(month);
     if (!point) continue;
-    if (transaction.category.type === 'income') point.income = round(point.income + transaction.amount);
-    else point.expenses = round(point.expenses + transaction.amount);
-    point.net = round(point.income - point.expenses);
+    if (transaction.category.type === 'income') point.income = addCents(point.income, cents(transaction.amount));
+    else point.expenses = addCents(point.expenses, cents(transaction.amount));
+    point.net = addCents(point.income, -point.expenses);
   }
-  return [...byMonth.values()];
+  return [...byMonth.values()].map((point) => ({ ...point, income: point.income / 100, expenses: point.expenses / 100, net: point.net / 100 }));
 }
 
+function transactionMonth(transaction: TransactionWithCategory) {
+  return `${transaction.transaction_date.slice(0, 7)}-01`;
+}
+
+// A limit only covers its own month: spending from months without a saved
+// limit must not be compared against it.
 function compileCategoryBudgets(
   source: ReportSourceData,
   overallExpenses: TransactionWithCategory[],
 ): ReportCategoryBudget[] {
   const limitByCategory = new Map<number, number>();
+  const limitedMonths = new Set<string>();
   for (const limit of source.categoryLimits) {
-    limitByCategory.set(limit.category_id, round((limitByCategory.get(limit.category_id) ?? 0) + limit.amount));
+    limitByCategory.set(limit.category_id, addCents(limitByCategory.get(limit.category_id) ?? 0, cents(limit.amount)));
+    limitedMonths.add(`${limit.category_id}|${limit.month.slice(0, 7)}-01`);
   }
   const spentByCategory = new Map<number, number>();
   for (const transaction of overallExpenses) {
+    if (!limitedMonths.has(`${transaction.category_id}|${transactionMonth(transaction)}`)) continue;
     spentByCategory.set(
       transaction.category_id,
-      round((spentByCategory.get(transaction.category_id) ?? 0) + transaction.amount),
+      addCents(spentByCategory.get(transaction.category_id) ?? 0, cents(transaction.amount)),
     );
   }
   return [...limitByCategory.entries()]
-    .map(([categoryId, limit]) => ({ categoryId, ...ratioMetrics(spentByCategory.get(categoryId) ?? 0, limit) }))
+    .map(([categoryId, limit]) => ({ categoryId, ...ratioMetrics((spentByCategory.get(categoryId) ?? 0) / 100, limit / 100) }))
     .sort((left, right) => right.percentage - left.percentage);
 }
 
@@ -230,6 +278,7 @@ export function compileFinancialReport(
   source: ReportSourceData,
   selection: ReportSelection,
 ): FinancialReport {
+  requireValidReportSelection(selection);
   const inRange = source.transactions.filter((item) => isInRange(item, selection));
   const selected = selection.categoryId == null
     ? inRange
@@ -237,19 +286,22 @@ export function compileFinancialReport(
   const income = selected.filter((item) => item.category.type === 'income');
   const expenses = selected.filter((item) => item.category.type === 'expense');
   const overallExpenses = inRange.filter((item) => item.category.type === 'expense');
-  const totalIncome = round(income.reduce((sum, item) => sum + item.amount, 0));
-  const totalExpenses = round(expenses.reduce((sum, item) => sum + item.amount, 0));
-  const budgetLimit = round(source.monthlyBudgets.reduce((sum, item) => sum + item.limit_amount, 0));
-  const budgetSpent = round(overallExpenses.reduce((sum, item) => sum + item.amount, 0));
-  const savingsCurrent = round(source.savingsGoals.reduce((sum, item) => sum + item.current_amount, 0));
-  const savingsTarget = round(source.savingsGoals.reduce((sum, item) => sum + item.target_amount, 0));
+  const totalIncome = sumMoney(income.map((item) => item.amount));
+  const totalExpenses = sumMoney(expenses.map((item) => item.amount));
+  const budgetLimit = sumMoney(source.monthlyBudgets.map((item) => item.limit_amount));
+  const budgetedMonths = new Set(source.monthlyBudgets.map((item) => `${item.month.slice(0, 7)}-01`));
+  const budgetSpent = sumMoney(overallExpenses
+    .filter((item) => budgetedMonths.has(transactionMonth(item)))
+    .map((item) => item.amount));
+  const savingsCurrent = sumMoney(source.savingsGoals.map((item) => item.current_amount));
+  const savingsTarget = sumMoney(source.savingsGoals.map((item) => item.target_amount));
   const savingsPercentage = savingsTarget > 0 ? round((savingsCurrent / savingsTarget) * 100) : 0;
 
   return {
     selection,
     totalIncome,
     totalExpenses,
-    netBalance: round(totalIncome - totalExpenses),
+    netBalance: subtractMoney(totalIncome, totalExpenses),
     transactionCount: selected.length,
     categoryTotals: compileCategoryTotals(expenses),
     trend: compileTrend(selected, selection),
@@ -258,7 +310,7 @@ export function compileFinancialReport(
     savings: {
       current: savingsCurrent,
       target: savingsTarget,
-      remaining: round(Math.max(0, savingsTarget - savingsCurrent)),
+      remaining: Math.max(0, subtractMoney(savingsTarget, savingsCurrent)),
       percentage: savingsPercentage,
       progressPercentage: Math.min(100, Math.max(0, savingsPercentage)),
     },

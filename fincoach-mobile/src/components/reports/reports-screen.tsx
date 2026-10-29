@@ -1,15 +1,15 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ReportDashboard, ReportFilters } from '@/components/reports/report-components';
 import { AppText as Text } from '@/components/ui/app-text';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { useAuth } from '@/lib/auth-context';
-import { compileFinancialReport, createPresetSelection, validateReportSelection, withReportCategory } from '@/lib/report-domain';
-import { fetchReportSourceData } from '@/lib/reports';
+import { ReportCalculationError, compileFinancialReport, createPresetSelection, validateReportSelection, withReportCategory } from '@/lib/report-domain';
+import { fetchReportSourceData, ReportDataChangedError } from '@/lib/reports';
 import { fetchTransactionCategories } from '@/lib/transactions';
 import type { Category, FinancialReport, ReportPreset, ReportSelection } from '@/lib/types';
 
@@ -33,85 +33,118 @@ export default function ReportsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  useEffect(() => {
-    selectionRef.current = selection;
-  }, [selection]);
+  const requestId = useRef(0);
+  const focused = useRef(false);
+  const reportOwner = useRef(userId);
+  const reportRef = useRef<FinancialReport | null>(null);
 
-  const loadPreview = useCallback(async () => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+  const replaceSelection = useCallback((next: ReportSelection) => {
+    // Invalidate synchronously: a pending promise can settle before effects run.
+    requestId.current += 1;
+    selectionRef.current = next;
+    reportRef.current = null;
+    setSelection(next);
+    setReport(null);
+    setValidationError(null);
     setError(null);
+    setLoading(false);
+    setViewing(false);
+    setRefreshing(false);
+  }, []);
+
+  const runReport = useCallback(async (action: 'load' | 'view' | 'refresh') => {
+    if (!focused.current) return;
+    if (!userId) { setLoading(false); return; }
+    let activeSelection = selectionRef.current;
+    if (activeSelection.preset !== 'custom') {
+      const resolved = withReportCategory(createPresetSelection(activeSelection.preset), activeSelection.categoryId);
+      if (resolved.startDate !== activeSelection.startDate || resolved.endDate !== activeSelection.endDate) {
+        replaceSelection(resolved);
+        activeSelection = resolved;
+      }
+    }
+    const currentRequest = ++requestId.current;
+    const isCurrent = () => focused.current && currentRequest === requestId.current;
+    const selectionError = validateReportSelection(activeSelection);
+    setValidationError(selectionError);
+    setError(null);
+    setLoading(false);
+    setViewing(false);
+    setRefreshing(false);
+    if (selectionError) return;
+    setLoading(action === 'load');
+    setViewing(action === 'view');
+    setRefreshing(action === 'refresh');
     try {
-      const activeSelection = selectionRef.current;
       const [availableCategories, source] = await Promise.all([
         fetchTransactionCategories(userId),
         fetchReportSourceData(userId, activeSelection),
       ]);
+      if (!isCurrent()) return;
+      const compiled = compileFinancialReport(source, activeSelection);
+      reportRef.current = compiled;
       setCategories(availableCategories);
-      setReport(compileFinancialReport(source, activeSelection));
-    } catch {
-      setError(reportErrorMessage('load'));
+      setReport(compiled);
+    } catch (failure) {
+      if (!isCurrent()) return;
+      const retained = reportRef.current !== null;
+      setError(failure instanceof ReportCalculationError || failure instanceof ReportDataChangedError
+        ? failure.message : reportErrorMessage(action === 'refresh' && !retained ? 'view' : action));
     } finally {
-      setLoading(false);
+      // An older finally must never stop the newer operation's spinner.
+      if (isCurrent()) { setLoading(false); setViewing(false); setRefreshing(false); }
     }
-  }, [userId]);
+  }, [replaceSelection, userId]);
 
-  useFocusEffect(useCallback(() => { void loadPreview(); }, [loadPreview]));
+  const loadPreview = useCallback(() => runReport('load'), [runReport]);
+  const viewReport = useCallback(() => runReport('view'), [runReport]);
+  const refreshReport = useCallback(() => runReport('refresh'), [runReport]);
 
-  const viewReport = useCallback(async () => {
-    if (!userId || viewing) return;
-    const selectionError = validateReportSelection(selection);
-    setValidationError(selectionError);
-    if (selectionError) return;
-    setViewing(true);
-    setError(null);
-    try {
-      const source = await fetchReportSourceData(userId, selection);
-      setReport(compileFinancialReport(source, selection));
-    } catch {
-      setError(reportErrorMessage('view'));
-    } finally {
-      setViewing(false);
+  useFocusEffect(useCallback(() => {
+    focused.current = true;
+    if (reportOwner.current !== userId) {
+      reportOwner.current = userId;
+      replaceSelection(withReportCategory(selectionRef.current, null));
+      setCategories([]);
     }
-  }, [selection, userId, viewing]);
-
-  const refreshReport = useCallback(async () => {
-    if (!userId || refreshing) return;
-    const selectionError = validateReportSelection(selection);
-    setValidationError(selectionError);
-    if (selectionError) return;
-    setRefreshing(true);
-    setError(null);
-    try {
-      const source = await fetchReportSourceData(userId, selection);
-      setReport(compileFinancialReport(source, selection));
-    } catch {
-      setError(reportErrorMessage('refresh'));
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshing, selection, userId]);
+    void loadPreview();
+    let timer: ReturnType<typeof setTimeout>;
+    const recheckMonth = () => {
+      const current = selectionRef.current;
+      if (current.preset !== 'custom') {
+        const resolved = createPresetSelection(current.preset);
+        if (resolved.startDate !== current.startDate || resolved.endDate !== current.endDate) void loadPreview();
+      }
+    };
+    const schedule = () => {
+      const now = new Date();
+      const boundary = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+      // Rearm at most a day ahead to avoid timer overflow and handle clock changes.
+      timer = setTimeout(() => { recheckMonth(); schedule(); }, Math.max(1, Math.min(86_400_000, boundary - now.getTime())));
+    };
+    schedule();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') recheckMonth();
+    });
+    return () => {
+      focused.current = false;
+      requestId.current += 1;
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, [loadPreview, replaceSelection, userId]));
 
   const changePreset = useCallback((preset: ReportPreset) => {
-    setSelection(withReportCategory(createPresetSelection(preset), selection.categoryId));
-    setReport(null);
-    setValidationError(null);
-  }, [selection.categoryId]);
+    replaceSelection(withReportCategory(createPresetSelection(preset), selectionRef.current.categoryId));
+  }, [replaceSelection]);
 
   const changeCategory = useCallback((categoryId: number | null) => {
-    setSelection((current) => withReportCategory(current, categoryId));
-    setReport(null);
-    setValidationError(null);
-  }, []);
+    replaceSelection(withReportCategory(selectionRef.current, categoryId));
+  }, [replaceSelection]);
 
   const changeCustomDate = useCallback((key: 'startDate' | 'endDate', value: string) => {
-    setSelection((current) => ({ ...current, [key]: value }));
-    setReport(null);
-    setValidationError(null);
-  }, []);
+    replaceSelection({ ...selectionRef.current, [key]: value });
+  }, [replaceSelection]);
 
   return (
     <View style={{ flex: 1, backgroundColor: authColors.surface }}>

@@ -123,11 +123,16 @@ function Metric({ label, value, icon, color, wide = false }: { label: string; va
   );
 }
 
+// Budget and savings stay overall when a category is selected, so say so.
+function overallPrefix(report: FinancialReport) {
+  return report.selection.categoryId == null ? '' : 'Overall ';
+}
+
 function Budget({ report }: { report: FinancialReport }) {
   const over = report.budget.exceeded > 0;
   return (
     <Card>
-      <Heading title="Budget vs Actual" icon="donut-large" />
+      <Heading title={`${overallPrefix(report)}Budget vs Actual`} icon="donut-large" />
       {report.budget.limit <= 0 ? <Text style={styles.muted}>No overall budget is saved for this period.</Text> : <>
         <Between left="SPENT" leftValue={formatReportMoney(report.budget.spent)} right="LIMIT" rightValue={formatReportMoney(report.budget.limit)} />
         <Bar label={`Budget used ${report.budget.percentage} percent`} value={report.budget.progressPercentage} color={over ? authColors.error : authColors.primary} />
@@ -156,7 +161,7 @@ function Categories({ report }: { report: FinancialReport }) {
 }
 
 function Trend({ report }: { report: FinancialReport }) {
-  const maximum = Math.max(1, ...report.trend.flatMap((item) => [item.income, item.expenses]));
+  const maximum = report.trend.reduce((value, item) => Math.max(value, item.income, item.expenses), 1);
   return (
     <Card>
       <Heading title="Monthly Trend" icon="bar-chart" />
@@ -179,7 +184,7 @@ function Trend({ report }: { report: FinancialReport }) {
 function Savings({ report }: { report: FinancialReport }) {
   return (
     <Card>
-      <Heading title="Savings Progress" icon="savings" />
+      <Heading title={`${overallPrefix(report)}Savings Progress`} icon="savings" />
       {report.savings.target <= 0 ? <Text style={styles.muted}>No savings goals are available yet.</Text> : <>
         <View style={styles.between}><Text style={styles.amount}>{formatReportMoney(report.savings.current)}</Text><Text style={styles.muted}>of {formatReportMoney(report.savings.target)}</Text></View>
         <Bar label={`Savings progress ${report.savings.percentage} percent`} value={report.savings.progressPercentage} color="#067647" />

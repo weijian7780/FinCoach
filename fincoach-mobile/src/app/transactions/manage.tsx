@@ -12,6 +12,7 @@ import { AppText as Text, AppTextInput as TextInput } from '@/components/ui/app-
 import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
 import { emitBudgetAlertsAfterTransactionChange } from '@/lib/alert-events';
+import { summarizeBudgetAlerts } from '@/lib/alerts-domain';
 import { useAuth } from '@/lib/auth-context';
 import { parseMoney } from '@/lib/savings-domain';
 import { fetchProfile } from '@/lib/profile';
@@ -96,7 +97,9 @@ export default function ManageTransactionScreen() {
 
   async function syncBudgetAlerts(previous: TransactionWithCategory | null, current: TransactionWithCategory) {
     try {
-      await emitBudgetAlertsAfterTransactionChange(userId!, previous, current);
+      // Shown in-app as well, so the warning never depends on push delivery alone.
+      const summary = summarizeBudgetAlerts(await emitBudgetAlertsAfterTransactionChange(userId!, previous, current));
+      if (summary) await appDialog.open(summary.title, summary.message);
       router.replace('/transactions' as never);
     } catch {
       appDialog.open(

@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 
 import {
   createBackupObjectPath,
+  isDefinitiveDatabaseError,
   selectAutomaticBackupsForDeletion,
   serializeBackupDocument,
   validateBackupDocument,
@@ -18,6 +19,7 @@ import {
   updateBackupRecord,
   uploadBackupObject,
   removeBackupObject,
+  reconcileStaleRecords,
 } from '@/lib/export-backup';
 import type {
   BackupRecord,
@@ -48,6 +50,7 @@ export type BackupOrchestratorDependencies = {
   completeBackup?: (backupId: string, document: FinancialBackupDocumentV2, path: string, size: number, checksum: string) => Promise<BackupRecord>;
   cleanupAttachments?: (userId: string, backupId: string) => Promise<void>;
   removeUploadedObject?: (path: string) => Promise<void>;
+  reconcileStale?: (userId: string, cutoffIso: string) => Promise<void>;
 };
 
 const defaultDependencies: BackupOrchestratorDependencies = {
@@ -66,6 +69,7 @@ const defaultDependencies: BackupOrchestratorDependencies = {
   completeBackup: completeFinancialBackup,
   cleanupAttachments: removeBackupAttachmentCopies,
   removeUploadedObject: removeBackupObject,
+  reconcileStale: reconcileStaleRecords,
 };
 
 function backupFileName(type: BackupType, date: Date) {
@@ -149,14 +153,19 @@ export async function performCloudBackup(
       // a committed backup and leave an unknown outcome available for retry.
       const current = await dependencies.fetchBackups(userId, 100).then(records => records.find(b => b.id === record.id)).catch(() => undefined);
       if (current?.status === 'completed') return current;
-      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-      if (!/^\d{5}$|^P\d{4}$/.test(code)) throw new Error('Backup completion could not be confirmed. Refresh backup history before retrying.');
+      if (!isDefinitiveDatabaseError(error)) throw new Error('Backup completion could not be confirmed. Refresh backup history before retrying.');
     }
-    if (uploadedPath) await dependencies.removeUploadedObject?.(uploadedPath).catch(() => undefined);
-    await dependencies.cleanupAttachments?.(userId, record.id).catch(() => undefined);
-    await dependencies
-      .updateBackupRecord(record.id, userId, { status: 'failed' })
-      .catch(() => undefined);
+    // Deleting the record also drops its full server snapshot copy. If that
+    // fails (often offline), mark it failed; stale cleanup deletes it later.
+    const deleted = await dependencies.deleteBackup({ ...record, storage_path: uploadedPath })
+      .then(() => true, () => false);
+    if (!deleted) {
+      if (uploadedPath) await dependencies.removeUploadedObject?.(uploadedPath).catch(() => undefined);
+      await dependencies.cleanupAttachments?.(userId, record.id).catch(() => undefined);
+      await dependencies
+        .updateBackupRecord(record.id, userId, { status: 'failed' })
+        .catch(() => undefined);
+    }
     throw error;
   }
 }
@@ -210,6 +219,11 @@ export async function downloadAndValidateBackup(
 }
 
 const automaticBackupInFlight = new Map<string, Promise<BackupRecord | null>>();
+// Failed records are deleted, so the last failure time is kept per app session.
+// Without it every foreground would re-copy all attachments and fail again.
+const automaticBackupFailedAt = new Map<string, number>();
+const automaticRetryDelayMs = 6 * 60 * 60 * 1000;
+const staleBackupAgeMs = 15 * 60 * 1000;
 
 export function runEligibleAutomaticBackup(
   userId: string,
@@ -220,6 +234,11 @@ export function runEligibleAutomaticBackup(
 
   const operation = (async () => {
     if (!(await dependencies.fetchAutoBackupEnabled(userId))) return null;
+    const now = dependencies.now().getTime();
+    await dependencies.reconcileStale?.(userId, new Date(now - staleBackupAgeMs).toISOString())
+      .catch((error) => console.warn('Unfinished backup cleanup will retry later.', error));
+    const failedAt = automaticBackupFailedAt.get(userId);
+    if (failedAt !== undefined && now - failedAt < automaticRetryDelayMs) return null;
     const history = await dependencies.fetchBackups(userId, 20);
     const cutoff = dependencies.now().getTime() - 24 * 60 * 60 * 1000;
     const recent = history.some(
@@ -238,7 +257,14 @@ export function runEligibleAutomaticBackup(
       }
       return null;
     }
-    return performCloudBackup(userId, 'automatic', dependencies);
+    try {
+      const completed = await performCloudBackup(userId, 'automatic', dependencies);
+      automaticBackupFailedAt.delete(userId);
+      return completed;
+    } catch (error) {
+      automaticBackupFailedAt.set(userId, now);
+      throw error;
+    }
   })();
 
   automaticBackupInFlight.set(userId, operation);

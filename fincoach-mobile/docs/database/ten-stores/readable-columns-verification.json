@@ -1,0 +1,63 @@
+{
+  "applied_utc": "2026-10-19T12:12:16.766074+00:00",
+  "migration": "20261019121005",
+  "renamed_columns": 277,
+  "updated_trigger_functions": 13,
+  "data_fidelity": "27 logical datasets checked inside the migration transaction",
+  "local": {
+    "financial-and-report": {
+      "passed": true
+    },
+    "backup-and-admin": {
+      "passed": true
+    },
+    "inverse": {
+      "passed": true
+    },
+    "reapply": {
+      "passed": true
+    },
+    "column-check": {
+      "passed": true
+    }
+  },
+  "local_rest_passed": 59,
+  "hosted_reads_passed": 31,
+  "hosted_operations_passed": 47,
+  "final_state": {
+    "checked_utc": "2026-10-19T12:14:27.195745+00:00",
+    "passed": true,
+    "metadata": {
+      "auth_users": 5,
+      "physical_tables": 10,
+      "storage_objects": 41,
+      "test_goals_remaining": 0,
+      "test_exports_remaining": 0,
+      "test_accounts_remaining": 0,
+      "test_profiles_remaining": 0,
+      "test_sessions_remaining": 0,
+      "test_reminders_remaining": 0,
+      "test_auth_users_remaining": 0,
+      "test_categories_remaining": 0,
+      "test_transactions_remaining": 0
+    },
+    "worker": {
+      "worker_queue_empty": true,
+      "worker_claim_rpc_completed": true
+    },
+    "backend_errors_since_commit": 0,
+    "backend": {
+      "/health": {
+        "status": "ok"
+      },
+      "/ready": {
+        "status": "ok",
+        "components": {
+          "ocr": "ready",
+          "embeddings": "ready"
+        }
+      }
+    }
+  },
+  "phone_testing": "Not performed"
+}

@@ -224,3 +224,24 @@ describe('private backup operations', () => {
     });
   });
 });
+
+describe('stale backup cleanup', () => {
+  test('deletes unfinished backups past the cutoff instead of only marking them failed', async () => {
+    const stale = { id: 'backup-9', user_id: 'user-1', status: 'processing', storage_path: 'user-1/automatic/b9.json' };
+    const { client, rpc, storageBucket } = createClient({ backups: { data: [stale] } });
+    const { reconcileStaleRecords } = await import('./export-backup');
+    await reconcileStaleRecords('user-1', '2026-10-21T00:00:00.000Z', client);
+    expect(rpc).toHaveBeenCalledWith('begin_financial_backup_delete_v2', { backup_record_id: 'backup-9' });
+    expect(storageBucket.remove).toHaveBeenCalledWith(['user-1/automatic/b9.json']);
+  });
+});
+
+describe('definitive database errors', () => {
+  test.each([
+    ['P0001', true], ['23505', true], ['40P01', true], ['22P02', true], ['PGRST301', true],
+    ['', false], [undefined, false], ['ECONNRESET', false],
+  ])('code %s is definitive: %s', async (code, expected) => {
+    const { isDefinitiveDatabaseError } = await import('./export-backup-domain');
+    expect(isDefinitiveDatabaseError(code === undefined ? new Error('lost') : { code })).toBe(expected);
+  });
+});

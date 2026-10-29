@@ -1,11 +1,21 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { blobBytes, captureBackupAttachments, prepareRestoreAttachments, removeBackupAttachmentCopies } from './backup-attachments';
+import { blobBytes, captureBackupAttachments, hashAttachment, prepareRestoreAttachments, removeBackupAttachmentCopies } from './backup-attachments';
 import { backupCounts } from './backup-v2-domain';
 import type { BackupSourceData, FinancialBackupDocumentV2 } from './types';
 import type { ExportBackupDataClient } from './export-backup';
 
-vi.mock('expo-crypto', () => ({ CryptoDigestAlgorithm: { SHA256: 'SHA-256' }, randomUUID: () => 'test-attempt' }));
+// digest mirrors Android's native bridge, which reads data.buffer and rejects a raw ArrayBuffer.
+vi.mock('expo-crypto', () => ({
+  CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+  randomUUID: () => 'test-attempt',
+  digest: async (_algorithm: string, data: ArrayBufferView) => {
+    if (!(data?.buffer instanceof ArrayBuffer)) throw new Error('[digest] no ArrayBuffer attached');
+    const { createHash: nodeHash } = await import('node:crypto');
+    const sum = nodeHash('sha256').update(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)).digest();
+    return sum.buffer.slice(sum.byteOffset, sum.byteOffset + sum.byteLength);
+  },
+}));
 vi.mock('./supabase', () => ({ supabase: {} }));
 const hash = async (bytes: ArrayBuffer) => createHash('sha256').update(new Uint8Array(bytes)).digest('hex');
 const empty: BackupSourceData = { profile: null, customCategories: [], userCategories: [], transactions: [], monthlyBudgets: [],
@@ -90,5 +100,12 @@ describe('attachment recovery contract', () => {
       readAsDataURL() { queueMicrotask(() => this.onload?.()); }
     });
     expect(new TextDecoder().decode(await blobBytes({} as Blob))).toBe('original');
+  });
+});
+
+describe('attachment hashing on the native bridge', () => {
+  test('hashes a raw ArrayBuffer by passing a typed array to expo-crypto', async () => {
+    const bytes = new TextEncoder().encode('receipt image bytes').buffer as ArrayBuffer;
+    await expect(hashAttachment(bytes)).resolves.toBe(await hash(bytes));
   });
 });

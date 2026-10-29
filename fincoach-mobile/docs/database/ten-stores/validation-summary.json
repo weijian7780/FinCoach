@@ -1,0 +1,1241 @@
+{
+  "project_ref": "yqsyrzdpvtasldkthhfg",
+  "migration_version": "20261019082834",
+  "applied_utc": "2026-10-19T08:39:36.278207+00:00",
+  "migration_sha256": "f39f97ef3360d72a74fee6f00da686549cd43fe86c65ceced62017dd014569d5",
+  "pre_cutover_backup_sha256": "d1308f20772c29d1192f36693918d345ef492f20e3104c5ad596ce4714338528",
+  "sql_checks": {
+    "baseline_managed_privileges": true,
+    "trial_managed_privileges": true,
+    "baseline_privileges": true,
+    "trial_privileges": true,
+    "row_fidelity": true,
+    "auth_trigger": true,
+    "monthly_budget_upsert": true,
+    "preferences_upsert": true,
+    "savings_read": true,
+    "export_read": true,
+    "coaching_read": true,
+    "account_self_read": true,
+    "integrity_report_baseline": true,
+    "integrity_report_trial": true
+  },
+  "local_api": {
+    "baseline": {
+      "passed": 59,
+      "total": 59,
+      "checks": [
+        {
+          "name": "read_account_access",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_admin_audit_logs",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_alerts",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_backups",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_budgets",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_categories",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_coaching_messages",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_coaching_retrievals",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_coaching_sessions",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_data_exports",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_export_contents",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_knowledge_documents",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_knowledge_revisions",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_knowledge_sources",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_monthly_budgets",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_notification_preferences",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_profiles",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_reminders",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_report_attempts",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_reports",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_savings_contributions",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_savings_goals",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_transactions",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_user_categories",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_user_devices",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_category",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "track_category",
+          "status": 204,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "profile_upsert",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "monthly_upsert",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "monthly_reupsert",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "category_budget_upsert",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "atomic_budget_edit",
+          "status": 204,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_transaction",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "transaction_category_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "transaction_embed_value",
+          "ok": true
+        },
+        {
+          "name": "budget_category_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "transaction_owner_isolation",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "foreign_transaction_hidden",
+          "ok": true
+        },
+        {
+          "name": "deny_foreign_transaction_write",
+          "status": 409,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_goal",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_contribution",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "goal_total",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "contribution_rollup",
+          "ok": true
+        },
+        {
+          "name": "contribution_goal_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "preferences_upsert",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_reminder",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "reminder_scheduling",
+          "ok": true
+        },
+        {
+          "name": "create_export",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_export_content",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "export_contents_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "backup_snapshot",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_coaching_session",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_user_message",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "deny_assistant_forgery",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "session_messages_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "deny_server_lease",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "deny_admin_escalation",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "suspended_transactions_hidden",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "suspended_has_no_transactions",
+          "ok": true
+        }
+      ]
+    },
+    "trial": {
+      "passed": 59,
+      "total": 59,
+      "checks": [
+        {
+          "name": "read_account_access",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_admin_audit_logs",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_alerts",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_backups",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_budgets",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_categories",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_coaching_messages",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_coaching_retrievals",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_coaching_sessions",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_data_exports",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_export_contents",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_knowledge_documents",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_knowledge_revisions",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_knowledge_sources",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_monthly_budgets",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_notification_preferences",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_profiles",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_reminders",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_report_attempts",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_reports",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_savings_contributions",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_savings_goals",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_transactions",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_user_categories",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "read_user_devices",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_category",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "track_category",
+          "status": 204,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "profile_upsert",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "monthly_upsert",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "monthly_reupsert",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "category_budget_upsert",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "atomic_budget_edit",
+          "status": 204,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_transaction",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "transaction_category_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "transaction_embed_value",
+          "ok": true
+        },
+        {
+          "name": "budget_category_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "transaction_owner_isolation",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "foreign_transaction_hidden",
+          "ok": true
+        },
+        {
+          "name": "deny_foreign_transaction_write",
+          "status": 409,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_goal",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_contribution",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "goal_total",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "contribution_rollup",
+          "ok": true
+        },
+        {
+          "name": "contribution_goal_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "preferences_upsert",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_reminder",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "reminder_scheduling",
+          "ok": true
+        },
+        {
+          "name": "create_export",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_export_content",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "export_contents_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "backup_snapshot",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_coaching_session",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "create_user_message",
+          "status": 201,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "deny_assistant_forgery",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "session_messages_embed",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "deny_server_lease",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "deny_admin_escalation",
+          "status": 403,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "suspended_transactions_hidden",
+          "status": 200,
+          "ok": true,
+          "error": null
+        },
+        {
+          "name": "suspended_has_no_transactions",
+          "ok": true
+        }
+      ]
+    }
+  },
+  "security": {
+    "privilege_checks": 2622,
+    "privileges_match": true,
+    "differences": [],
+    "read_isolation_checks": 135,
+    "read_isolation_match": true
+  },
+  "live_preflight_permissions": {
+    "checked": 2622,
+    "differences": {}
+  },
+  "backup_admin": {
+    "baseline": {
+      "ok": true,
+      "error": null,
+      "scope": "Database metadata, RPC and row-fidelity tests; no real file upload or push delivery."
+    },
+    "trial": {
+      "ok": true,
+      "error": null,
+      "scope": "Database metadata, RPC and row-fidelity tests; no real file upload or push delivery."
+    }
+  },
+  "hosted_reads": {
+    "metadata": {
+      "auth_users": 5,
+      "storage_objects": 41,
+      "application_tables": [
+        "public.account_records",
+        "public.alert_records",
+        "public.budget_records",
+        "public.coaching_records",
+        "public.export_backup_records",
+        "public.knowledge_records",
+        "public.profiles",
+        "public.report_records",
+        "public.savings_records",
+        "public.transaction_records"
+      ],
+      "migration_recorded": true,
+      "rls_enabled_tables": 10,
+      "compatibility_views": 27,
+      "private_physical_tables": 0,
+      "ten_tables_verified": true
+    },
+    "read_only_api_checks": [
+      {
+        "name": "read_account_access",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/5"
+      },
+      {
+        "name": "read_admin_audit_logs",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/70"
+      },
+      {
+        "name": "read_alerts",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/34"
+      },
+      {
+        "name": "read_backups",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/16"
+      },
+      {
+        "name": "read_budgets",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/1"
+      },
+      {
+        "name": "read_categories",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/7"
+      },
+      {
+        "name": "read_coaching_messages",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/10"
+      },
+      {
+        "name": "read_coaching_retrievals",
+        "ok": true,
+        "status": 200,
+        "count_range": "*/0"
+      },
+      {
+        "name": "read_coaching_sessions",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/2"
+      },
+      {
+        "name": "read_data_exports",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/10"
+      },
+      {
+        "name": "read_export_contents",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/32"
+      },
+      {
+        "name": "read_knowledge_documents",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/44"
+      },
+      {
+        "name": "read_knowledge_revisions",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/34"
+      },
+      {
+        "name": "read_knowledge_sources",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/27"
+      },
+      {
+        "name": "read_monthly_budgets",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/1"
+      },
+      {
+        "name": "read_notification_preferences",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/4"
+      },
+      {
+        "name": "read_profiles",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/5"
+      },
+      {
+        "name": "read_reminders",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/1"
+      },
+      {
+        "name": "read_report_attempts",
+        "ok": true,
+        "status": 200,
+        "count_range": "*/0"
+      },
+      {
+        "name": "read_reports",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/1"
+      },
+      {
+        "name": "read_savings_contributions",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/2"
+      },
+      {
+        "name": "read_savings_goals",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/3"
+      },
+      {
+        "name": "read_transactions",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/8"
+      },
+      {
+        "name": "read_user_categories",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/7"
+      },
+      {
+        "name": "read_user_devices",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/5"
+      },
+      {
+        "name": "embed_transactions",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/8"
+      },
+      {
+        "name": "embed_budgets",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/1"
+      },
+      {
+        "name": "embed_data_exports",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/10"
+      },
+      {
+        "name": "embed_coaching_sessions",
+        "ok": true,
+        "status": 206,
+        "count_range": "*/2"
+      },
+      {
+        "name": "vector_search",
+        "ok": true,
+        "status": 200,
+        "count_range": "0-0/1"
+      },
+      {
+        "name": "hybrid_search",
+        "ok": true,
+        "status": 200,
+        "count_range": "0-1/2"
+      }
+    ],
+    "api_passed": true
+  },
+  "hosted_writes": {
+    "checked_utc": "2026-10-19T08:46:09.378103+00:00",
+    "checks": [
+      {
+        "name": "create_owner_account",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "sign_in_owner",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "create_other_account",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "sign_in_other",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "profile_created_by_auth_trigger",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "profile_trigger_value",
+        "ok": true
+      },
+      {
+        "name": "profile_upsert",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "create_category",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "track_category",
+        "ok": true,
+        "status": 204
+      },
+      {
+        "name": "monthly_upsert",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "monthly_reupsert",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "category_budget_upsert",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "atomic_budget_edit",
+        "ok": true,
+        "status": 204
+      },
+      {
+        "name": "create_transaction",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "transaction_category_embed",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "transaction_embed_value",
+        "ok": true
+      },
+      {
+        "name": "update_transaction",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "transaction_owner_isolation",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "foreign_transaction_hidden",
+        "ok": true
+      },
+      {
+        "name": "deny_foreign_transaction_write",
+        "ok": true,
+        "status": 409,
+        "error_code": "23503"
+      },
+      {
+        "name": "budget_category_embed",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "create_goal",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "create_contribution",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "goal_total",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "contribution_rollup",
+        "ok": true
+      },
+      {
+        "name": "contribution_goal_embed",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "preferences_upsert",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "create_reminder",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "reminder_scheduling",
+        "ok": true
+      },
+      {
+        "name": "create_export",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "create_export_content",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "export_contents_embed",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "export_embed_value",
+        "ok": true
+      },
+      {
+        "name": "backup_snapshot",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "create_coaching_session",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "create_user_message",
+        "ok": true,
+        "status": 201
+      },
+      {
+        "name": "deny_assistant_forgery",
+        "ok": true,
+        "status": 403,
+        "error_code": "42501"
+      },
+      {
+        "name": "session_messages_embed",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "coaching_embed_value",
+        "ok": true
+      },
+      {
+        "name": "deny_server_lease",
+        "ok": true,
+        "status": 403,
+        "error_code": "42501"
+      },
+      {
+        "name": "deny_admin_escalation",
+        "ok": true,
+        "status": 403,
+        "error_code": "42501"
+      },
+      {
+        "name": "delete_contribution",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "goal_after_contribution_delete",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "contribution_delete_rollup",
+        "ok": true
+      },
+      {
+        "name": "delete_transaction",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "cleanup_disposable_user",
+        "ok": true,
+        "status": 200
+      },
+      {
+        "name": "cleanup_disposable_user",
+        "ok": true,
+        "status": 200
+      }
+    ],
+    "passed": true,
+    "cleanup_complete": true
+  },
+  "final_state": {
+    "checked_utc": "2026-10-19T08:49:11.905949+00:00",
+    "passed": true,
+    "metadata": {
+      "auth_users": 5,
+      "physical_tables": 10,
+      "storage_objects": 41,
+      "test_goals_remaining": 0,
+      "test_exports_remaining": 0,
+      "test_accounts_remaining": 0,
+      "test_profiles_remaining": 0,
+      "test_sessions_remaining": 0,
+      "test_reminders_remaining": 0,
+      "test_auth_users_remaining": 0,
+      "test_categories_remaining": 0,
+      "test_transactions_remaining": 0
+    },
+    "worker": {
+      "worker_queue_empty": true,
+      "worker_claim_rpc_completed": true
+    },
+    "backend_errors_since_commit": 0,
+    "backend": {
+      "/health": {
+        "status": "ok"
+      },
+      "/ready": {
+        "status": "ok",
+        "components": {
+          "ocr": "ready",
+          "embeddings": "ready"
+        }
+      }
+    }
+  },
+  "inverse_recovery": {
+    "scope": "Disposable local candidate only",
+    "inverse_sha256": "aa232948971d5ca0122220a7e315b079177deb616aaaefc9a99d80d403b114d7",
+    "physical_tables_restored": 27,
+    "all_27_datasets_exact": true,
+    "includes_post_migration_writes": true,
+    "passed": true
+  }
+}

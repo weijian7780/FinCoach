@@ -202,7 +202,9 @@ export function CoachActionCard({
     setOpening(true);
     setOpenError(null);
     try {
-      const path = storedPath ?? await fetchReportStoragePath(storedReportId as number);
+      const path = storedReportId !== null
+        ? await fetchReportStoragePath(storedReportId)
+        : storedPath as string;
       const signedUrl = await createReportSignedUrl(path);
       await Linking.openURL(signedUrl);
     } catch (error) {

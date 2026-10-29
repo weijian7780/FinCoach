@@ -5,11 +5,14 @@ literal source quotation and undergo the independent grounding verifier.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from app.rag.research_policy import QuestionPlan
+
+
+EvidenceRequirement = Literal["explanatory", "authoritative"]
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,9 @@ class PartCoverage:
     support_indices: tuple[int, ...] = ()
     resolution: Literal["direct", "not_required"] = "direct"
     complete: bool = False
+    # Completeness answers the requested question; status records authority.
+    # Older assessments retain the stricter institutional-fact contract.
+    evidence_requirement: EvidenceRequirement = field(default="authoritative", kw_only=True)
 
 
 def requested_parts(plan: QuestionPlan) -> tuple[RequestedPart, ...]:

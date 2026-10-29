@@ -91,6 +91,29 @@ export function getCrossedBudgetThreshold(
   return null;
 }
 
+/** The highest threshold already reached, for a limit that was just set or changed. */
+export function getReachedBudgetThreshold(used: number, limit: number): BudgetThreshold | null {
+  const usedCents = toCents(used);
+  const limitCents = toCents(limit);
+  if (limitCents <= 0) return null;
+  if (usedCents >= limitCents) return 'exceeded';
+  if (usedCents >= Math.round(limitCents * 0.8)) return 'warning';
+  return null;
+}
+
+/** One in-app dialog for every budget alert a single save produced. */
+export function summarizeBudgetAlerts(
+  alerts: { type: string; title: string; message: string }[],
+): { title: string; message: string } | null {
+  if (!alerts.length) return null;
+  if (alerts.length === 1) return { title: alerts[0].title, message: alerts[0].message };
+  const exceeded = alerts.some((alert) => alert.type === 'budget_exceeded');
+  return {
+    title: exceeded ? 'Budget limits exceeded' : 'Budget limits almost reached',
+    message: alerts.map((alert) => `${alert.title}. ${alert.message}`).join('\n\n'),
+  };
+}
+
 export function getCrossedSavingsMilestones(
   previousAmount: number,
   currentAmount: number,
@@ -112,8 +135,10 @@ export function buildBudgetDedupeKey(input: {
   sourceId: string | number;
   month: string;
   threshold: BudgetThreshold;
+  limit: number;
 }): string {
-  return `budget:${input.scope}:${input.sourceId}:${input.month}:${input.threshold}`;
+  // The limit is part of the identity: changing a budget re-arms its alerts for that month.
+  return `budget:${input.scope}:${input.sourceId}:${input.month}:${input.threshold}:${toCents(input.limit)}`;
 }
 
 export function buildSavingsDedupeKey(

@@ -114,3 +114,4 @@ for each row execute function private.sync_profile_account_name();
 update public.account_access a set display_name=coalesce(p.full_name,''),updated_at=now() from public.profiles p
 where a.user_id=p.id and a.display_name is distinct from coalesce(p.full_name,'');
 commit;
+

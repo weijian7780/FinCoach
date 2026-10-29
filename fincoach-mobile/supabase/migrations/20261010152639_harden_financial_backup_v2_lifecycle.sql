@@ -41,3 +41,4 @@ begin
 end $$;
 revoke all on function public.complete_financial_backup_v2(uuid,jsonb,text,bigint,text) from public,anon;
 grant execute on function public.complete_financial_backup_v2(uuid,jsonb,text,bigint,text) to authenticated;
+

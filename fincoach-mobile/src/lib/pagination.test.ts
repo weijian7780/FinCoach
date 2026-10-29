@@ -1,9 +1,11 @@
 import { describe, expect, test, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { fetchAllRows } from './pagination';
 import { fetchTransactions } from './transactions';
 import { fetchReportSourceData } from './reports';
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('expo-crypto', () => ({ CryptoDigestAlgorithm: { SHA256: 'SHA-256' }, digestStringAsync: async (_algorithm: string, value: string) => createHash('sha256').update(value).digest('hex') }));
 
 describe('complete financial reads', () => {
   const rows = Array.from({ length: 1251 }, (_, id) => ({ id: String(id), amount: id + 1 }));
@@ -23,7 +25,7 @@ describe('complete financial reads', () => {
     expect(transactions).toEqual(rows);
     expect(report.transactions).toEqual(rows);
     expect(transactions.reduce((sum, row) => sum + row.amount, 0)).toBe(1251 * 1252 / 2);
-    expect(ranges).toEqual([...Array.from({ length: 7 }, (_, i) => i * 200), ...Array.from({ length: 7 }, (_, i) => i * 200)]);
+    expect(ranges).toEqual(Array.from({ length: 3 }, () => Array.from({ length: 7 }, (_, i) => i * 200)).flat());
   });
   test.each([
     [{ data: [], count: 2, error: null }],

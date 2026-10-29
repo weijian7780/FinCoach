@@ -4,7 +4,7 @@ import {
   removeCachedExport,
   writePdfExport,
 } from './export-files';
-import { compileFinancialReport } from './report-domain';
+import { compileFinancialReport, requireValidReportSelection } from './report-domain';
 import { parseReportAttempt } from './report-attempt';
 import {
   buildFinancialReportHtml,
@@ -86,15 +86,6 @@ export async function generateCoachReport(
   if (attempt.storage_path !== `${userId}/coach/${attempt.attempt_id}.pdf`) {
     throw new Error('The report storage reservation is invalid.');
   }
-  const categories = attempt.category_id !== null
-    ? await dependencies.fetchCategories(userId)
-    : [];
-  const category = attempt.category_id !== null
-    ? categories.find((item) => item.id === attempt.category_id)
-    : null;
-  if (attempt.category_id !== null && !category) {
-    throw new Error('The selected report category is no longer available.');
-  }
   // All filtering comes from the claim snapshot. Never resolve a name or
   // relative date again: a retry may occur after a rename or month boundary.
   const selection: ReportSelection = {
@@ -104,6 +95,13 @@ export async function generateCoachReport(
     startDate: attempt.start_date, endDate: attempt.end_date,
     categoryId: attempt.category_id, reportType: attempt.report_type,
   };
+  requireValidReportSelection(selection);
+  const categories = attempt.category_id !== null
+    ? await dependencies.fetchCategories(userId)
+    : [];
+  if (attempt.category_id !== null && !categories.some((item) => item.id === attempt.category_id)) {
+    throw new Error('The selected report category is no longer available.');
+  }
   const source = await dependencies.fetchSource(userId, selection);
   const report = dependencies.compile(source, selection);
   const artifact = dependencies.createArtifact(
@@ -146,6 +144,13 @@ export async function generateCoachReport(
       storagePath: artifact.storagePath,
     };
   } finally {
-    if (temporaryPdf) dependencies.removeCached(temporaryPdf.uri);
+    if (temporaryPdf) {
+      try {
+        dependencies.removeCached(temporaryPdf.uri);
+      } catch {
+        // Cache maintenance must not replace upload success or the original error.
+        console.warn('fincoach_report_cache_cleanup_failed');
+      }
+    }
   }
 }

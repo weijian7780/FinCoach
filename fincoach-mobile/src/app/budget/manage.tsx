@@ -11,6 +11,8 @@ import { MoneyField } from '@/components/budget/money-field';
 import { AppText as Text } from '@/components/ui/app-text';
 import { appDialog } from '@/components/ui/app-dialog';
 import { authColors, authFont } from '@/constants/auth-theme';
+import { emitBudgetAlertsAfterBudgetChange } from '@/lib/alert-events';
+import { summarizeBudgetAlerts } from '@/lib/alerts-domain';
 import { deleteMonthlyBudget, fetchBudgetCategories, fetchBudgetMonth, saveBudgetMonth } from '@/lib/budget';
 import { formatBudgetMonth, monthKey, parseBudgetMoney, validateCategoryAllocation, validateMonthlyBudget } from '@/lib/budget-domain';
 import { useAuth } from '@/lib/auth-context';
@@ -132,10 +134,29 @@ export default function ManageBudgetScreen() {
     try {
       await saveBudgetMonth(userId, selectedMonth, overallAmount,
         selectedCategories.map(category => ({ category_id: category.id, amount: parseBudgetMoney(amounts[category.id] ?? '')! })));
-      router.back();
     } catch (error) {
       setMessage(writeError(error));
       setSaving(false);
+      return;
+    }
+    await syncBudgetAlerts();
+  }
+
+  /** A limit set at or below what was already spent this month alerts now, not never. */
+  async function syncBudgetAlerts() {
+    try {
+      const summary = summarizeBudgetAlerts(await emitBudgetAlertsAfterBudgetChange(userId!, selectedMonth));
+      if (summary) await appDialog.open(summary.title, summary.message);
+      router.back();
+    } catch {
+      appDialog.open(
+        'Budget saved',
+        'The budget is safe, but its budget alert could not synchronize. Retry the alert sync now?',
+        [
+          { text: 'Continue', onPress: () => router.back() },
+          { text: 'Retry sync', onPress: () => void syncBudgetAlerts() },
+        ],
+      );
     }
   }
 

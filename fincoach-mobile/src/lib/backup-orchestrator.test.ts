@@ -23,6 +23,7 @@ vi.mock('./export-backup', () => ({
   fetchAutoBackupEnabled: vi.fn(),
   fetchBackups: vi.fn(),
   fetchBackupSourceData: vi.fn(),
+  reconcileStaleRecords: vi.fn(),
   updateBackupRecord: vi.fn(),
   uploadBackupObject: vi.fn(),
 }));
@@ -222,5 +223,38 @@ describe('cloud backup orchestration', () => {
         new Blob(['{}']),
       ),
     ).rejects.toThrow('checksum does not match');
+  });
+  test('deletes a definitively failed backup so its snapshot copy is not kept', async () => {
+    const deps = dependencies();
+    deps.completeBackup = async () => { throw Object.assign(new Error('deadlock'), { code: '40P01' }); };
+    await expect(performCloudBackup('user-1', 'manual', deps)).rejects.toThrow('deadlock');
+    expect(deps.deleteBackup).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'backup-1', storage_path: expect.stringContaining('user-1/manual/'),
+    }));
+    expect(deps.updateBackupRecord).not.toHaveBeenCalledWith('backup-1', 'user-1', { status: 'failed' });
+  });
+
+  test('marks the backup failed when it cannot be deleted', async () => {
+    const deps = dependencies();
+    vi.mocked(deps.fetchBackupSourceData).mockRejectedValue(Object.assign(new Error('denied'), { code: '42501' }));
+    vi.mocked(deps.deleteBackup).mockRejectedValue(new Error('offline'));
+    await expect(performCloudBackup('user-1', 'manual', deps)).rejects.toThrow('denied');
+    expect(deps.updateBackupRecord).toHaveBeenCalledWith('backup-1', 'user-1', { status: 'failed' });
+  });
+
+  test('waits six hours after a failed automatic backup and cleans stale records', async () => {
+    const deps = dependencies();
+    let clock = new Date('2026-07-16T12:00:00.000Z').getTime();
+    deps.now = () => new Date(clock);
+    deps.reconcileStale = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(deps.fetchBackupSourceData).mockRejectedValue(new Error('attachment missing'));
+    await expect(runEligibleAutomaticBackup('user-retry', deps)).rejects.toThrow('attachment missing');
+    expect(deps.reconcileStale).toHaveBeenCalledWith('user-retry', '2026-07-16T11:45:00.000Z');
+    clock += 60 * 60 * 1000;
+    await expect(runEligibleAutomaticBackup('user-retry', deps)).resolves.toBeNull();
+    expect(deps.createBackupRecord).toHaveBeenCalledOnce();
+    clock += 6 * 60 * 60 * 1000;
+    await expect(runEligibleAutomaticBackup('user-retry', deps)).rejects.toThrow('attachment missing');
+    expect(deps.createBackupRecord).toHaveBeenCalledTimes(2);
   });
 });

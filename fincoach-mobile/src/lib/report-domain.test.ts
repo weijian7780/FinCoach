@@ -189,16 +189,29 @@ describe('financial report compiler', () => {
   test('shows true over-budget percentages while capping visual progress only', () => {
     const report = compileFinancialReport({
       ...source,
-      monthlyBudgets: [{ ...source.monthlyBudgets[0], limit_amount: 100 }],
+      monthlyBudgets: [{ ...source.monthlyBudgets[1], limit_amount: 100 }],
     }, selection);
     expect(report.budget).toMatchObject({
       limit: 100,
-      spent: 350,
+      spent: 250,
       remaining: 0,
-      exceeded: 250,
-      percentage: 350,
+      exceeded: 150,
+      percentage: 250,
       progressPercentage: 100,
     });
+  });
+
+  test('compares a monthly budget only with spending from its own month', () => {
+    const food = (id: string, date: string, amount: number) => transaction(id, date, amount, 1, 'Food', 'expense');
+    const report = compileFinancialReport({
+      transactions: [food('aug', '2026-08-10', 400), food('sep', '2026-09-10', 400), food('oct', '2026-10-10', 300)],
+      monthlyBudgets: [{ id: 'b', user_id: 'user-1', month: '2026-10-01', limit_amount: 500, created_at: '', updated_at: '' }],
+      categoryLimits: [{ id: 1, user_id: 'user-1', month: '2026-10-01', category_id: 1, amount: 350, created_at: '', updated_at: '' }],
+      savingsGoals: [],
+    }, { preset: 'last_3_months', startDate: '2026-08-01', endDate: '2026-10-31', categoryId: null, reportType: 'multi_month' });
+    expect(report.totalExpenses).toBe(1100);
+    expect(report.budget).toMatchObject({ limit: 500, spent: 300, remaining: 200, exceeded: 0, percentage: 60 });
+    expect(report.categoryBudgets[0]).toMatchObject({ categoryId: 1, limit: 350, spent: 300, exceeded: 0 });
   });
 
   test('fills missing trend months and handles empty data safely', () => {

@@ -96,7 +96,7 @@ def run_public_conversation(questions: list[str], *, warmup: bool = True, source
     research_inputs, search_results, generated_drafts = [], [], []
     original_research, original_interpret = service.run_research_policy, service.interpret_question
     original_assess, original_search = research_policy.assess_evidence, web_research._search_pass
-    original_generate, original_rewrite = service.generate_result, research_answer.generate_fallback_result
+    original_generate, original_rewrite = service.generate_result, research_answer._generate_research_correction
 
     def generate(*args, **kwargs):
         result = original_generate(*args, **kwargs)
@@ -142,7 +142,7 @@ def run_public_conversation(questions: list[str], *, warmup: bool = True, source
                  patch.object(research_policy, 'assess_evidence', side_effect=assess), \
                  patch.object(web_research, '_search_pass', side_effect=search), \
                  patch.object(service, 'generate_result', side_effect=generate), \
-                 patch.object(research_answer, 'generate_fallback_result', side_effect=rewrite), \
+                 patch.object(research_answer, '_generate_research_correction', side_effect=rewrite), \
                  patch.object(service.AgentToolExecutor, 'execute', side_effect=forbid):
                 coach = service.CoachingService(repo, client)
                 for index, question in enumerate(questions):

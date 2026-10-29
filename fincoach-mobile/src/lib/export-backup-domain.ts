@@ -312,6 +312,13 @@ export function validateBackupDocument(
   return document.schemaVersion === 2 ? validateV2Document(document as unknown as FinancialBackupDocumentV2) : document as FinancialBackupDocumentV1;
 }
 
+/** A SQLSTATE (5 chars, letters allowed, e.g. 40P01) or PostgREST code means the
+ * server answered, so the call did not commit; anything else is an unknown outcome. */
+export function isDefinitiveDatabaseError(error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  return /^[0-9A-Z]{5}$|^PGRST\d{3}$/.test(code);
+}
+
 export function createBackupObjectPath(
   userId: string,
   type: BackupType,

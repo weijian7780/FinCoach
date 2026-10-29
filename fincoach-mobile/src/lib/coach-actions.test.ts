@@ -66,6 +66,20 @@ function createDependencies(
 }
 
 describe('coach report action', () => {
+  it('returns the uploaded report even if deleting the cached file fails', async () => {
+    const dependencies = createDependencies({ removeCached: vi.fn(() => { throw new Error('filesystem failure'); }) });
+    await expect(generateCoachReport('user-1', serverAttempt(), dependencies)).resolves.toMatchObject({ storagePath: 'user-1/coach/attempt-1.pdf' });
+  });
+  it('preserves the upload error when cache cleanup also fails', async () => {
+    const original = new Error('upload failed');
+    const dependencies = createDependencies({ uploadPdf: vi.fn(async () => { throw original; }), removeCached: vi.fn(() => { throw new Error('cache failure'); }) });
+    await expect(generateCoachReport('user-1', serverAttempt(), dependencies)).rejects.toBe(original);
+  });
+  it('rejects excessive frozen periods before fetching any financial source', async () => {
+    const dependencies = createDependencies();
+    await expect(generateCoachReport('user-1', serverAttempt({ start_date: '1900-01-01' }), dependencies)).rejects.toThrow(/120/);
+    expect(dependencies.fetchSource).not.toHaveBeenCalled();
+  });
   it('uses the frozen category id and dates despite duplicate or renamed categories', async () => {
     const dependencies = createDependencies({ fetchCategories: vi.fn(async () => [
       { id: 1, name: 'Food' }, { id: 9, name: 'Renamed category' },

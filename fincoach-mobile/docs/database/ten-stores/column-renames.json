@@ -1,0 +1,1387 @@
+[
+  {
+    "table": "public.account_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_user_id",
+    "new": "account_user_id"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_role",
+    "new": "account_role"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_status",
+    "new": "account_status"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_email",
+    "new": "account_email"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_display_name",
+    "new": "account_display_name"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_created_at",
+    "new": "account_created_at"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_last_sign_in_at",
+    "new": "account_last_sign_in_at"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r03_updated_at",
+    "new": "account_updated_at"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_id",
+    "new": "audit_id"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_actor_id",
+    "new": "audit_actor_id"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_action",
+    "new": "audit_action"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_target_type",
+    "new": "audit_target_type"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_target_id",
+    "new": "audit_target_id"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_details",
+    "new": "audit_details"
+  },
+  {
+    "table": "public.account_records",
+    "old": "r04_created_at",
+    "new": "audit_created_at"
+  },
+  {
+    "table": "public.account_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_id",
+    "new": "alert_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_user_id",
+    "new": "alert_user_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_type",
+    "new": "alert_type"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_kind",
+    "new": "alert_kind"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_title",
+    "new": "alert_title"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_message",
+    "new": "alert_message"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_budget_id",
+    "new": "alert_budget_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_category_limit_id",
+    "new": "alert_category_limit_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_savings_goal_id",
+    "new": "alert_savings_goal_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_reminder_id",
+    "new": "alert_reminder_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_source_data",
+    "new": "alert_source_data"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_dedupe_key",
+    "new": "alert_dedupe_key"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_scheduled_for",
+    "new": "alert_scheduled_for"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_delivered_at",
+    "new": "alert_delivered_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_read_at",
+    "new": "alert_read_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_dismissed_at",
+    "new": "alert_dismissed_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_delivery_status",
+    "new": "alert_delivery_status"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_delivery_error",
+    "new": "alert_delivery_error"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_delivery_attempt_count",
+    "new": "alert_delivery_attempt_count"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_delivery_claimed_at",
+    "new": "alert_delivery_claimed_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_next_delivery_attempt_at",
+    "new": "alert_next_delivery_attempt_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_delivery_receipts",
+    "new": "alert_delivery_receipts"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r05_created_at",
+    "new": "alert_created_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_id",
+    "new": "reminder_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_user_id",
+    "new": "reminder_user_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_type",
+    "new": "reminder_type"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_title",
+    "new": "reminder_title"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_amount",
+    "new": "reminder_amount"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_due_at",
+    "new": "reminder_due_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_lead_days",
+    "new": "reminder_lead_days"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_recurrence",
+    "new": "reminder_recurrence"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_recurrence_anchor_day",
+    "new": "reminder_recurrence_anchor_day"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_enabled",
+    "new": "reminder_enabled"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_next_trigger_at",
+    "new": "reminder_next_trigger_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_last_triggered_at",
+    "new": "reminder_last_triggered_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_created_at",
+    "new": "reminder_created_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r19_updated_at",
+    "new": "reminder_updated_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_user_id",
+    "new": "preference_user_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_budget_enabled",
+    "new": "preference_budget_enabled"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_savings_enabled",
+    "new": "preference_savings_enabled"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_savings_lead_days",
+    "new": "preference_savings_lead_days"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_savings_reminder_time",
+    "new": "preference_savings_reminder_time"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_savings_milestones_enabled",
+    "new": "preference_savings_milestones_enabled"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_spending_enabled",
+    "new": "preference_spending_enabled"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_spending_frequency",
+    "new": "preference_spending_frequency"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_spending_weekday",
+    "new": "preference_spending_weekday"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_spending_reminder_time",
+    "new": "preference_spending_reminder_time"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_bills_enabled",
+    "new": "preference_bills_enabled"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_default_bill_lead_days",
+    "new": "preference_default_bill_lead_days"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_default_bill_reminder_time",
+    "new": "preference_default_bill_reminder_time"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_timezone",
+    "new": "preference_timezone"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_created_at",
+    "new": "preference_created_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r18_updated_at",
+    "new": "preference_updated_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_id",
+    "new": "device_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_user_id",
+    "new": "device_user_id"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_expo_push_token",
+    "new": "device_expo_push_token"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_platform",
+    "new": "device_platform"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_device_name",
+    "new": "device_name"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_active",
+    "new": "device_active"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_last_seen_at",
+    "new": "device_last_seen_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_last_error",
+    "new": "device_last_error"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_created_at",
+    "new": "device_created_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "r26_updated_at",
+    "new": "device_updated_at"
+  },
+  {
+    "table": "public.alert_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r17_id",
+    "new": "monthly_budget_id"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r17_user_id",
+    "new": "monthly_budget_user_id"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r17_month",
+    "new": "monthly_budget_month"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r17_limit_amount",
+    "new": "monthly_budget_limit_amount"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r17_created_at",
+    "new": "monthly_budget_created_at"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r17_updated_at",
+    "new": "monthly_budget_updated_at"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_id",
+    "new": "category_limit_id"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_user_id",
+    "new": "category_limit_user_id"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_category_id",
+    "new": "category_limit_category_id"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_amount",
+    "new": "category_limit_amount"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_month",
+    "new": "category_limit_month"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_created_at",
+    "new": "category_limit_created_at"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "r07_updated_at",
+    "new": "category_limit_updated_at"
+  },
+  {
+    "table": "public.budget_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r11_id",
+    "new": "session_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r11_user_id",
+    "new": "session_user_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r11_title",
+    "new": "session_title"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r11_created_at",
+    "new": "session_created_at"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r11_updated_at",
+    "new": "session_updated_at"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r11_last_message_at",
+    "new": "session_last_message_at"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_id",
+    "new": "message_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_session_id",
+    "new": "message_session_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_user_id",
+    "new": "message_user_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_role",
+    "new": "message_role"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_content",
+    "new": "message_content"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_reply_to_message_id",
+    "new": "message_reply_to_message_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_status",
+    "new": "message_status"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_error_code",
+    "new": "message_error_code"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_model",
+    "new": "message_model"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_prompt_tokens",
+    "new": "message_prompt_tokens"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_completion_tokens",
+    "new": "message_completion_tokens"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_created_at",
+    "new": "message_created_at"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_feedback",
+    "new": "message_feedback"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r09_ui_payload",
+    "new": "message_ui_payload"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_id",
+    "new": "retrieval_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_user_id",
+    "new": "retrieval_user_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_assistant_message_id",
+    "new": "retrieval_assistant_message_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_knowledge_document_id",
+    "new": "retrieval_knowledge_document_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_rank",
+    "new": "retrieval_rank"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_similarity",
+    "new": "retrieval_similarity"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_title",
+    "new": "retrieval_title"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_source",
+    "new": "retrieval_source"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r10_created_at",
+    "new": "retrieval_created_at"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r01_message_id",
+    "new": "processing_message_id"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r01_token",
+    "new": "processing_token"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "r01_expires_at",
+    "new": "processing_expires_at"
+  },
+  {
+    "table": "public.coaching_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_id",
+    "new": "export_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_user_id",
+    "new": "export_user_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_format",
+    "new": "export_format"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_status",
+    "new": "export_status"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_file_name",
+    "new": "export_file_name"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_file_size_bytes",
+    "new": "export_file_size_bytes"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_date_from",
+    "new": "export_date_from"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_date_to",
+    "new": "export_date_to"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_completed_at",
+    "new": "export_completed_at"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r12_created_at",
+    "new": "export_created_at"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r13_export_id",
+    "new": "export_content_export_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r13_content_type",
+    "new": "export_content_content_type"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_id",
+    "new": "backup_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_user_id",
+    "new": "backup_user_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_backup_type",
+    "new": "backup_type"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_status",
+    "new": "backup_status"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_file_name",
+    "new": "backup_file_name"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_storage_path",
+    "new": "backup_storage_path"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_file_size_bytes",
+    "new": "backup_file_size_bytes"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_checksum_sha256",
+    "new": "backup_checksum_sha256"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_schema_version",
+    "new": "backup_schema_version"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_last_restore_status",
+    "new": "backup_last_restore_status"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_last_restored_at",
+    "new": "backup_last_restored_at"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_completed_at",
+    "new": "backup_completed_at"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_created_at",
+    "new": "backup_created_at"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_data_counts",
+    "new": "backup_data_counts"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_attachment_count",
+    "new": "backup_attachment_count"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r06_cleanup_warning",
+    "new": "backup_cleanup_warning"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r02_backup_id",
+    "new": "snapshot_backup_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r02_user_id",
+    "new": "snapshot_user_id"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r02_data",
+    "new": "snapshot_data"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r02_document",
+    "new": "snapshot_document"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "r02_created_at",
+    "new": "snapshot_created_at"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.export_backup_records",
+    "old": "_owner_id",
+    "new": "owner_user_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_id",
+    "new": "source_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_source_key",
+    "new": "source_key"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_title",
+    "new": "source_title"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_archived",
+    "new": "source_archived"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_published_revision_id",
+    "new": "source_published_revision_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_latest_revision_id",
+    "new": "source_latest_revision_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_created_at",
+    "new": "source_created_at"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r16_updated_at",
+    "new": "source_updated_at"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_id",
+    "new": "revision_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_source_id",
+    "new": "revision_source_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_title",
+    "new": "revision_title"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_content",
+    "new": "revision_content"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_source_urls",
+    "new": "revision_source_urls"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_checked_at",
+    "new": "revision_checked_at"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_file_path",
+    "new": "revision_file_path"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_status",
+    "new": "revision_status"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_created_by",
+    "new": "revision_created_by"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_created_at",
+    "new": "revision_created_at"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_lease_token",
+    "new": "revision_lease_token"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_lease_until",
+    "new": "revision_lease_until"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_attempts",
+    "new": "revision_attempts"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_chunk_count",
+    "new": "revision_chunk_count"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r15_error_message",
+    "new": "revision_error_message"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_id",
+    "new": "chunk_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_title",
+    "new": "chunk_title"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_content",
+    "new": "chunk_content"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_source",
+    "new": "chunk_source"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_embedding",
+    "new": "chunk_embedding"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_created_at",
+    "new": "chunk_created_at"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_page_number",
+    "new": "chunk_page_number"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_chunk_index",
+    "new": "chunk_index"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_content_hash",
+    "new": "chunk_content_hash"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_revision_id",
+    "new": "chunk_revision_id"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "r14_is_published",
+    "new": "chunk_is_published"
+  },
+  {
+    "table": "public.knowledge_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.report_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_id",
+    "new": "report_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_user_id",
+    "new": "report_user_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_period",
+    "new": "report_period"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_type",
+    "new": "report_type"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_generated_at",
+    "new": "report_generated_at"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_title",
+    "new": "report_title"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_file_name",
+    "new": "report_file_name"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_storage_path",
+    "new": "report_storage_path"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_report_key",
+    "new": "report_key"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_start_date",
+    "new": "report_start_date"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_end_date",
+    "new": "report_end_date"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r21_category_id",
+    "new": "report_category_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_attempt_id",
+    "new": "report_attempt_attempt_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_user_id",
+    "new": "report_attempt_user_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_message_id",
+    "new": "report_attempt_message_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_action_id",
+    "new": "report_attempt_action_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_storage_path",
+    "new": "report_attempt_storage_path"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_period",
+    "new": "report_attempt_period"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_report_type",
+    "new": "report_attempt_report_type"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_start_date",
+    "new": "report_attempt_start_date"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_end_date",
+    "new": "report_attempt_end_date"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_category_id",
+    "new": "report_attempt_category_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_category_name",
+    "new": "report_attempt_category_name"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_arguments",
+    "new": "report_attempt_arguments"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_status",
+    "new": "report_attempt_status"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_report_id",
+    "new": "report_attempt_report_id"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_lease_expires_at",
+    "new": "report_attempt_lease_expires_at"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_lease_owner",
+    "new": "report_attempt_lease_owner"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_lease_renewed_at",
+    "new": "report_attempt_lease_renewed_at"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_lease_renewal_count",
+    "new": "report_attempt_lease_renewal_count"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_created_at",
+    "new": "report_attempt_created_at"
+  },
+  {
+    "table": "public.report_records",
+    "old": "r20_updated_at",
+    "new": "report_attempt_updated_at"
+  },
+  {
+    "table": "public.report_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_id",
+    "new": "goal_id"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_user_id",
+    "new": "goal_user_id"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_name",
+    "new": "goal_name"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_target_amount",
+    "new": "goal_target_amount"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_current_amount",
+    "new": "goal_current_amount"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_created_at",
+    "new": "goal_created_at"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_updated_at",
+    "new": "goal_updated_at"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r23_deadline",
+    "new": "goal_deadline"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r22_id",
+    "new": "contribution_id"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r22_goal_id",
+    "new": "contribution_goal_id"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r22_amount",
+    "new": "contribution_amount"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r22_contributed_on",
+    "new": "contribution_contributed_on"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r22_note",
+    "new": "contribution_note"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "r22_created_at",
+    "new": "contribution_created_at"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  },
+  {
+    "table": "public.savings_records",
+    "old": "_owner_id",
+    "new": "owner_user_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "_row_id",
+    "new": "record_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_id",
+    "new": "transaction_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_user_id",
+    "new": "transaction_user_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_category_id",
+    "new": "transaction_category_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_amount",
+    "new": "transaction_amount"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_transaction_date",
+    "new": "transaction_date"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_description",
+    "new": "transaction_description"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_source",
+    "new": "transaction_source"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_receipt_image_path",
+    "new": "transaction_receipt_image_path"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_created_at",
+    "new": "transaction_created_at"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_updated_at",
+    "new": "transaction_updated_at"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r24_receipt_items",
+    "new": "transaction_receipt_items"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_id",
+    "new": "category_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_name",
+    "new": "category_name"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_type",
+    "new": "category_type"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_icon",
+    "new": "category_icon"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_user_id",
+    "new": "category_user_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_color",
+    "new": "category_color"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r08_icon_image_path",
+    "new": "category_icon_image_path"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r25_user_id",
+    "new": "selected_category_user_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r25_category_id",
+    "new": "selected_category_category_id"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "r25_created_at",
+    "new": "selected_category_created_at"
+  },
+  {
+    "table": "public.transaction_records",
+    "old": "_record_kind",
+    "new": "record_type"
+  }
+]

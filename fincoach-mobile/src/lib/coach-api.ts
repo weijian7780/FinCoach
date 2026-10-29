@@ -14,9 +14,9 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type CoachNetworkStatus = 'online' | 'offline' | 'unknown';
 export type CoachErrorCode = 'network' | 'offline' | 'timeout' | 'consent_required'
   | 'update_required' | 'action_in_progress' | 'attempt_expired' | 'attempt_id_reused'
-  | 'report_artifact_invalid';
+  | 'report_artifact_invalid' | 'report_state_conflict';
 const REPORT_ERROR_CODES: readonly string[] = ['update_required', 'action_in_progress',
-  'attempt_expired', 'attempt_id_reused', 'report_artifact_invalid'];
+  'attempt_expired', 'attempt_id_reused', 'report_artifact_invalid', 'report_state_conflict'];
 
 export type CoachAuthAdapter = {
   getAccessToken: () => Promise<string | null>;
@@ -28,6 +28,7 @@ type ClientOptions = {
   auth?: CoachAuthAdapter;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  readTimeoutMs?: number;
   networkStatus?: () => Promise<CoachNetworkStatus>;
 };
 
@@ -105,9 +106,16 @@ export function createCoachApiClient(options: ClientOptions = {}) {
   const auth = options.auth ?? supabaseAuth;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 150_000;
+  // History reads never wait on the model, so a stalled connection should reach
+  // Retry quickly instead of holding the loading state for the generation deadline.
+  const readTimeoutMs = Math.min(options.readTimeoutMs ?? 15_000, timeoutMs);
   const networkStatus = options.networkStatus ?? nativeNetworkStatus;
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async function request<T>(
+    path: string,
+    init: RequestInit = {},
+    deadlineMs = timeoutMs,
+  ): Promise<T> {
     const defaultBaseUrl = configuredBaseUrl === undefined
       ? (await import('./env')).fincoachApiUrl
       : configuredBaseUrl;
@@ -122,7 +130,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
       const timeout = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, timeoutMs);
+      }, deadlineMs);
       try {
         const response = await fetchImpl(`${baseUrl}${path}`, {
           ...init,
@@ -174,7 +182,7 @@ export function createCoachApiClient(options: ClientOptions = {}) {
   }
 
   return {
-    listConversations: () => request<CoachConversation[]>('/coach/conversations'),
+    listConversations: () => request<CoachConversation[]>('/coach/conversations', {}, readTimeoutMs),
     createConversation: (title = 'New conversation') =>
       request<CoachConversation>('/coach/conversations', {
         method: 'POST',
@@ -193,6 +201,8 @@ export function createCoachApiClient(options: ClientOptions = {}) {
       if (options.before) params.set('before', options.before);
       return request<CoachMessagePage>(
         `/coach/conversations/${encodeURIComponent(sessionId)}/messages?${params.toString()}`,
+        {},
+        readTimeoutMs,
       );
     },
     sendMessage: (
