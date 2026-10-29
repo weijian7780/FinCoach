@@ -264,7 +264,7 @@ def test_late_initial_draft_uses_remaining_time_for_verification():
     with (patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
           patch.object(llm, "monotonic", return_value=52),
           patch.object(module, "check_research_draft", side_effect=checking),
-          patch.object(module, "generate_fallback_result") as rewrite):
+          patch.object(module, "_generate_research_correction") as rewrite):
         result = module.recover_research_answer(plan=policy.QuestionPlan("application", False, True, "current"),
             decision=decision, draft=draft, budget=CoachRequestBudget(0), public_question="How do I apply?")
     assert result.mode == "research_explanation"

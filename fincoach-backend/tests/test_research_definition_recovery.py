@@ -373,7 +373,7 @@ def test_corpus_definition_is_explained_and_verified_without_quote_substitution(
             {c.id:1 for c in claims},requested_scope_covered=True,answered_part_ids=('p1','p2'))
     with patch.object(service,'generate_result',return_value=AgentLLMResult(prose+' [S1]','primary')), \
          patch.object(research_answer,'verify_grounding_claims',side_effect=supported), \
-         patch.object(research_answer,'generate_fallback_result',side_effect=AssertionError('Valid prose needs no rewrite')):
+         patch.object(research_answer,'_generate_research_correction',side_effect=AssertionError('Valid prose needs no rewrite')):
         outcome=service._research_explanation_result(plan=definition(),
             decision=p.ResearchDecision([chunk()],approved()),budget=CoachRequestBudget.start(),question='what is ecu pmd')
     assert prose.rstrip('.') in outcome.result.content and TEXT not in outcome.result.content

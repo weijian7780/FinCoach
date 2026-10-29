@@ -869,7 +869,7 @@ def test_service_provider_failure_keeps_source_snapshot_without_pasting_excerpt(
           patch("app.rag.service.retrieve", return_value=[]),
           patch("app.rag.service.run_research_policy", return_value=decision),
           patch("app.rag.service.generate_result", side_effect=TimeoutError()),
-          patch("app.rag.research_answer.generate_fallback_result", side_effect=TimeoutError())):
+          patch("app.rag.research_answer._generate_research_correction", side_effect=TimeoutError())):
         reply = CoachingService(repo, MagicMock()).send_message("s", "m", question)
     assistant = reply["assistant_message"]
     assert source.content not in assistant["content"]

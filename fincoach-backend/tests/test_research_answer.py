@@ -310,7 +310,7 @@ def test_comma_grouped_source_markers_are_verified_and_do_not_leak_into_reply():
 def recover(draft, evidence=None, *, generated=None, verifier=supported, personal_facts=""):
     from app.rag import research_answer as module
     with (patch.object(module, "verify_grounding_claims", side_effect=verifier),
-          patch.object(module, "generate_fallback_result", return_value=generated or
+          patch.object(module, "_generate_research_correction", return_value=generated or
               AgentLLMResult(answer(), "fallback", 100, 50)) as generate):
         outcome = module.recover_research_answer(
             plan=QuestionPlan("public application", False, True, "current"),
@@ -364,7 +364,7 @@ def test_english_question_does_not_receive_malay_faq_dump():
 
 def test_recovery_failure_never_pastes_quotes():
     from app.rag import research_answer as module
-    with patch.object(module, "generate_fallback_result", side_effect=TimeoutError()):
+    with patch.object(module, "_generate_research_correction", side_effect=TimeoutError()):
         outcome = module.recover_research_answer(plan=QuestionPlan("application", False, True, "current"),
             decision=decision(), draft=None, budget=CoachRequestBudget.start(), public_question=QUESTION)
     assert outcome.mode == "research_explanation_unavailable"
@@ -489,7 +489,7 @@ def test_recovery_semantic_calls_share_request_start_and_caps():
     with (patch.object(llm, "monotonic", side_effect=lambda: clock[0]),
           patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
           patch.object(module, "check_research_draft", side_effect=checking),
-          patch.object(module, "generate_fallback_result", side_effect=generating)):
+          patch.object(module, "_generate_research_correction", side_effect=generating)):
         outcome = module.recover_research_answer(plan=QuestionPlan("apply", False, True, "current"),
             decision=decision(), draft=AgentLLMResult("bad", "primary"),
             budget=CoachRequestBudget(0), public_question=QUESTION)
@@ -519,7 +519,7 @@ def test_rewrite_can_use_remaining_time_without_spending_final_check_reserve(ela
     with (patch.object(llm, "monotonic", side_effect=lambda: clock[0]),
           patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
           patch.object(module, "check_research_draft", side_effect=checking),
-          patch.object(module, "generate_fallback_result", side_effect=generating)):
+          patch.object(module, "_generate_research_correction", side_effect=generating)):
         outcome = module.recover_research_answer(plan=QuestionPlan("apply", False, True, "current"),
             decision=decision(), draft=AgentLLMResult("bad", "primary"),
             budget=CoachRequestBudget(0), public_question=QUESTION)
@@ -534,7 +534,7 @@ def test_expired_budget_never_calls_any_model():
     from app.rag import research_answer as module
     with (patch.object(llm, "monotonic", return_value=61),
           patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
-          patch.object(module, "generate_fallback_result") as generate,
+          patch.object(module, "_generate_research_correction") as generate,
           patch.object(module, "verify_grounding_claims") as verify):
         outcome = module.recover_research_answer(plan=QuestionPlan("apply", False, True, "current"),
             decision=decision(), draft=AgentLLMResult(answer(), "primary"),
@@ -605,7 +605,7 @@ def test_combined_question_keeps_explicit_language_without_private_values():
     plan = QuestionPlan("public programme application", True, True, "current",
                         required_facts=("application steps",))
     with (patch.object(service, "generate_result", return_value=AgentLLMResult("bad", "primary")) as normal,
-          patch.object(module, "generate_fallback_result", return_value=AgentLLMResult(answer(), "fallback")),
+          patch.object(module, "_generate_research_correction", return_value=AgentLLMResult(answer(), "fallback")),
           patch.object(module, "verify_grounding_claims", side_effect=supported)):
         service._research_explanation_result(plan=plan, decision=decision(), budget=CoachRequestBudget.start(),
             question="I spent RM123.45. How do I apply? Please answer in Malay.")

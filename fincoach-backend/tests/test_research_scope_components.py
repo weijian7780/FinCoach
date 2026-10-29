@@ -39,13 +39,11 @@ def test_multiple_conditions_require_each_literal_anchor():
     assert scope_verdict(item, claim, refs, bindings=(binding,)) == 'unsupported'
 
 
-def test_session_correction_uses_provider_health_instead_of_forcing_fallback():
+def test_session_correction_uses_existing_generator_arguments():
     from types import SimpleNamespace
     from unittest.mock import patch
     from app.rag.research_answer import _generate_research_correction
     budget = SimpleNamespace(provider_session=object())
-    with patch('app.llm.generate_result', return_value='generated') as generate, \
-         patch('app.rag.research_answer.generate_fallback_result') as fallback:
+    with patch('app.llm.generate_result', return_value='generated') as generate:
         assert _generate_research_correction('rewrite', budget=budget, system_prompt='Explain') == 'generated'
-    assert generate.call_args.kwargs['budget'] is budget
-    assert fallback.call_count == 0
+    generate.assert_called_once_with('rewrite', budget=budget, system_prompt='Explain')

@@ -15,7 +15,7 @@ from time import monotonic
 from typing import Literal
 
 from app.llm import (
-    AgentLLMResult, CoachRequestBudget, LLMResult, generate_fallback_result,
+    AgentLLMResult, CoachRequestBudget, LLMResult,
 )
 from app.rag.grounding import (
     DISCLAIMER, REQUIRED_HEADINGS, GroundingClaim, _numeric_values,
@@ -69,18 +69,14 @@ def _claim_part_ids(claim_text: str, parts: tuple) -> tuple[str, ...]:
 
 def _generate_research_correction(prompt: str, *, budget: CoachRequestBudget,
                                   system_prompt: str) -> LLMResult:
-    """One corrective writer, on the healthiest provider the request already has.
+    """Use the normal writer's provider selection within the correction budget.
 
-    A checker rejection is not a provider outage. When the request carries a
-    provider ledger, reuse the normal writer path so a healthy fallback stays the
-    writer instead of being forced back onto a failed primary; otherwise use the
-    bounded fallback writer exactly as before.
+    A checker rejection does not mean the primary provider failed. Reuse the
+    existing primary/fallback path rather than require a working fallback for
+    every correction. The caller still permits only one bounded rewrite.
     """
-    if getattr(budget, "provider_session", None) is not None:
-        from app.llm import generate_result
-        return generate_result(prompt, budget=budget, system_prompt=system_prompt,
-                               max_tokens=8192)
-    return generate_fallback_result(prompt, budget=budget, system_prompt=system_prompt)
+    from app.llm import generate_result
+    return generate_result(prompt, budget=budget, system_prompt=system_prompt)
 
 
 def approved_evidence(decision: ResearchDecision) -> tuple[tuple[int, str], ...]:
@@ -534,11 +530,23 @@ def check_research_draft(draft: str, *, public_question: str,
         if set(claim_ids) & retained_claims
     ]
     if rejected_blocks:
-        # The semantic coverage verdict described the original draft. Removing
-        # a requested fact makes it unsafe to claim full displayed coverage.
-        diagnostics["requested_scope_covered"] = False
-        diagnostics["answered_part_ids"] = []
-        diagnostics["unanswered_requested_parts"] = list(dict.fromkeys((
+        # Removing an optional aside does not remove a requested answer. Keep a
+        # part complete only if BOTH coverage gates passed and ALL the positive
+        # claims the verifier bound to that part survived local validation.
+        # A missing mapping is not proof of completeness (legacy replies remain
+        # conservative); sharing a source or retaining just one claim is not enough.
+        eligible = {part.part_id for part in decision.assessment.parts if part.complete}
+        surviving_parts = {
+            part_id for part_id, claim_ids in verification.answered_part_claims
+            if part_id in verification.answered_part_ids and part_id in eligible
+            and claim_ids and set(claim_ids) <= retained_claims
+        }
+        diagnostics["answered_part_ids"] = [
+            part.id for part in requested_part_seq if part.id in surviving_parts]
+        missing = tuple(part.label for part in requested_part_seq if part.id not in surviving_parts)
+        displayed_complete = bool(requested_part_seq) and not missing and not verification.quality_errors
+        diagnostics["requested_scope_covered"] = displayed_complete
+        diagnostics["unanswered_requested_parts"] = list(missing) if requested_part_seq else list(dict.fromkeys((
             *verification.unanswered_requested_parts, "requested details removed during verification")))[:6]
         approved = [unit for position, unit in enumerate(units)
                     if unit[2] not in rejected_blocks and position not in notice_rejections]
@@ -553,7 +561,10 @@ def check_research_draft(draft: str, *, public_question: str,
             if not any(section == "Insight" for section, _, _ in approved):
                 approved = [("Insight" if section == "Recommended action" else section, sentence, block)
                             for section, sentence, block in approved]
-            approved.append(("Insight", _partial_notice(public_question, _missing_labels(verification, requested_part_seq)), -1))
+            if not displayed_complete:
+                # Older decisions may have IDs but no public labels. Do not
+                # expose internal IDs such as p1 in the user-facing notice.
+                approved.append(("Insight", _partial_notice(public_question, missing if part_labels else ()), -1))
             if len(_MARKER.sub("", _HEADING.sub("", _render(approved))).split()) > min(200, max_words):
                 usable = False
         diagnostics["approved_claim_count"] = sum(
@@ -561,7 +572,8 @@ def check_research_draft(draft: str, *, public_question: str,
         code = ("ambiguous_submission_channel" if channel_rejections else
                 "unsupported_number" if numeric_rejections else
                 "misapplied_claim" if misapplied_ids else "unsupported_claim")
-        return ResearchDraftCheck(False, (code,), _render(approved) if usable else None,
+        valid = usable and displayed_complete
+        return ResearchDraftCheck(valid, () if valid else (code,), _render(approved) if usable else None,
                                   diagnostics=diagnostics)
     diagnostics["approved_claim_count"] = len(claims)
     units = [unit for position, unit in enumerate(units) if position not in notice_rejections]

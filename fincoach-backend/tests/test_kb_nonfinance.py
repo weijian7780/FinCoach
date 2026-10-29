@@ -948,7 +948,7 @@ def _all_providers_down(monkeypatch):
     for name in ("generate_structured_result", "generate_result", "generate_agent_result", "generate_fallback_result"):
         monkeypatch.setattr(service, name, _fail)
     monkeypatch.setattr(llm, "generate_result", _fail)
-    monkeypatch.setattr(answer, "generate_fallback_result", _fail)
+    monkeypatch.setattr(answer, "_generate_research_correction", _fail)
     monkeypatch.setattr(research_policy, "research_evidence",
                         lambda *a, **k: web.append(a) or ResearchOutcome([], False, "auth_error"))
     monkeypatch.setattr(research_policy, "extract_passages", lambda *a, **k: web.append(a) or {})

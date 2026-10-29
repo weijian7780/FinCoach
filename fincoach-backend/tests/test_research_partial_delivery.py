@@ -42,7 +42,7 @@ def test_verified_insight_without_action_is_delivered():
 def test_plain_generated_explanation_gets_layout_without_paid_rewrite():
     plan=QuestionPlan('Agency',False,True,'stable')
     with patch.object(answer,'verify_grounding_claims',side_effect=support), \
-         patch.object(answer,'generate_fallback_result') as retry:
+         patch.object(answer,'_generate_research_correction') as retry:
         result=answer.recover_research_answer(plan=plan,decision=evidence(),
             draft=AgentLLMResult(FACT+' [S1]', 'primary'),
             budget=CoachRequestBudget.start(),public_question='What are its duties?')
@@ -84,7 +84,7 @@ def test_mixed_answer_contains_one_targeted_question():
     plan=QuestionPlan('Agency',False,True,'stable',required_facts=('duties','application procedure'),
         clarification=question,clarification_facts=('application procedure',))
     with patch.object(answer,'verify_grounding_claims',side_effect=support), \
-         patch.object(answer,'generate_fallback_result') as retry:
+         patch.object(answer,'_generate_research_correction') as retry:
         result=answer.recover_research_answer(plan=plan,decision=evidence(),draft=AgentLLMResult(draft(),'primary'),
             budget=CoachRequestBudget.start(),public_question='Confirm duties and application')
     assert result.result.content.count(question)==1
@@ -101,7 +101,7 @@ def test_verifier_outage_does_not_authorize_draft():
 
 def test_no_facts_cannot_be_replaced_by_quotes():
     empty=replace(evidence(),assessment=EvidenceAssessment('insufficient'))
-    with patch.object(answer,'generate_fallback_result') as generate:
+    with patch.object(answer,'_generate_research_correction') as generate:
         result=answer.recover_research_answer(plan=QuestionPlan('agency',False,True,'stable'),decision=empty,
             draft=None,budget=CoachRequestBudget.start(),public_question='Duties?')
     generate.assert_not_called()
@@ -140,7 +140,7 @@ def test_clarification_space_is_reserved_before_verifying_draft():
     text='The agency '+('coordinates '*180)+'development projects.'
     long=draft().replace(FACT,text)
     with patch.object(answer,'verify_grounding_claims',side_effect=support), \
-         patch.object(answer,'generate_fallback_result',return_value=AgentLLMResult(draft(),'fallback')) as retry:
+         patch.object(answer,'_generate_research_correction',return_value=AgentLLMResult(draft(),'fallback')) as retry:
         result=answer.recover_research_answer(plan=plan,decision=evidence(),draft=AgentLLMResult(long,'primary'),
             budget=CoachRequestBudget.start(),public_question='Duties and application')
     assert retry.call_count==1
