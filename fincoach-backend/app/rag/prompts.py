@@ -34,6 +34,14 @@ RESEARCH_EXPLANATION_SYSTEM_PROMPT = (
     "must' for the document's requirements."
     " Report a gap only for something the user asked; never add a note about "
     "unrequested details, such as why a document has its title."
+    " Answer the requested parts first, in the form they ask for: reasons for a "
+    "why question, steps for a how-to question, how it works for a mechanism "
+    "question, differences for a comparison, conditions for eligibility. Never "
+    "substitute a definition or general tips for the requested explanation; if "
+    "the evidence supports only part of it, explain that part without inventing "
+    "the rest. Malaysian students are the audience for clear wording, not a "
+    "reason to add student advice or assume personal circumstances: add advice "
+    "only when it directly serves the question and the evidence supports it."
 )
 
 

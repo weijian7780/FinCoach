@@ -1131,7 +1131,8 @@ def test_remaining_ptptn_part_is_searched_and_researched_without_the_laptop(monk
     _writer_and_checker(monkeypatch, "PTPTN manages higher education loans", "p2")
     svc = _records_service(monkeypatch, LAPTOP_AND_PTPTN, PTPTN_QUESTION)
     content = svc.send_message("s", "m", PTPTN_QUESTION)["assistant_message"]["content"]
-    assert len(calls) == 2 and calls[1]["topic_ids"] == ["ptptn"]  # the known PTPTN topic
+    assert len(calls) == 2 and calls[1]["topic_ids"][0] == "ptptn"  # the known PTPTN topic first
+    assert all("laptop" not in text.casefold() for text in calls[1]["subqueries"])
     assert all("laptop" not in query.casefold() for query in searched)
     assert PLAN_6 in content and "PTPTN manages higher education loans" in content
 

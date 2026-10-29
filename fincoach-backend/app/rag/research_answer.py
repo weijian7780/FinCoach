@@ -228,15 +228,38 @@ def _render(units: list[tuple[str, str, int]]) -> str:
         or any(section == heading for section, _, _ in units))
 
 
-def _partial_notice(question: str) -> str:
-    """Delivery coverage is distinct from whether source evidence is sufficient."""
+_NAMED_PARTIAL_NOTICES = {
+    "en": "I couldn't fully confirm and explain: {parts}.",
+    "ms": "Saya belum dapat mengesahkan dan menerangkan sepenuhnya: {parts}.",
+    "zh": "以下部分尚未能完整确认和说明：{parts}。",
+    "ta": "இவற்றை இன்னும் முழுமையாக உறுதிப்படுத்தி விளக்க முடியவில்லை: {parts}.",
+}
+
+
+def _partial_notice(question: str, missing: tuple[str, ...] = ()) -> str:
+    """Delivery coverage is distinct from whether source evidence is sufficient.
+
+    ``missing`` names the unanswered requested parts (the plan's own labels);
+    without them the general sentence is used.
+    """
     language = re.search(r"Response language:\s*([a-z]{2,3})", question)
     code = language.group(1) if language else "en"
+    names = tuple(dict.fromkeys(label.strip() for label in missing if label and label.strip()))
+    if names:
+        template = _NAMED_PARTIAL_NOTICES.get(code, _NAMED_PARTIAL_NOTICES["en"])
+        return template.format(parts="; ".join(f"“{name}”" for name in names))
     return {
         "ms": "Saya belum dapat menerangkan semua butiran yang diminta.",
         "zh": "部分问题尚未得到完整说明。",
         "ta": "கேட்ட அனைத்து விவரங்களையும் இன்னும் விளக்க முடியவில்லை.",
     }.get(code, "I could not explain all the requested details yet.")
+
+
+def _missing_labels(verification, requested) -> tuple[str, ...]:
+    """Unanswered requested parts, named only by the plan's own part labels."""
+    labels = {part.label for part in requested}
+    return tuple(label for label in getattr(verification, "unanswered_requested_parts", ()) or ()
+                 if label in labels)
 
 
 def normalize_research_layout(text: str) -> str:
@@ -530,7 +553,7 @@ def check_research_draft(draft: str, *, public_question: str,
             if not any(section == "Insight" for section, _, _ in approved):
                 approved = [("Insight" if section == "Recommended action" else section, sentence, block)
                             for section, sentence, block in approved]
-            approved.append(("Insight", _partial_notice(public_question), -1))
+            approved.append(("Insight", _partial_notice(public_question, _missing_labels(verification, requested_part_seq)), -1))
             if len(_MARKER.sub("", _HEADING.sub("", _render(approved))).split()) > min(200, max_words):
                 usable = False
         diagnostics["approved_claim_count"] = sum(
@@ -546,7 +569,7 @@ def check_research_draft(draft: str, *, public_question: str,
         # Retain verified statements for the one grounded rewrite. Coverage is
         # independent of factual entailment; a useful partial need not disappear.
         if not verification.assessment_supported_ids:
-            units.append(("Insight", _partial_notice(public_question), -1))
+            units.append(("Insight", _partial_notice(public_question, _missing_labels(verification, requested_part_seq)), -1))
         if len(_MARKER.sub("", _HEADING.sub("", _render(units))).split()) > min(200, max_words):
             return ResearchDraftCheck(False, ("answer_too_long",), diagnostics=diagnostics)
         # An already honest, verified partial cannot gain missing source facts

@@ -163,6 +163,8 @@ class QuestionPlan:
     interpreted: bool = True
     interpretation_failure: str | None = None
     original_question: str = ""
+    # The interpreter's de-identified standalone question ("" when absent).
+    question: str = ""
     # Set by the deterministic guard for a bare "what is X" with no other ask.
     # A definitional plan with a corpus hit is answered from the corpus without the
     # LLM answerability gate or any web escalation (see run_research_policy).

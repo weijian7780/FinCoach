@@ -101,7 +101,8 @@ from app.rag.research_coverage import (
     requires_full_clarification,
 )
 from app.rag.document_titles import clean_document_title, resolve_document_titles, topic_is_document
-from app.rag.query_analysis import KNOWLEDGE_TOPICS, KnowledgeQueryAnalysis, analyze_knowledge_query
+from app.rag.query_analysis import (
+    KNOWLEDGE_TOPICS, KnowledgeQueryAnalysis, SearchSubquery, analyze_knowledge_query)
 from app.rag.research_policy import (
     EvidenceAssessment,
     QuestionPlan,
@@ -578,6 +579,37 @@ def _target_plan(target: str, tool_results, language: str) -> tuple[str, str] | 
     return None
 
 
+def _subject_subqueries(plan) -> list[SearchSubquery]:
+    """Extra searches for the plan's own subject words.
+
+    The topic search can carry task or combined wording ("explain X", "X and
+    Y") that lowers a passage's match. The interpreter's subject terms (the
+    plan's entities and each part's entities) are searched as they are, as
+    plain searches: they only add candidates, under the same thresholds, and
+    never change how curated topics are matched. The standalone question is
+    not searched: measured on the real knowledge base it found no extra
+    documents and added off-target passages.
+    """
+    texts = [*getattr(plan, "entities", ()),
+             *(entity for entities in getattr(plan, "part_entities", ()) for entity in entities)]
+    subqueries, seen = [], set()
+    for text in texts:
+        query = build_research_query(str(text or ""))
+        key = " ".join(query.casefold().split())
+        if query and key not in seen:
+            seen.add(key)
+            subqueries.append(SearchSubquery(None, None, query))
+    return subqueries[:3]
+
+
+def _plan_retrieval_analysis(plan, base):
+    """The topic analysis plus the plan's subject-word searches."""
+    existing = {" ".join(subquery.text.casefold().split()) for subquery in base.subqueries}
+    extra = [subquery for subquery in _subject_subqueries(plan)
+             if " ".join(subquery.text.casefold().split()) not in existing]
+    return replace(base, subqueries=(*base.subqueries, *extra)) if base.subqueries and extra else base
+
+
 def _retrieve_remaining_parts(plan, chunks, title_sources):
     """Published evidence for the parts left after a calculation answered one.
 
@@ -595,6 +627,7 @@ def _retrieve_remaining_parts(plan, chunks, title_sources):
     analysis = replace(analyze_knowledge_query(plan.topic), clarification=None)
     if subqueries:
         analysis = replace(analysis, subqueries=tuple(subqueries[:3]))
+    analysis = _plan_retrieval_analysis(plan, analysis)
     try:
         found = retrieve(plan.topic, analysis=analysis, title_sources=title_sources)
     except Exception:
@@ -2648,6 +2681,8 @@ class CoachingService:
                         knowledge_analysis = analyze_knowledge_query(research_plan.topic)
                         # Ambiguity belongs to the typed plan; never guess it again.
                         knowledge_analysis = replace(knowledge_analysis, clarification=None)
+                        # Also search the plan's own subject words and question.
+                        knowledge_analysis = _plan_retrieval_analysis(research_plan, knowledge_analysis)
                         if (research_plan.clarification and resolved_read.tool_name is None
                                 and route == CoachingRoute.FINANCIAL_EDUCATION
                                 and not requires_full_clarification(research_plan)):
