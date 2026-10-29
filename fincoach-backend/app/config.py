@@ -100,6 +100,8 @@ RETRIEVE_CANDIDATES = int(os.environ.get("RETRIEVE_CANDIDATES", "5"))
 RETRIEVE_K = int(os.environ.get("RETRIEVE_K", "3"))
 RETRIEVE_THRESHOLD = float(os.environ.get("RETRIEVE_THRESHOLD", "0.45"))
 RETRIEVE_SCORE_MARGIN = float(os.environ.get("RETRIEVE_SCORE_MARGIN", "0.10"))
+# Most requested parts of one question that each get their own knowledge search.
+RETRIEVE_PART_SEARCHES = int(os.environ.get("RETRIEVE_PART_SEARCHES", "4"))
 
 # ---- Web-research fallback (Tavily) ----
 # Used ONLY when corpus retrieval is inadequate for a knowledge-route question.

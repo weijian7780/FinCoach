@@ -33,6 +33,7 @@ from app.config import (
     COACH_GROUNDING_MODE,
     COACH_WRITE_ACTIONS_ENABLED,
     GROUNDING_VERIFIER_TIMEOUT_SECONDS,
+    RETRIEVE_PART_SEARCHES,
     TAVILY_API_KEY,
     WEB_FALLBACK_ENABLED,
     WEB_FALLBACK_MAX_RESULTS,
@@ -98,6 +99,7 @@ from app.rag.research_coverage import (
     clarification_part_ids,
     clarification_question,
     plan_without_parts,
+    requested_parts,
     requires_full_clarification,
 )
 from app.rag.document_titles import clean_document_title, resolve_document_titles, topic_is_document
@@ -602,11 +604,38 @@ def _subject_subqueries(plan) -> list[SearchSubquery]:
     return subqueries[:3]
 
 
+def _part_subqueries(plan) -> list[SearchSubquery]:
+    """One extra search per requested part of a question with several parts.
+
+    The topic search finds passages that repeat the subject, not necessarily
+    ones that answer each part ("what it is used for"). Each part is searched
+    by its own label, naming the plan's topic when the label does not, so a
+    passage for every part can compete. Plain searches under the same
+    thresholds; at most RETRIEVE_PART_SEARCHES of them.
+    """
+    parts = requested_parts(plan)
+    if len(parts) < 2:
+        return []
+    topic = " ".join(str(getattr(plan, "topic", "") or "").split())
+    subqueries = []
+    for part in parts[:max(0, RETRIEVE_PART_SEARCHES)]:
+        label = " ".join(part.label.split())
+        named = not topic or topic.casefold() in label.casefold()
+        query = build_research_query(label if named else f"{topic}: {label}")
+        if query:
+            subqueries.append(SearchSubquery(None, None, query))
+    return subqueries
+
+
 def _plan_retrieval_analysis(plan, base):
-    """The topic analysis plus the plan's subject-word searches."""
-    existing = {" ".join(subquery.text.casefold().split()) for subquery in base.subqueries}
-    extra = [subquery for subquery in _subject_subqueries(plan)
-             if " ".join(subquery.text.casefold().split()) not in existing]
+    """The topic analysis plus the plan's subject-word and requested-part searches."""
+    seen = {" ".join(subquery.text.casefold().split()) for subquery in base.subqueries}
+    extra = []
+    for subquery in (*_subject_subqueries(plan), *_part_subqueries(plan)):
+        key = " ".join(subquery.text.casefold().split())
+        if key not in seen:
+            seen.add(key)
+            extra.append(subquery)
     return replace(base, subqueries=(*base.subqueries, *extra)) if base.subqueries and extra else base
 
 

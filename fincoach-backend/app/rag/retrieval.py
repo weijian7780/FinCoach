@@ -66,7 +66,11 @@ def select_retrieved_chunks(
     threshold: float,
     score_margin: float,
 ) -> list[RetrievedChunk]:
-    """Apply the calibrated absolute and relative relevance filters."""
+    """Apply the calibrated absolute and relative relevance filters.
+
+    Several searches can find the same passage; it fills one slot, at its
+    best similarity.
+    """
     if score_margin < 0:
         raise ValueError("score_margin must be greater than or equal to zero")
     result_limit = max(1, min(10, int(k)))
@@ -78,11 +82,15 @@ def select_retrieved_chunks(
     if not candidates:
         return []
     minimum_similarity = candidates[0].similarity - score_margin
-    return [
-        chunk
-        for chunk in candidates
-        if chunk.similarity >= minimum_similarity
-    ][:result_limit]
+    selected: list[RetrievedChunk] = []
+    selected_ids: set[int] = set()
+    for chunk in candidates:
+        if chunk.similarity < minimum_similarity or len(selected) >= result_limit:
+            break
+        if chunk.id not in selected_ids:
+            selected.append(chunk)
+            selected_ids.add(chunk.id)
+    return selected
 
 
 def _as_positive_int(value: Any) -> int | None:
@@ -193,6 +201,16 @@ def _select_hybrid_chunks(
             evidence.similarity - score_margin,
         )
 
+    # Searches without a known topic (subject words, requested parts) keep the
+    # same relative margin as general retrieval: below the best accepted
+    # passage by more than the margin, a passage only fills a slot.
+    accepted = [
+        chunk.similarity
+        for _, chunks in per_subquery
+        for chunk in chunks
+        if chunk.similarity >= threshold
+    ]
+    untopiced_floor = max(threshold, max(accepted, default=threshold) - score_margin)
     remaining = sorted(
         (
             chunk
@@ -202,7 +220,7 @@ def _select_hybrid_chunks(
             and _accepted_for_subquery(chunk, SearchSubquery(None, None, ""), threshold)
             and chunk.similarity >= minimum_similarity_by_topic.get(
                 subquery.topic_id,
-                threshold,
+                untopiced_floor,
             )
         ),
         key=lambda chunk: (chunk.rrf_score, chunk.similarity, chunk.lexical_score),
