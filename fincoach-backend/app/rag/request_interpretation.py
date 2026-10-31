@@ -177,9 +177,10 @@ class StatedAmount(StrictModel):
 
     amount: str = Field(min_length=1, max_length=20)
     # filter: transactions of that amount; budget: money the user has or earns
-    # to split; target: a price, cost or goal to save toward; context: mentioned
-    # only, nothing to plan or filter.
-    role: Literal["filter", "budget", "target", "context"]
+    # to split; target: a price, cost or goal to save toward; contribution: an
+    # amount the user saves or sets aside each period; context: mentioned only,
+    # nothing to plan or filter.
+    role: Literal["filter", "budget", "target", "contribution", "context"]
 
     @model_validator(mode="after")
     def valid_amount(self):
@@ -478,7 +479,7 @@ Use clarification for genuine missing information and unsupported_reason for uns
 Any message with an action uses route personal_finance (or combined when it also asks a public question). actions lists every app action the user asks FinCoach to perform, in order: create_reminder, generate_report, change_budget (an explicit command to save, set, change or delete a stored budget or category limit, e.g. 'change my food budget to RM300'). Set explicit=false only for a bare implied task with no request verb ('Pay rent'), with the task as title. generate_report means creating the user's own FinCoach financial report from their records; summarising, explaining or asking about a document, guide or topic (including any of published_documents) is a public question, never generate_report. These are never actions: a negated request ('do not create a reminder'), a question about existing records or about what FinCoach remembers, and a request for a budget plan, split or allocation. Reporting an action never performs it. Never convert a requested write into a read.
 goal is required with a read: show = what / how much / list; explain = why / what it means / is this good; advise = what should I do / how can I improve or cut; plan = organise or plan with my recorded figures. Choose goal from what the user wants done, not from the reply format.
 public.framework: allocation whenever the user asks to plan, split, allocate or budget a stated amount of money they have or earn (50/30/20, 'budget plan for RM1500'); never leave it none when such an amount is to be split; a price or savings target is never allocated; priority for general 'how should I manage my money' or what to do first; gross_income when the stated amount is gross pay before deductions; otherwise none. public.stated_amount is the amount the user states, as a decimal string without RM: a hypothetical, never a saved record. A framework question is time_scope=stable unless the user asks for current or dated facts.
-amounts lists EVERY money amount written in the current message as {amount, role}, amount a decimal string without RM: filter = the user wants transactions of that amount (read.amount on search_transactions); budget = money the user has, earns or wants split (public.stated_amount, with a framework when asked); target = a price, cost or goal to save toward (public.stated_amount with framework none; when the user asks how much to save from their own records, route combined with read predict_savings and read.amount null); context = only mentioned, nothing to plan or filter. A target is never a budget or a filter. A budget or target always goes in public.stated_amount, even when public.topic is another part of a mixed question. Example: 'how much should I save each month for a RM3000 laptop' -> combined, read predict_savings, public.stated_amount='3000', public.framework=none, amounts=[{amount:'3000', role:'target'}].
+amounts lists EVERY money amount written in the current message as {amount, role}, amount a decimal string without RM: filter = the user wants transactions of that amount (read.amount on search_transactions); budget = money the user has, earns or wants split (public.stated_amount, with a framework when asked); target = a price, cost or goal to save toward (public.stated_amount with framework none; when the user asks for help reaching a target for themselves (how much or how long to save, or help saving a stated amount), route combined with read predict_savings and read.amount null); contribution = an amount the user saves or sets aside each period (per day, week or month), not a total to reach (leave public.stated_amount null for it); context = only mentioned, nothing to plan or filter. A target is never a budget, a contribution or a filter. A budget or target always goes in public.stated_amount, even when public.topic is another part of a mixed question. Example: 'how much should I save each month for a RM3000 laptop' -> combined, read predict_savings, public.stated_amount='3000', public.framework=none, amounts=[{amount:'3000', role:'target'}].
 public.parts[].answer_kind binds each fact to how it can be answered: savings_target ONLY for that part's request for the user's saving capacity or monthly contributions/time to reach a stated target, using read predict_savings, public.stated_amount and framework none; research for every other part. Include the fact and its answer_kind together; code assigns IDs. Example: 'how much should I save each month for a RM3000 laptop' -> parts=[{fact:'monthly saving capacity and time to reach the laptop target',domain:'finance',answer_kind:'savings_target'}]. It does not separately ask for saving tips. For laptop saving plus PTPTN use subject_domain=finance, parts=[{fact:'monthly saving capacity and time to reach the laptop target',domain:'finance',answer_kind:'savings_target'},{fact:'what is PTPTN',domain:'finance',entities:['PTPTN'],answer_kind:'research'}]. Reordering these facts keeps each answer_kind attached to its own fact. A calculation never answers PTPTN eligibility, compound interest, product comparisons, saving tips or a non-finance topic. For laptop saving plus message passing use mixed, with the saving part marked savings_target and message passing marked non_finance/research. A finance label alone never establishes calculation coverage. Leave answer_kind=research when that part is only a separate topic and the target concerns the records read.
 When context holds a pending_question for a category and the user accepts the single suggestion ('yes', 'ok', 'that one'), repeat the previous read with category.decision=suggested; when the user names a category, use decision=named with that name.
 Examples: 'What do you remember about my goals?' -> personal_finance, read get_savings_goals, goal=show, no actions. 'Create a budget plan for RM1500.' -> financial_education, public.framework=allocation, stated_amount='1500', amounts=[{amount:'1500', role:'budget'}], no actions. 'Do not create a reminder; show my existing reminders.' -> personal_finance, read get_upcoming_reminders, goal=show, no actions. 'Remind me to pay rent and generate my report' -> two actions. 'now use my current monthly budget to plan' -> personal_finance, read get_budget_status, goal=plan. 'How should I plan with my monthly allowance?' (no amount stated: the user's saved allowance) -> personal_finance, read get_financial_profile, goal=plan.
@@ -528,6 +529,28 @@ def _normalise_proposal(proposal: IntentProposal) -> IntentProposal:
             update["read"] = read.model_copy(update={"amount": None})
         if update:
             proposal = proposal.model_copy(update=update)
+    # The reading itself says this amount is saved per period (a contribution):
+    # public.stated_amount holds a budget or target only, and a records read
+    # takes an amount only as a transaction filter, so the amount is cleared
+    # from those fields. It stays listed and in the user's question.
+    if (public is not None and public.stated_amount is not None
+            and _listed_role(proposal, public.stated_amount) == "contribution"):
+        public = public.model_copy(update={"stated_amount": None})
+        proposal = proposal.model_copy(update={"public": public})
+    read = proposal.read
+    if (read is not None and read.amount is not None and read.operation != "search_transactions"
+            and _listed_role(proposal, read.amount) == "contribution"):
+        proposal = proposal.model_copy(update={"read": read.model_copy(update={"amount": None})})
+    # A listed savings target is the user's own goal: its plan needs their
+    # recorded saving capacity, so a public-only reading gains the
+    # savings-estimate read (the public part is still researched alongside).
+    if (public is not None and proposal.read is None and not proposal.actions
+            and not proposal.clarification and not proposal.unsupported_reason
+            and public.framework == "none" and public.stated_amount is not None
+            and _listed_role(proposal, public.stated_amount) == "target"):
+        proposal = proposal.model_copy(update={
+            "route": "combined", "goal": proposal.goal or "plan",
+            "read": ReadProposal(operation="predict_savings", category=Category(decision="none"))})
     # A listed savings target beside a non_finance public topic belongs to the
     # user's saving plan, not to that topic: with a records read the plan is
     # answered from records and the topic stays non_finance (never searched).
@@ -546,7 +569,7 @@ def _normalise_proposal(proposal: IntentProposal) -> IntentProposal:
         proposal = proposal.model_copy(update={"public": public})
     if (public is not None and proposal.read is None and public.stated_amount
             and public.framework == "none" and proposal.goal == "plan"
-            and _listed_role(proposal, public.stated_amount) != "target"):
+            and _listed_role(proposal, public.stated_amount) in (None, "budget")):
         return proposal.model_copy(update={"public": public.model_copy(update={"framework": "allocation"})})
     return proposal
 
@@ -634,10 +657,15 @@ def check_amounts(proposal: IntentProposal) -> None:
 
 def _amount_meaning(proposal: IntentProposal, amount: str) -> str | None:
     """How a reading keeps the stated number, when it has one clear meaning:
-    "filter" (a transaction search) or "target" (a price/savings target planned
+    "filter" (a transaction search), "target" (a price/savings target planned
     against the user's records: a records read without an amount and no
-    allocation framework, since a price is never an income to split)."""
+    allocation framework, since a price is never an income to split) or
+    "contribution" (listed as saved per period and placed in no other field)."""
     read, public = proposal.read, proposal.public
+    if (_listed_role(proposal, amount) == "contribution"
+            and not (read is not None and _same_amount(read.amount, amount))
+            and not (public is not None and _same_amount(public.stated_amount, amount))):
+        return "contribution"
     as_filter = read is not None and read.operation == "search_transactions" and _same_amount(read.amount, amount)
     as_target = (public is not None and _same_amount(public.stated_amount, amount) and public.framework == "none"
                  and read is not None and read.operation in _TARGET_READS and read.amount is None)
@@ -716,13 +744,13 @@ def _incomplete_mixed(proposal: IntentProposal) -> bool:
 
 
 _AMOUNT_MEANING_MESSAGES = {
-    "en": "Is RM{amount} a price or savings target you are planning for, or should I look for transactions "
-          "of RM{amount}? Please tell me which.",
-    "ms": "Adakah RM{amount} harga atau sasaran simpanan yang anda rancang, atau patutkah saya cari transaksi "
-          "bernilai RM{amount}? Sila nyatakan.",
-    "zh": "RM{amount} 是你计划的价格或储蓄目标，还是要我查找金额为 RM{amount} 的交易？请告诉我。",
-    "ta": "RM{amount} நீங்கள் திட்டமிடும் விலை அல்லது சேமிப்பு இலக்கா, அல்லது RM{amount} மதிப்புள்ள "
-          "பரிவர்த்தனைகளைத் தேட வேண்டுமா? தயவுசெய்து தெரிவிக்கவும்.",
+    "en": "Is RM{amount} a total you want to reach, an amount you save each week or month, or should I look "
+          "for transactions of RM{amount}? Please tell me which.",
+    "ms": "Adakah RM{amount} jumlah yang anda mahu capai, amaun yang anda simpan setiap minggu atau bulan, "
+          "atau patutkah saya cari transaksi bernilai RM{amount}? Sila nyatakan.",
+    "zh": "RM{amount} 是你想达到的总额、每周或每月存的金额，还是要我查找金额为 RM{amount} 的交易？请告诉我。",
+    "ta": "RM{amount} நீங்கள் அடைய விரும்பும் மொத்தத் தொகையா, ஒவ்வொரு வாரமும் அல்லது மாதமும் சேமிக்கும் "
+          "தொகையா, அல்லது RM{amount} மதிப்புள்ள பரிவர்த்தனைகளைத் தேட வேண்டுமா? தயவுசெய்து தெரிவிக்கவும்.",
 }
 
 _SPLIT_QUESTION_MESSAGES = {

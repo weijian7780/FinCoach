@@ -132,12 +132,14 @@ def test_a_calculation_cannot_be_bound_to_a_non_finance_part():
         IntentProposal.model_validate(payload)
 
 
-def test_explicit_saving_calculation_with_no_records_is_repaired():
+def test_explicit_saving_calculation_with_no_records_reads_the_savings_estimate():
+    # Approved 2026-10-31: a listed savings target adds the savings-estimate
+    # read itself, so no repair interpretation is needed any more.
     payload = deepcopy(SAVE_TARGET_LISTED)
     payload.update(route="financial_education", read=None)
-    result = _interpret(SAVE_QUESTION, [], payload, SAVE_TARGET_LISTED)
+    result = _interpret(SAVE_QUESTION, [], payload)
     assert result.failure is None and result.resolved.tool_name == "predict_savings"
-    assert len(_interpret.inputs) == 2
+    assert len(_interpret.inputs) == 1
 
 
 def test_mixed_label_repair_cannot_turn_ptptn_into_a_non_finance_topic():

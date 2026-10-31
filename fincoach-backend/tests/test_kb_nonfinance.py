@@ -453,8 +453,7 @@ SAVE_TARGET = {"route": "combined", "relation": "new", "goal": "plan",
                "public": {"topic": "saving for a laptop", "subject_domain": "finance", "stated_amount": "3000"},
                "response_language": "en", "requested_output": "advice"}
 SAVE_PRICE_DROPPED = {**SAVE_PRICE_ON_READ, "read": {"operation": "predict_savings", "category": {"decision": "none"}}}
-ASK_RM3000 = ("Is RM3,000 a price or savings target you are planning for, or should I look for transactions "
-              "of RM3,000? Please tell me which.")
+ASK_RM3000 = intent._AMOUNT_MEANING_MESSAGES["en"].format(amount="3,000")
 
 
 def test_reviewer_repro_misplaced_laptop_price_is_re_read_and_kept_as_the_target():
@@ -807,10 +806,13 @@ def test_complete_answer_from_the_service_states_the_target(monkeypatch):
     target = {"route": "financial_education", "relation": "new", "goal": "plan",
               "public": {"topic": "saving for a laptop", "subject_domain": "finance", "stated_amount": "3000"},
               "amounts": TARGET_3000}
-    _semantic(monkeypatch, target, "how should I save for a RM3000 laptop")
-    message = _send("how should I save for a RM3000 laptop")
-    assert message["content"].startswith("Your savings target: **RM3,000**.")
-    assert "50/30/20" not in message["content"] and "Set aside" in message["content"]
+    # Approved 2026-10-31: the target adds the savings-estimate read, so the
+    # answer gives the calculated plan from records and the researched tips.
+    svc = _records_service(monkeypatch, target, "how should I save for a RM3000 laptop")
+    content = svc.send_message("s", "m", "how should I save for a RM3000 laptop")["assistant_message"]["content"]
+    assert content.startswith("Your savings target: **RM3,000**.")
+    assert "monthly contribution" in content
+    assert "50/30/20" not in content and "Set aside" in content
 
 
 # Live readings (2026-10-25): message passing as the public topic, the laptop as the records plan.
@@ -829,10 +831,14 @@ def test_reviewer_live_shape_target_never_turns_message_passing_into_finance():
     assert service._non_finance(result.public_plan)  # the service turns web search off for it
 
 
-def test_target_beside_a_non_finance_topic_without_records_needs_its_parts():
+def test_target_beside_a_non_finance_topic_without_records_reads_the_savings_estimate():
+    # Approved 2026-10-31: the listed target adds the savings-estimate read, so
+    # the saving part is answered from records and the topic stays non-finance
+    # (published knowledge only, never web search) instead of asking to split.
     no_records = {**LIVE_TOPIC_AND_RECORDS, "route": "financial_education", "read": None}
-    result = _interpret(LAPTOP_QUESTION, [], no_records, TimeoutError())
-    assert result.proposal is None and result.failure_message == SPLIT
+    result = _interpret(LAPTOP_QUESTION, [], no_records)
+    assert result.failure is None and result.resolved.tool_name == "predict_savings"
+    assert result.public_plan.finance_scope == "non_finance" and service._non_finance(result.public_plan)
 
 
 # ---- The savings plan for a target comes from verified records ----------------------------

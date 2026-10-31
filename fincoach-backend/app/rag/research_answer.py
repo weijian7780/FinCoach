@@ -8,6 +8,7 @@ languages and checks complete document/application statements, not word overlap.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from decimal import Decimal, InvalidOperation
 import json
 import logging
 import re
@@ -18,7 +19,7 @@ from app.llm import (
     AgentLLMResult, CoachRequestBudget, LLMResult,
 )
 from app.rag.grounding import (
-    DISCLAIMER, REQUIRED_HEADINGS, GroundingClaim, _numeric_values,
+    DISCLAIMER, REQUIRED_HEADINGS, GroundingClaim, _CURRENCY_AMOUNT, _numeric_values,
     contains_specific_product_recommendation,
 )
 from app.rag.evidence_text import allowed_generated_ending, complete_evidence_passages
@@ -279,11 +280,100 @@ def normalize_research_layout(text: str) -> str:
     return text
 
 
+# Written working: operands joined by symbol operators, then "=" or "≈" and a
+# result. Language-neutral (symbols only); an operand may carry one unit word.
+# Money uses the shared currency definition; no currency is named here.
+_CURRENCY = re.sub(r"\(\?P<\w+>", "(?:", _CURRENCY_AMOUNT.pattern)
+_CALC_NUMBER = rf"(?:{_CURRENCY}|\d[\d,]*(?:\.\d+)?%?)"
+_CALC_OPERAND = rf"{_CALC_NUMBER}(?:\s+[^\W\d_]{{1,12}})?"
+_CALC_OPERATOR = r"\s*(?:[×*÷/+−]|-(?=\s)|(?<=\s)x(?=\s))\s*"
+_CALCULATION = re.compile(
+    rf"(?P<left>{_CALC_OPERAND}(?:{_CALC_OPERATOR}{_CALC_OPERAND})+)\s*[=≈]\s*(?P<result>{_CALC_OPERAND})",
+    re.IGNORECASE)
+
+
+def _calc_number(token: str) -> tuple[str, bool] | None:
+    """The written number of a calculation token and whether it is a percentage."""
+    money = _CURRENCY_AMOUNT.match(token.strip())
+    if money:
+        return money.group("amount").replace("−", "-"), False
+    plain = re.match(r"\s*(\d[\d,]*(?:\.\d+)?)(%?)", token)
+    return (plain.group(1), bool(plain.group(2))) if plain else None
+
+
+def _calc_value(token: str) -> Decimal | None:
+    parsed = _calc_number(token)
+    if parsed is None:
+        return None
+    value = Decimal(parsed[0].replace(",", ""))
+    return value / 100 if parsed[1] else value
+
+
+def _verified_calculations(sentence: str, allowed: set[str]) -> set[str]:
+    """Result values of the written calculations in a sentence that code can
+    verify: every money/percentage operand is already allowed (the user's own
+    values, approved evidence or an earlier verified result), and the result
+    equals the arithmetic to the precision it is shown with. Bare counts (4
+    weeks, 12 months) are visible multipliers. Unverifiable results are not
+    returned, so they still need source support."""
+    verified: set[str] = set()
+    allowed = set(allowed)
+    for match in _CALCULATION.finditer(sentence):
+        operands = re.findall(_CALC_OPERAND, match.group("left"), re.IGNORECASE)
+        operators = [op.strip() for op in re.findall(_CALC_OPERATOR, match.group("left"))]
+        if len(operators) != len(operands) - 1:
+            continue
+        if any(not _numeric_values(op) <= allowed for op in operands):
+            continue
+        values = [_calc_value(op) for op in operands]
+        result = _calc_value(match.group("result"))
+        if result is None or any(value is None for value in values):
+            continue
+        # Multiplication and division first, then addition and subtraction.
+        terms, signs = [values[0]], []
+        try:
+            for operator, value in zip(operators, values[1:]):
+                if operator in ("×", "*", "x", "X"):
+                    terms[-1] *= value
+                elif operator in ("÷", "/"):
+                    terms[-1] /= value
+                else:
+                    signs.append(-1 if operator in ("-", "−") else 1)
+                    terms.append(value)
+        except (InvalidOperation, ZeroDivisionError):
+            continue
+        total = terms[0] + sum(sign * term for sign, term in zip(signs, terms[1:]))
+        shown = match.group("result")
+        number = _calc_number(shown)[0]
+        places = len(number.split(".")[1]) if "." in number else 0
+        scale = Decimal(1).scaleb(-places) / 2
+        if "%" in shown:
+            total *= 100
+            result *= 100
+        if abs(total - result) <= scale:
+            verified |= _numeric_values(shown)
+            allowed |= _numeric_values(shown)  # a later step may build on it
+    return verified
+
+
+def _verified_rank(diagnostics: dict | None) -> tuple[int, int]:
+    """How much checked content an answer keeps: the requested parts its
+    surviving claims address, then the number of approved claims."""
+    diagnostics = diagnostics or {}
+    return (len(diagnostics.get("addressed_part_ids") or ()), int(diagnostics.get("approved_claim_count") or 0))
+
+
 def check_research_draft(draft: str, *, public_question: str,
                          decision: ResearchDecision, budget: CoachRequestBudget,
                          max_words: int = 200, completion: LLMResult | None = None,
-                         unit_bindings: dict[str, tuple[str, ...]] | None = None) -> ResearchDraftCheck:
-    """Strict structure/numbers followed by one semantic and quality batch."""
+                         unit_bindings: dict[str, tuple[str, ...]] | None = None,
+                         given_text: str = "") -> ResearchDraftCheck:
+    """Strict structure/numbers followed by one semantic and quality batch.
+
+    ``given_text`` is the user's own question. Numbers and codes the user
+    wrote (parsed exactly like the draft's) are not sourced claims, so
+    repeating them needs no source support; every other number still does.
+    """
     text = draft.strip()
     # Models sometimes group citations as [S1, S2]. Canonicalize these before
     # checking source identities; the UI strips only the standard [S1] form.
@@ -326,6 +416,7 @@ def check_research_draft(draft: str, *, public_question: str,
     claim_bindings: list[tuple[int, tuple[str, ...]]] = []
     assessment_claim_ids = []
     numeric_rejections = set()
+    calculated: set[str] = set()
     channel_rejections = set()
     notice_rejections = set()
     qualifications = {}
@@ -374,9 +465,16 @@ def check_research_draft(draft: str, *, public_question: str,
         # Form identifiers contain numbers that the money parser intentionally
         # ignores. They still require literal support in approved evidence.
         form_codes = lambda value: {re.sub(r"[-\s]", "", code).casefold()
-            for code in re.findall(r"\b[A-Z]{2,12}[- ]?\d{1,4}[A-Z]?\b", value)}
-        if (not _numeric_values(sentence).issubset(_numeric_values(positive))
-                or not form_codes(sentence).issubset(form_codes(positive))):
+            for code in re.findall(r"\b[A-Z]{2,12}[- ]?\d{1,4}[A-Z]?\b", value)
+            # Currency amounts are the shared money parser's job, not codes.
+            if not _CURRENCY_AMOUNT.fullmatch(code)}
+        # Values the sentence may state: approved evidence, the user's own
+        # values, and results of written calculations that code verified
+        # (here or earlier in the draft). Context is judged by the verifier.
+        permitted = _numeric_values(positive) | _numeric_values(given_text) | calculated
+        calculated |= _verified_calculations(sentence, permitted)
+        if (not _numeric_values(sentence).issubset(permitted | calculated)
+                or not form_codes(sentence).issubset(form_codes(positive) | form_codes(given_text))):
             # Reject this statement, while still checking independent useful
             # facts. A numeric mismatch cannot authorize the rest of a list.
             numeric_rejections.add(position)
@@ -694,6 +792,9 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
     # Approved evidence is whatever literal quotation(s) the approved sources
     # actually contain; a corpus-only decision may arrive without the list.
     decision = with_approved_evidence(decision)
+    # The user's own question: values they wrote (e.g. their own target) may
+    # be repeated without source support; they are parsed like draft numbers.
+    given_text = getattr(plan, "original_question", "") or ""
     question_reserve = len((clarification_question(plan) or "").split()) if clarification_part_ids(plan) else 0
     max_words = 200 - question_reserve
     def record(result):
@@ -779,7 +880,7 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
                       "research_explanation_unavailable", source_message)
     if draft is not None and budget.remaining_seconds() > 0:
         checked = check_research_draft(normalize_research_layout(draft.content), public_question=public_question,
-            max_words=max_words, completion=draft,
+            max_words=max_words, completion=draft, given_text=given_text,
             decision=decision, budget=budget.for_stage(max_seconds=RESEARCH_VERIFIER_SECONDS))
         checks.append(checked.diagnostics)
         if checked.is_valid:
@@ -807,9 +908,15 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
             )
             record(recovered)
             checked = check_research_draft(normalize_research_layout(recovered.content), public_question=public_question,
-                max_words=max_words, completion=recovered,
+                max_words=max_words, completion=recovered, given_text=given_text,
                 decision=decision, budget=budget.for_stage(max_seconds=RESEARCH_VERIFIER_SECONDS))
             checks.append(checked.diagnostics)
+            if (not checked.is_valid and checked.approved_text and initial_candidate
+                    and _verified_rank(checked.diagnostics) < _verified_rank(initial_check)):
+                # The rewrite kept less verified content than the first draft:
+                # show the first draft's checked answer instead of replacing it.
+                errors = checked.error_codes
+                return finish(draft, "research_explanation_recovery", initial_candidate)
             if checked.is_valid or checked.approved_text:
                 errors = checked.error_codes
                 return finish(recovered, "research_explanation_recovery", checked.approved_text,
