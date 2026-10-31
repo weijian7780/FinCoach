@@ -546,10 +546,30 @@ _TARGET_NO_SURPLUS_LINES = {
 
 
 def _listed_target(proposal) -> str | None:
-    """The price or savings target the interpreter listed and placed (typed fields only)."""
+    """The price or savings target the interpreter listed and placed (typed
+    fields only): in the public part, or, on a records-only reading, the single
+    amount listed as a target."""
     public = getattr(proposal, "public", None)
-    amount = public.stated_amount if public is not None else None
+    if public is None:
+        targets = {item.amount for item in getattr(proposal, "amounts", ()) or () if item.role == "target"}
+        amount = next(iter(targets)) if len(targets) == 1 else None
+    else:
+        amount = public.stated_amount
     return amount if amount is not None and _listed_role(proposal, amount) == "target" else None
+
+
+def _records_answer_with_target(content: str, target: str, plan: tuple[str, str],
+                                language: str) -> tuple[str, str]:
+    """A records answer led by the code-written block (target, verified facts,
+    calculated plan); whatever the records answer says after its facts (such
+    as a checked advice paragraph) follows unchanged. Returns the content and
+    that code-written block, so only the text after it counts as model text."""
+    plan_text, facts = plan
+    block = f"{_target_line(target, language)}\n\n{facts}\n\n{plan_text}"
+    rest = content[len(facts):].strip() if content.startswith(facts) else content.strip()
+    if rest == facts:
+        rest = ""
+    return (f"{block}\n\n{rest}" if rest else block), block
 
 
 def _target_plan(target: str, tool_results, language: str) -> tuple[str, str] | None:
@@ -3078,7 +3098,7 @@ class CoachingService:
                 early_tool_result = None
                 answered_part_ids: tuple[str, ...] = ()
                 target = _listed_target(proposal) if semantic is not None else None
-                if (target is not None and route == CoachingRoute.COMBINED
+                if (target is not None and route in (CoachingRoute.COMBINED, CoachingRoute.PERSONAL_FINANCE)
                         and resolved_read.tool_name == "predict_savings"
                         and resolved_read.readiness == ReadReadiness.READY):
                     early_tool_result = AgentToolExecutor(
@@ -3439,7 +3459,7 @@ class CoachingService:
                             name for name in tool_result.get("suggestions") or []
                             if isinstance(name, str)
                         ]
-                    elif target_plan is not None and research_plan is None:
+                    elif target_plan is not None and research_plan is None and route == CoachingRoute.COMBINED:
                         # The calculation answers every requested part: one
                         # code-written answer, no research and no writer.
                         result = AgentLLMResult(
@@ -3477,6 +3497,13 @@ class CoachingService:
                             check_paragraph=proposal is not None,
                             reasoning_effort=reasoning_effort, budget=request_budget,
                         )
+                        if target_plan is not None:
+                            # A records-only target: the records answer (and
+                            # any advice it gives) stays; the code-written block
+                            # (target, facts, plan) leads it and is not re-checked.
+                            target_content, facts_block = _records_answer_with_target(
+                                result.content, target, target_plan, target_language)
+                            result = replace(result, content=target_content)
                     else:
                         # COMBINED (and any other route landing here): unchanged
                         # pre-agent behavior — the LLM writes the full grounded
@@ -3664,7 +3691,11 @@ class CoachingService:
                         if not recorded_money_claims_match_tools(numeric_content, getattr(result, "tool_results", ())):
                             numeric_content = None
                     recovered_prediction = (
-                        _verified_prediction_recovery(result)
+                        # A rejected paraphrase never removes the code-written
+                        # target block (target, verified facts, calculated plan).
+                        replace(result, content=facts_block, model="fincoach-verified-read")
+                        if target_plan is not None and facts_block and (numeric_content is None or grounding_fallback)
+                        else _verified_prediction_recovery(result)
                         if numeric_content is None or grounding_fallback else None
                     )
                     if recovered_prediction is not None:

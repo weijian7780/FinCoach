@@ -71,7 +71,7 @@ class AccuracyToolsTests(unittest.TestCase):
                  expense("foreign", 9999, "Rent", owner="other")]
         tools = executor(rows)
         summary = tools.execute("get_spending_summary", {})
-        self.assertEqual(summary["expense_total"], "RM1400.00")
+        self.assertEqual(summary["expense_total"], "RM1,400.00")
         self.assertEqual(summary["expense_count"], 501)
         rent = tools.execute("get_spending_summary", {"category_name": "Rent"})
         self.assertEqual(rent["expense_total"], "RM900.00")

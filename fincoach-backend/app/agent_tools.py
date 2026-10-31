@@ -513,7 +513,10 @@ class _ReportDraft(_Args):
 
 
 def _money(value: Any) -> str:
-    return f"RM{Decimal(str(value or 0)):.2f}"
+    """Display money with thousands separators and the sign before the
+    currency ("-RM5,027.25"); parsers strip the symbols and keep the sign."""
+    amount = Decimal(str(value or 0))
+    return f"{'-' if amount < 0 else ''}RM{abs(amount):,.2f}"
 
 
 def _month_bounds(value: date) -> tuple[date, date]:

@@ -115,7 +115,7 @@ class SavingsPredictionToolTests(unittest.TestCase):
         result = prediction_executor(transactions=[
             income, expense("food", 300, "Food", "2026-09-10"),
         ]).execute("predict_savings", {"month": "2026-09"})
-        self.assertEqual(result["income"], "RM1500.00")
+        self.assertEqual(result["income"], "RM1,500.00")
         self.assertEqual(result["projected_saveable"], "RM900.00")
 
     def test_unfinished_goals_are_destinations_for_savings_not_immediate_expenses(self):
@@ -124,7 +124,7 @@ class SavingsPredictionToolTests(unittest.TestCase):
             "current_amount": 500, "deadline": "2027-09-01", "created_at": "2026-01-01",
         }]).execute("predict_savings", {"month": "2026-09"})
         self.assertEqual(result["projected_saveable"], "RM600.00")
-        self.assertEqual(result["goal_details"][0]["remaining_to_goal"], "RM9500.00")
+        self.assertEqual(result["goal_details"][0]["remaining_to_goal"], "RM9,500.00")
 
     def test_future_month_uses_observed_spending_instead_of_empty_future_records(self):
         result = prediction_executor().execute("predict_savings", {"month": "2026-10"})
@@ -161,7 +161,7 @@ class SavingsPredictionToolTests(unittest.TestCase):
     def test_explicit_zero_income_is_known_and_deficit_is_not_negative_savings(self):
         result = prediction_executor(allowance=0).execute("predict_savings", {})
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["projected_remaining"], "RM-600.00")
+        self.assertEqual(result["projected_remaining"], "-RM600.00")
         self.assertEqual(result["projected_saveable"], "RM0.00")
 
     def test_spending_access_is_required(self):
@@ -203,7 +203,7 @@ class SavingsPredictionReplyTests(unittest.TestCase):
 
     def test_unverified_model_amount_recovers_using_the_existing_prediction(self):
         reply = coach_reply("Why can I save so little this month?", prediction_executor(),
-                            generated="Your estimated savings are RM9999.00.")
+                            generated="Your estimated savings are RM9,999.00.")
         self.assertIn("RM600.00", reply["content"])
         self.assertNotIn("9999", reply["content"])
         self.assertNotIn("Please ask for a verified", reply["content"])
@@ -216,7 +216,7 @@ class SavingsPredictionReplyTests(unittest.TestCase):
 
     def test_valid_model_projection_with_calculation_remains_usable(self):
         content = ("Estimated savings: RM600.00.\n"
-                   "Calculation: RM1200.00 - RM600.00 = RM600.00\n"
+                   "Calculation: RM1,200.00 - RM600.00 = RM600.00\n"
                    "This estimate uses 15 days of recorded expenses.")
         reply = coach_reply("Why can I save so little this month?", prediction_executor(), generated=content)
         # Deep advice includes a deterministic facts block before valid model
@@ -256,21 +256,21 @@ class PredictionNumericEvidenceTests(unittest.TestCase):
 
     def test_a_negative_amount_still_requires_evidence(self):
         self.assertIsNone(normalise_and_validate_numeric_claims(
-            "Your estimated remaining funds are RM-9999.00.", "RM1200.00 RM600.00",
+            "Your estimated remaining funds are -RM9,999.00.", "RM1,200.00 RM600.00",
         ))
 
     def test_verified_arithmetic_allows_a_derived_amount(self):
-        text = "Calculation: RM1200.00 - RM650.00 = RM550.00"
-        self.assertEqual(normalise_and_validate_numeric_claims(text, "RM1200.00 RM650.00"), text)
+        text = "Calculation: RM1,200.00 - RM650.00 = RM550.00"
+        self.assertEqual(normalise_and_validate_numeric_claims(text, "RM1,200.00 RM650.00"), text)
 
     def test_arithmetic_does_not_ignore_the_operator_or_unknown_inputs(self):
         for text in (
-            "Calculation: RM1200.00 + RM650.00 = RM550.00",
-            "Calculation: RM1200.00 - RM100.00 = RM1100.00",
-            "Calculation: RM1200.00 * RM650.00 = RM1850.00",
+            "Calculation: RM1,200.00 + RM650.00 = RM550.00",
+            "Calculation: RM1,200.00 - RM100.00 = RM1,100.00",
+            "Calculation: RM1,200.00 * RM650.00 = RM1,850.00",
         ):
             with self.subTest(text=text):
-                self.assertIsNone(normalise_and_validate_numeric_claims(text, "RM1200.00 RM650.00"))
+                self.assertIsNone(normalise_and_validate_numeric_claims(text, "RM1,200.00 RM650.00"))
 
 
 if __name__ == "__main__":

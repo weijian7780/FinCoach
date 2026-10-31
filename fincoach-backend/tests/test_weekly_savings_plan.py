@@ -49,7 +49,7 @@ class WeeklySavingsPlanTests(unittest.TestCase):
         tools = prediction_executor(now=NOW, goals=[goal(), goal(user_id="other", name="private")])
         plan = tools.execute("get_weekly_savings_plan", {})
         self.assertEqual(plan["status"], "ok")
-        self.assertEqual(plan["forecast"]["income"], "RM1200.00")
+        self.assertEqual(plan["forecast"]["income"], "RM1,200.00")
         self.assertEqual(plan["forecast"]["recorded_expenses"], "RM300.00")
         # 300 / 21 * 30 = 428.57 spending; 771.43 / 30 * 7 = 180.00 weekly.
         self.assertEqual(plan["weekly_saveable"], "RM180.00")
@@ -60,9 +60,9 @@ class WeeklySavingsPlanTests(unittest.TestCase):
         self.assertEqual(len(plan["goals"]), 1)
         saved = plan["goals"][0]
         self.assertEqual(saved["current_amount"], "RM600.00")
-        self.assertEqual(saved["remaining_to_goal"], "RM45400.00")
+        self.assertEqual(saved["remaining_to_goal"], "RM45,400.00")
         self.assertEqual(saved["contributions_remaining"], 2)
-        self.assertEqual(saved["required_per_contribution"], "RM22700.00")
+        self.assertEqual(saved["required_per_contribution"], "RM22,700.00")
         self.assertTrue(saved["exceeds_estimated_pace"])
         self.assertTrue({"profiles", "transactions", "savings_goals"}.issubset(
             {call.args[0] for call in tools.admin_client.table.call_args_list}))
@@ -77,7 +77,7 @@ class WeeklySavingsPlanTests(unittest.TestCase):
                     "You have RM0.00 saved [get_savings_goals]."
                 ))
                 self.assertEqual(reply["model"], "fincoach-verified-read")
-                for expected in ("RM1200.00", "RM300.00", "RM600.00", "RM22700.00",
+                for expected in ("RM1,200.00", "RM300.00", "RM600.00", "RM22,700.00",
                                  "RM180.00", "2026-09-28", "2026-09-30"):
                     self.assertIn(expected, reply["content"])
                 self.assertNotIn("Without verified", reply["content"])
@@ -89,9 +89,9 @@ class WeeklySavingsPlanTests(unittest.TestCase):
         plan = executor(allowance=None).execute("get_weekly_savings_plan", {})
         self.assertIsNone(plan["weekly_saveable"])
         self.assertEqual(plan["forecast"]["missing_fields"], ["income"])
-        self.assertEqual(plan["goals"][0]["required_per_contribution"], "RM22700.00")
+        self.assertEqual(plan["goals"][0]["required_per_contribution"], "RM22,700.00")
         reply = coach_reply(QUESTION, executor(allowance=None))
-        self.assertIn("RM22700.00", reply["content"])
+        self.assertIn("RM22,700.00", reply["content"])
         self.assertIn("allowance", reply["content"].lower())
         self.assertNotIn("RM0.00", reply["content"])
 

@@ -539,7 +539,7 @@ def _normalise_proposal(proposal: IntentProposal) -> IntentProposal:
         proposal = proposal.model_copy(update={"public": public})
     read = proposal.read
     if (read is not None and read.amount is not None and read.operation != "search_transactions"
-            and _listed_role(proposal, read.amount) == "contribution"):
+            and _listed_role(proposal, read.amount) in ("contribution", "target")):
         proposal = proposal.model_copy(update={"read": read.model_copy(update={"amount": None})})
     # A listed savings target is the user's own goal: its plan needs their
     # recorded saving capacity, so a public-only reading gains the
@@ -645,7 +645,8 @@ def check_amounts(proposal: IntentProposal) -> None:
                                      and _same_amount(read.amount, item.amount)):
             raise ProposalRejected("A filter amount is read.amount on search_transactions")
         if role in ("budget", "target") and not _same_amount(stated, item.amount):
-            raise ProposalRejected("A budget or target amount is public.stated_amount")
+            if not (role == "target" and _records_target(proposal)):
+                raise ProposalRejected("A budget or target amount is public.stated_amount")
     if stated is not None and _listed_role(proposal, stated) not in ("budget", "target"):
         raise ProposalRejected("public.stated_amount must be listed in amounts as budget or target")
     if (read is not None and read.amount is not None and read.operation == "search_transactions"
@@ -653,6 +654,14 @@ def check_amounts(proposal: IntentProposal) -> None:
         raise ProposalRejected("read.amount must be listed in amounts as filter")
     if stated is not None and _listed_role(proposal, stated) == "target" and public.framework != "none":
         raise ProposalRejected("A price or savings target is never an amount to allocate (framework none)")
+
+
+def _records_target(proposal: IntentProposal) -> bool:
+    """A records-only reading (no public part) whose records read can plan a
+    savings target: the target is typed in ``amounts`` alone."""
+    read = proposal.read
+    return (proposal.public is None and read is not None and read.operation in _TARGET_READS
+            and read.amount is None)
 
 
 def _amount_meaning(proposal: IntentProposal, amount: str) -> str | None:
@@ -667,8 +676,9 @@ def _amount_meaning(proposal: IntentProposal, amount: str) -> str | None:
             and not (public is not None and _same_amount(public.stated_amount, amount))):
         return "contribution"
     as_filter = read is not None and read.operation == "search_transactions" and _same_amount(read.amount, amount)
-    as_target = (public is not None and _same_amount(public.stated_amount, amount) and public.framework == "none"
-                 and read is not None and read.operation in _TARGET_READS and read.amount is None)
+    as_target = ((public is not None and _same_amount(public.stated_amount, amount) and public.framework == "none"
+                  and read is not None and read.operation in _TARGET_READS and read.amount is None)
+                 or (_records_target(proposal) and _listed_role(proposal, amount) == "target"))
     stated_elsewhere = public is not None and public.stated_amount is not None and not as_target
     if as_filter == as_target or stated_elsewhere:
         return None

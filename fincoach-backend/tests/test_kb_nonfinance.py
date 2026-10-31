@@ -694,13 +694,18 @@ def test_listed_budget_is_never_moved():
     assert result.proposal is None and "RM1,500" in result.failure_message
 
 
-def test_listed_target_without_a_public_plan_is_re_read():
-    result = _interpret(SAVE_QUESTION, [], SAVE_NO_PUBLIC_LISTED, SAVE_TARGET_LISTED)
-    assert len(_interpret.inputs) == 2 and result.proposal.public.stated_amount == "3000"
+def test_listed_target_on_a_records_only_reading_is_accepted():
+    # Approved 2026-10-31: a typed target with a compatible records read needs
+    # no research part ("i want reach rm10000" was asked to clarify every time).
+    result = _interpret(SAVE_QUESTION, [], SAVE_NO_PUBLIC_LISTED)
+    assert len(_interpret.inputs) == 1 and result.failure is None
+    assert result.proposal.public is None and service._listed_target(result.proposal) == "3000"
 
 
-def test_re_read_that_still_omits_the_listed_price_asks_instead():
-    result = _interpret(SAVE_QUESTION, [], SAVE_NO_PUBLIC_LISTED, SAVE_PRICE_DROPPED)
+def test_target_with_an_incompatible_records_read_is_re_read_and_never_dropped():
+    spending = {**SAVE_NO_PUBLIC_LISTED, "read": {"operation": "get_spending_summary", "category": {"decision": "none"}}}
+    dropped = {**spending, "amounts": []}
+    result = _interpret(SAVE_QUESTION, [], spending, dropped)
     assert result.proposal is None and result.failure_message == ASK_RM3000
 
 
@@ -939,6 +944,15 @@ def _fail(*_args, **_kwargs):
 
 def _records_service(monkeypatch, payload, question):
     from test_category_interpretation_contract import StoredClient, stored_rows, USER_ID
+    import app.agent_tools as tools
+
+    class _FixedNow(tools.datetime):
+        # The in-memory records are dated around September/October 2026; pin
+        # the records tools' clock so the savings estimate keeps seeing them.
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 25, 12, 0, tzinfo=tz)
+    monkeypatch.setattr(tools, "datetime", _FixedNow)
     _semantic(monkeypatch, payload, question)
     repository = MagicMock(user_id=USER_ID)
     repository.require_session.return_value = {"id": "s", "title": "Existing"}
