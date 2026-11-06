@@ -128,6 +128,10 @@ COACH_CATEGORY_INTERPRETATION_ENABLED = _environment_flag(
 # "research_decision" logs (corpus vs web evidence, assessment status/missing) to
 # diagnose why a stable/definitional query escalated to web. Off in prod.
 COACH_RESEARCH_DEBUG = _environment_flag("COACH_RESEARCH_DEBUG", False)
+# Reorder structured calls only; provider roles and writing order are preserved.
+COACH_STRUCTURED_PROVIDER_ORDER = os.environ.get("COACH_STRUCTURED_PROVIDER_ORDER", "primary_first")
+if COACH_STRUCTURED_PROVIDER_ORDER not in {"primary_first", "fallback_first"}:
+    COACH_STRUCTURED_PROVIDER_ORDER = "primary_first"
 COACH_STRUCTURED_TIMEOUT_SECONDS = _bounded_setting("COACH_STRUCTURED_TIMEOUT_SECONDS", 8, 1, 60)
 COACH_RESEARCH_ANSWER_RESERVE_SECONDS = _bounded_setting(
     "COACH_RESEARCH_ANSWER_RESERVE_SECONDS", 30, 1, 60,

@@ -43,3 +43,9 @@ def test_checker_request_goes_to_the_primary_model(monkeypatch):
     verifier.verify_grounding_claims([GroundingClaim(1, "PTPTN provides education loans.", (1,))],
                                      ["PTPTN provides education loans."], timeout_seconds=5)
     assert sent["model"] == "gemini-test" and "extra_body" not in sent
+
+
+def test_openrouter_checker_turns_hidden_reasoning_off(monkeypatch):
+    _configure(monkeypatch, primary=True)
+    monkeypatch.setattr(verifier, "LLM_PRIMARY_BASE_URL", "https://openrouter.ai/api/v1")
+    assert verifier._verifier_settings()[3] == {"extra_body": {"reasoning": {"enabled": False}}}

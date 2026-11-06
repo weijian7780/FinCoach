@@ -7,6 +7,7 @@ import json
 import logging
 from time import monotonic
 from typing import Any
+from urllib.parse import urlparse
 
 from app.config import (
     GROUNDING_VERIFIER_MAX_TOKENS,
@@ -79,7 +80,11 @@ def _verifier_settings() -> tuple[str, str, str, dict]:
     only to the LLM_* provider.
     """
     if LLM_PRIMARY_BASE_URL and LLM_PRIMARY_API_KEY and LLM_PRIMARY_MODEL:
-        return LLM_PRIMARY_BASE_URL, LLM_PRIMARY_API_KEY, LLM_PRIMARY_MODEL, {}
+        # OpenRouter reasoning models (e.g. Nemotron) spend the whole verdict budget
+        # on hidden reasoning and return truncated JSON, so checks run with it off.
+        extra = ({"extra_body": {"reasoning": {"enabled": False}}}
+                 if urlparse(LLM_PRIMARY_BASE_URL).hostname == "openrouter.ai" else {})
+        return LLM_PRIMARY_BASE_URL, LLM_PRIMARY_API_KEY, LLM_PRIMARY_MODEL, extra
     return LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, {"extra_body": {"thinking": {"type": "disabled"}}}
 
 

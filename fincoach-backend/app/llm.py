@@ -17,6 +17,7 @@ from app.config import (
     COACH_RATE_LIMIT_RETRY_MAX_SECONDS,
     COACH_REQUEST_DEADLINE_SECONDS,
     COACH_STRUCTURED_TIMEOUT_SECONDS,
+    COACH_STRUCTURED_PROVIDER_ORDER,
     COACH_RESEARCH_ANSWER_RESERVE_SECONDS,
     GROUNDING_VERIFIER_TIMEOUT_SECONDS,
     LLM_API_KEY,
@@ -550,6 +551,14 @@ def generate_result(
     raise RuntimeError("The coaching provider is not configured.")
 
 
+def _structured_providers() -> list[_Provider]:
+    """Change attempt order without changing role-specific request rules or budgets."""
+    providers = _providers()
+    if COACH_STRUCTURED_PROVIDER_ORDER == "fallback_first":
+        providers.sort(key=lambda provider: provider.role != "fallback")
+    return providers
+
+
 def generate_structured_result(
     prompt: str,
     *,
@@ -560,7 +569,7 @@ def generate_structured_result(
     stage_name: str = "evidence_assessment",
 ) -> LLMResult:
     """One short interpretation/assessment call with final-answer time reserved."""
-    providers = _providers()
+    providers = _structured_providers()
     if not providers:
         raise RuntimeError("The coaching provider is not configured.")
     from openai import OpenAI
@@ -615,7 +624,7 @@ def generate_validated_interpretation(prompt, *, response_schema, validate, budg
                              reserve_after_seconds=min(30.0, max(0.0, budget.remaining_seconds()) / 2))
     last_error = TimeoutError("Interpretation budget exhausted")
     feedback = ""
-    for provider in _providers()[:2]:
+    for provider in _structured_providers()[:2]:
         try:
             timeout = min(15.0, stage.timeout_for(provider.role))
             result = _generate_with_provider(

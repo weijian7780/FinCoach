@@ -16,9 +16,11 @@ services:
     env_file:
       - .env
     environment:
+      COACH_STRUCTURED_PROVIDER_ORDER: "fallback_first"
       ADMIN_STATIC_DIR: /app/admin-static
       # Local Docker Desktop primary; deployment-specific override of .env.
-      LLM_PRIMARY_MODEL: "gemini-3.5-flash-lite"
+      # 2026-11-06: OpenRouter Nemotron (free) primary, Gemini fallback.
+      LLM_PRIMARY_MODEL: "nvidia/nemotron-3.5-super-vl:free"
       LLM_PRIMARY_MAX_TOKENS: "4096"
       COACH_RESEARCH_POLICY_ENABLED: "true"
       # LLM-first read interpretation (merged from the 2026-10-17 candidate).
