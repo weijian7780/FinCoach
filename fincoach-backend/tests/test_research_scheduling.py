@@ -14,28 +14,28 @@ def test_work_budget_reserves_exactly_five_seconds_once():
         assert scheduling.research_work_budget(work).stage_deadline_at == 115
 
 
-@pytest.mark.parametrize('remaining,allowed', [(27.99, False), (28, True), (28.01, True)])
+@pytest.mark.parametrize('remaining,allowed', [(26.99, False), (27, True), (27.01, True)])
 def test_initial_writer_boundary(remaining, allowed):
     with patch.object(llm, 'monotonic', return_value=115-remaining), patch.object(llm, 'COACH_REQUEST_DEADLINE_SECONDS', 120):
         work = CoachRequestBudget(0, stage_deadline_at=115)
         writer = scheduling.initial_writer_budget(work)
         assert (writer is not None) == allowed
         if writer:
-            assert writer.stage_deadline_at <= 107
+            assert writer.stage_deadline_at <= 115 - scheduling.RESEARCH_CHECKER_ESTIMATE_SECONDS
 
 
-@pytest.mark.parametrize('remaining,allowed', [(25.99, False), (26, True), (26.01, True)])
+@pytest.mark.parametrize('remaining,allowed', [(19.99, False), (20, True), (20.01, True)])
 def test_correction_boundary(remaining, allowed):
     with patch.object(llm, 'monotonic', return_value=115-remaining), patch.object(llm, 'COACH_REQUEST_DEADLINE_SECONDS', 120):
         work = CoachRequestBudget(0, stage_deadline_at=115)
         correction = scheduling.correction_writer_budget(work)
         assert (correction is not None) == allowed
         if correction:
-            assert correction.remaining_seconds() <= 18
-            assert correction.stage_deadline_at <= 107
+            assert correction.remaining_seconds() <= scheduling.COACH_RESEARCH_CORRECTION_SECONDS
+            assert correction.stage_deadline_at <= 115 - scheduling.RESEARCH_CHECKER_ESTIMATE_SECONDS
 
 
-def test_research_then_writer_preserves_full_recovery_path():
+def test_research_then_writer_leaves_a_measured_checker_window():
     with patch.object(llm, "monotonic", return_value=0), patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 120):
         total = CoachRequestBudget(0)
         work = scheduling.research_work_budget(total)
@@ -45,8 +45,9 @@ def test_research_then_writer_preserves_full_recovery_path():
         assert research.stage_deadline_at == 35
         with patch.object(llm, "monotonic", return_value=35):
             writer = scheduling.initial_writer_budget(work)
-            assert writer.remaining_seconds() == 35
-            assert work.remaining_seconds() - writer.remaining_seconds() == 45
+            reserve = scheduling.RESEARCH_CHECKER_ESTIMATE_SECONDS
+            assert writer.remaining_seconds() == min(35, 80 - reserve)
+            assert work.remaining_seconds() - writer.remaining_seconds() >= reserve
 
 
 def test_expired_child_cannot_extend_parent_deadline():

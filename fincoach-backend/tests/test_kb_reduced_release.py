@@ -573,9 +573,10 @@ def test_a_genuinely_unsupported_claim_still_keeps_the_caveat():
                            "The guide guarantees a RM500 bursary to every reader [S1]."),
                     lambda text: "unsupported" if "bursary" in text else "supported")
     assert not result.is_valid and result.approved_text
-    assert "could not explain all the requested details" in result.approved_text
+    assert "could not explain all the requested details" not in result.approved_text
 
 
 def test_writer_is_told_not_to_invent_unrequested_gaps():
     from app.rag.prompts import RESEARCH_EXPLANATION_SYSTEM_PROMPT as prompt
-    assert "Report a gap only for something the user asked" in prompt
+    assert "Omit unsupported details without adding a gap or uncertainty note." in prompt
+    assert "Mention a gap only" not in prompt

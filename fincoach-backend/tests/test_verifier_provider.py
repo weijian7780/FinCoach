@@ -33,7 +33,7 @@ def test_checker_request_goes_to_the_primary_model(monkeypatch):
     class Completions:
         def create(self, **kwargs):
             sent.update(kwargs)
-            message = SimpleNamespace(content='{"claims": []}')
+            message = SimpleNamespace(content='{"claims": [{"id": 1, "verdict": "supported", "source_index": 1}]}')
             return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")],
                                    usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1))
 

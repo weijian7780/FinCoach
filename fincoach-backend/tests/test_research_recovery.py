@@ -66,6 +66,7 @@ def test_initial_generation_failover_shares_its_cap():
     with (patch.object(llm, "monotonic", side_effect=lambda: now[0]),
           patch.object(llm, "COACH_REQUEST_DEADLINE_SECONDS", 60),
           patch.object(llm, "LLM_PRIMARY_TIMEOUT_SECONDS", 50),
+          patch.object(llm, "COACH_WRITER_PROVIDER_ORDER", "primary_first"),
           patch.object(llm, "_configured", return_value=True),
           patch.object(llm, "_providers", return_value=[
               SimpleNamespace(role="primary", model="primary", base_url="https://example.org"),

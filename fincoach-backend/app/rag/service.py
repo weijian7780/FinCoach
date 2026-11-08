@@ -117,6 +117,7 @@ from app.rag.research_policy import (
 )
 from app.rag.retrieval import RetrievedChunk, published_document_titles, retrieve
 from app.rag.verifier import verify_grounding_claims
+from app.rag.research_checker_deadline import within_writer_deadline
 
 _RESEARCH_EXPLANATION_MODES = frozenset({
     "research_explanation", "research_explanation_recovery", "research_explanation_unavailable",
@@ -151,14 +152,17 @@ def _research_explanation_result(*, plan, decision, budget, question, personal_f
     # may carry them only in source_quotes.
     decision = with_approved_evidence(decision)
     # One absolute stage bound: the writer may only start when its own window and
-    # the 8-second semantic check still fit inside the ORIGINAL request deadline.
+    # a useful semantic check still fit inside the ORIGINAL request deadline.
     writer_budget = initial_writer_budget(budget)
     if decision.assessment.supported_quotes and writer_budget is not None:
         try:
-            draft = generate_result(
-                build_research_recovery_prompt(public_question, decision),
-                budget=replace(writer_budget, stage_name="answer_generation"),
-                system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
+            draft = within_writer_deadline(
+                lambda: generate_result(
+                    build_research_recovery_prompt(public_question, decision),
+                    budget=replace(writer_budget, stage_name="answer_generation"),
+                    system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
+                ),
+                writer_budget.remaining_seconds(),
             )
         except Exception as error:
             error_type = type(error).__name__
@@ -1315,6 +1319,8 @@ def _records_answer(*, goal, tool_name, tool_result, question, prompt, language,
         paragraph_prompt = _build_deep_advice_prompt(prompt, tool_record)
         if goal == "plan":
             paragraph_prompt += f"\n\n{_RECORD_PLAN_INSTRUCTION}"
+        if language:
+            paragraph_prompt += f"\n\nLanguage: {language}."
         mode = "two_phase_advice"
     try:
         generated = generate_result(paragraph_prompt, reasoning_effort=reasoning_effort, budget=budget)
@@ -2601,6 +2607,8 @@ class CoachingService:
         *,
         interaction_reply: dict[str, str] | None = None,
     ) -> dict:
+        # Include pre-processing and repository reads in the message clock.
+        request_budget = CoachRequestBudget.start()
         session = self.repository.require_session(session_id)
         user_message = self.repository.find_user_message(message_id)
         if user_message and (
@@ -2628,7 +2636,6 @@ class CoachingService:
                 raise CoachingConflict("Message is already being processed.")
 
         try:
-            request_budget = CoachRequestBudget.start()
             financial_triage = False
             grounding_retry = False
             grounding_fallback = False
@@ -3124,6 +3131,7 @@ class CoachingService:
                     and not knowledge_analysis.clarification
                     and not requires_full_clarification(research_plan)
                 ):
+                    from app.rag.search_privacy import make_search_guard
                     decision = run_research_policy(
                         research_plan, chunks,
                         generate=generate_structured_result,
@@ -3137,6 +3145,9 @@ class CoachingService:
                                      and not _non_finance(research_plan)),
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
+                        web_query_guard=make_search_guard(self.admin_client, self.repository.user_id,
+                            generate=generate_structured_result, budget=research_work_budget(request_budget),
+                            jurisdiction=research_plan.jurisdiction),
                     )
                     chunks = decision.chunks
                     evidence_assessment = decision.assessment
@@ -3163,11 +3174,14 @@ class CoachingService:
                     # Privacy (invariant #7): only a de-identified topic query is
                     # sent to the web — never the raw message, history, or PII.
                     research_query = build_research_query(content)
+                    from app.rag.search_privacy import make_search_guard
                     web_chunks = research_web(
                         research_query,
                         api_key=TAVILY_API_KEY,
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
+                        web_query_guard=make_search_guard(self.admin_client, self.repository.user_id,
+                            generate=generate_structured_result, budget=research_work_budget(request_budget)),
                     )
                     if web_chunks:
                         # Corpus first (invariant #1): web augments corpus, never
@@ -3338,7 +3352,7 @@ class CoachingService:
                     # Picking or ranking a market product is never provider-backed:
                     # answer deterministically so no route can name a real provider.
                     result = AgentLLMResult(
-                        content=safe_product_redirect(),
+                        content=safe_product_redirect(proposal.response_language if proposal else None),
                         model="fincoach-product-policy",
                     )
                     response_mode = "product_policy"
@@ -3761,7 +3775,9 @@ class CoachingService:
                     )
                     content_origin = "code"
                     model_text = ""
-                if model_text and contains_specific_product_recommendation(model_text):
+                # A research answer was already judged by meaning in its own check.
+                if (model_text and response_mode not in _RESEARCH_EXPLANATION_MODES
+                        and contains_specific_product_recommendation(model_text)):
                     # Route-independent backstop: casual, personal, and agent
                     # replies are not grounding-validated, so a provider name that
                     # slipped past the prompt is redirected before it ships.
@@ -3779,7 +3795,7 @@ class CoachingService:
                     verified = _verified_facts(result, facts_block)
                     result = replace(
                         result,
-                        content=verified or safe_product_redirect(),
+                        content=verified or safe_product_redirect(proposal.response_language if proposal else None),
                         model="fincoach-verified-read" if verified else "fincoach-product-policy",
                         prompt_tokens=None,
                         completion_tokens=None,

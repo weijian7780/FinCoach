@@ -1,5 +1,6 @@
 """Central config — everything is read from environment variables (.env)."""
 import os
+import re
 from math import isfinite
 
 from dotenv import load_dotenv
@@ -54,10 +55,37 @@ LLM_PRIMARY_API_KEY = (
     os.environ.get("LLM_PRIMARY_API_KEY", "") or os.environ.get("GROQ_API_KEY", "")
 )
 LLM_PRIMARY_MODEL = os.environ.get("LLM_PRIMARY_MODEL", "")
+COACH_PRIMARY_REASONING = os.environ.get("COACH_PRIMARY_REASONING", "default").strip().lower()
+if COACH_PRIMARY_REASONING not in {"default", "off"}:
+    raise ValueError("COACH_PRIMARY_REASONING must be default or off")
 LLM_PRIMARY_MAX_TOKENS = int(os.environ.get("LLM_PRIMARY_MAX_TOKENS", "2048"))
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
+COACH_WRITER_FALLBACK_BASE_URL = os.environ.get("COACH_WRITER_FALLBACK_BASE_URL", "").strip()
+COACH_WRITER_FALLBACK_API_KEY_ENV = os.environ.get("COACH_WRITER_FALLBACK_API_KEY_ENV", "").strip()
+COACH_WRITER_FALLBACK_MODEL = os.environ.get("COACH_WRITER_FALLBACK_MODEL", "").strip()
+COACH_WRITER_PROVIDER_ORDER = os.environ.get("COACH_WRITER_PROVIDER_ORDER", "primary_first").strip().lower()
+if COACH_WRITER_PROVIDER_ORDER not in {"primary_first", "fallback_first"}:
+    raise ValueError("COACH_WRITER_PROVIDER_ORDER must be primary_first or fallback_first")
+# Store only the checker's credential variable name; resolve its value at use time.
+COACH_VERIFIER_BASE_URL = os.environ.get("COACH_VERIFIER_BASE_URL", "").strip()
+COACH_VERIFIER_API_KEY_ENV = os.environ.get("COACH_VERIFIER_API_KEY_ENV", "").strip()
+COACH_VERIFIER_MODEL = os.environ.get("COACH_VERIFIER_MODEL", "").strip()
+if any((COACH_VERIFIER_BASE_URL, COACH_VERIFIER_API_KEY_ENV, COACH_VERIFIER_MODEL)):
+    if not all((COACH_VERIFIER_BASE_URL, COACH_VERIFIER_API_KEY_ENV, COACH_VERIFIER_MODEL)):
+        raise ValueError("All three COACH_VERIFIER override settings are required")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", COACH_VERIFIER_API_KEY_ENV):
+        raise ValueError("COACH_VERIFIER_API_KEY_ENV must be an environment variable name")
+# Published model capabilities (OpenRouter /models): how long a listing is reused
+# and how long one fetch may take before the request keeps today's shape.
+COACH_MODEL_LISTING_TTL_SECONDS = float(os.environ.get("COACH_MODEL_LISTING_TTL_SECONDS", "3600"))
+COACH_MODEL_LISTING_TIMEOUT_SECONDS = float(os.environ.get("COACH_MODEL_LISTING_TIMEOUT_SECONDS", "2"))
+# After a failed listing fetch, requests keep today's shape until this retry.
+COACH_MODEL_LISTING_RETRY_SECONDS = float(os.environ.get("COACH_MODEL_LISTING_RETRY_SECONDS", "300"))
+# The one product-policy re-check: its time limit and reply length.
+COACH_PRODUCT_RECHECK_SECONDS = float(os.environ.get("COACH_PRODUCT_RECHECK_SECONDS", "8"))
+COACH_PRODUCT_RECHECK_MAX_TOKENS = int(os.environ.get("COACH_PRODUCT_RECHECK_MAX_TOKENS", "300"))
 
 # ---- Gemini-first receipt interpretation (image + supporting OCR lines) ----
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -110,6 +138,9 @@ RETRIEVE_PART_SEARCHES = int(os.environ.get("RETRIEVE_PART_SEARCHES", "4"))
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 WEB_FALLBACK_ENABLED = _environment_flag("WEB_FALLBACK_ENABLED", True)
 COACH_RESEARCH_POLICY_ENABLED = _environment_flag("COACH_RESEARCH_POLICY_ENABLED", False)
+COACH_RESEARCH_MAX_WORDS = _bounded_setting(
+    "COACH_RESEARCH_MAX_WORDS", 200, 100, 1000, integer=True,
+)
 COACH_PUBLIC_SOURCE_CACHE_ENABLED = _environment_flag("COACH_PUBLIC_SOURCE_CACHE_ENABLED", True)
 # Guarded direct fetch of official tier-1/2 pages when Tavily extraction fails
 # or is clipped (e.g. hosts that omit their TLS intermediate certificate).
@@ -130,7 +161,7 @@ COACH_CATEGORY_INTERPRETATION_ENABLED = _environment_flag(
 COACH_RESEARCH_DEBUG = _environment_flag("COACH_RESEARCH_DEBUG", False)
 # Reorder structured calls only; provider roles and writing order are preserved.
 COACH_STRUCTURED_PROVIDER_ORDER = os.environ.get("COACH_STRUCTURED_PROVIDER_ORDER", "primary_first")
-if COACH_STRUCTURED_PROVIDER_ORDER not in {"primary_first", "fallback_first"}:
+if COACH_STRUCTURED_PROVIDER_ORDER not in {"primary_first", "fallback_first", "writer_first"}:
     COACH_STRUCTURED_PROVIDER_ORDER = "primary_first"
 COACH_STRUCTURED_TIMEOUT_SECONDS = _bounded_setting("COACH_STRUCTURED_TIMEOUT_SECONDS", 8, 1, 60)
 COACH_RESEARCH_ANSWER_RESERVE_SECONDS = _bounded_setting(
@@ -162,6 +193,9 @@ WEB_FALLBACK_SIM_THRESHOLD = float(
     os.environ.get("WEB_FALLBACK_SIM_THRESHOLD", "0.45")
 )
 WEB_FALLBACK_MAX_RESULTS = int(os.environ.get("WEB_FALLBACK_MAX_RESULTS", "4"))
+# Tavily country boost when the caller has no jurisdiction of its own (Tavily
+# expects a lowercase country name). The research path passes the question's.
+WEB_SEARCH_DEFAULT_COUNTRY = os.environ.get("WEB_SEARCH_DEFAULT_COUNTRY", "malaysia").strip().casefold()
 WEB_FALLBACK_TIMEOUT_SECONDS = float(
     os.environ.get("WEB_FALLBACK_TIMEOUT_SECONDS", "8")
 )
@@ -210,6 +244,13 @@ LLM_FALLBACK_TIMEOUT_SECONDS = float(
 )
 GROUNDING_VERIFIER_TIMEOUT_SECONDS = float(
     os.environ.get("GROUNDING_VERIFIER_TIMEOUT_SECONDS", "5")
+)
+COACH_RESEARCH_VERIFIER_TIMEOUT_SECONDS = _bounded_setting(
+    "COACH_RESEARCH_VERIFIER_TIMEOUT_SECONDS", GROUNDING_VERIFIER_TIMEOUT_SECONDS, 1, 60,
+)
+# Research checks may use the remaining request budget, up to this ceiling.
+COACH_RESEARCH_VERIFIER_MAX_SECONDS = _bounded_setting(
+    "COACH_RESEARCH_VERIFIER_MAX_SECONDS", 60, 1, 60,
 )
 GROUNDING_VERIFIER_MAX_TOKENS = int(
     os.environ.get("GROUNDING_VERIFIER_MAX_TOKENS", "256")

@@ -59,10 +59,10 @@ def test_valid_json_with_length_is_rejected_and_usage_retained():
     resp = response('length')
     resp.choices[0].message = NS(content='{"claims":[{"id":1,"verdict":"supported","source_index":1}]}')
     client = NS(chat=NS(completions=NS(create=lambda **_: resp)))
-    with patch('app.rag.verifier._create_verifier_client', return_value=client):
+    with patch('app.rag.verifier._create_verifier_client', return_value=client) as factory:
         checked = verify_grounding_claims([GroundingClaim(1, 'A fact.', (1,))], ['A fact.'], timeout_seconds=5)
     assert checked.error_code == 'verifier_output_truncated'
-    assert checked.completion_tokens == 100 and checked.finish_reason == 'length'
+    assert checked.completion_tokens == 100 * factory.call_count and checked.finish_reason == 'length'
 
 
 def test_verifier_json_and_timeout_are_distinct():
@@ -71,9 +71,9 @@ def test_verifier_json_and_timeout_are_distinct():
     resp = response('stop')
     resp.choices[0].message = NS(content='{unfinished')
     client = NS(chat=NS(completions=NS(create=lambda **_: resp)))
-    with patch('app.rag.verifier._create_verifier_client', return_value=client):
+    with patch('app.rag.verifier._create_verifier_client', return_value=client) as factory:
         checked = verify_grounding_claims([GroundingClaim(1, 'A fact.', (1,))], ['A fact.'], timeout_seconds=5)
-    assert checked.error_code == 'verifier_invalid_json' and checked.completion_tokens == 100
+    assert checked.error_code == 'verifier_invalid_json' and checked.completion_tokens == 100 * factory.call_count
     with patch('app.rag.verifier._create_verifier_client', side_effect=TimeoutError):
         checked = verify_grounding_claims([GroundingClaim(1, 'A fact.', (1,))], ['A fact.'], timeout_seconds=5)
     assert checked.error_code == 'verifier_timeout'

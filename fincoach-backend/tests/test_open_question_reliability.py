@@ -156,7 +156,7 @@ def test_late_initial_explanation_keeps_five_seconds_for_verification():
           patch.object(service, "recover_research_answer")):
         service._research_explanation_result(plan=policy.QuestionPlan("application", False, True, "current"),
             decision=decision, budget=CoachRequestBudget(0), question="How do I apply?")
-        assert generate.call_args is None  # G=20 plus V=8 cannot fit 20 remaining seconds.
+        assert generate.call_args is None  # The writer plus measured checker allowance cannot fit.
 
 
 def test_early_source_completion_gives_primary_a_larger_explanation_window():
@@ -172,7 +172,7 @@ def test_early_source_completion_gives_primary_a_larger_explanation_window():
         service._research_explanation_result(plan=policy.QuestionPlan("benefit", False, True, "current"),
             decision=decision, budget=CoachRequestBudget(0), question="How do I apply?")
         stage = generate.call_args.kwargs["budget"]
-        assert stage.started_at == 0 and stage.remaining_seconds() == 20
+        assert stage.started_at == 0 and stage.remaining_seconds() == 28
 
 
 def test_public_discovery_is_not_biased_to_unrelated_finance_hosts():

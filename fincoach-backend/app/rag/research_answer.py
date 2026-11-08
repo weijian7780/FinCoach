@@ -15,6 +15,8 @@ import re
 from time import monotonic
 from typing import Literal
 
+from app.config import (COACH_PRODUCT_RECHECK_SECONDS, COACH_RESEARCH_MAX_WORDS,
+                        COACH_RESEARCH_VERIFIER_MAX_SECONDS)
 from app.llm import (
     AgentLLMResult, CoachRequestBudget, LLMResult,
 )
@@ -28,9 +30,11 @@ from app.rag.research_coverage import (
     RequestedPart, clarification_question, clarification_part_ids, non_finance_part_ids,
 )
 from app.rag.prompts import RESEARCH_EXPLANATION_SYSTEM_PROMPT, build_research_recovery_prompt
-from app.rag.verifier import ResearchVerificationContext, verify_grounding_claims
+from app.rag.verifier import (ResearchVerificationContext, verify_grounding_claims,
+                              product_recommendation_matches_draft, recheck_product_policy)
+from app.rag.research_checker_deadline import within_writer_deadline
 from app.rag.research_answer_budget import (
-    research_work_budget, correction_writer_budget, RESEARCH_VERIFIER_SECONDS,
+    research_work_budget, correction_writer_budget,
 )
 
 _MARKER = re.compile(r"\[S(\d+)\]")
@@ -217,6 +221,42 @@ def _with_citation(text: str, index: int) -> str:
     return f"{text} [S{index}]"
 
 
+def _name_inline_sources(sentence: str, chunks) -> str:
+    """Resolve source names by marker position, without language/phrase lists.
+
+    A marker followed by continuing prose (including a comma) occupies an inline
+    slot. End-of-sentence citation clusters remain markers. Keep the marker beside
+    the name until verification, so attribution never grants citation authority.
+    """
+    def name(match):
+        suffix = _MARKER.sub("", sentence[match.end():]).lstrip()
+        prefix = _MARKER.sub("", sentence[:match.start()]).rstrip()
+        if (not suffix or suffix[0] in ".!?。！？"
+                or prefix and prefix[-1] in ".!?。！？"):
+            return match.group()
+        index = int(match.group(1))
+        if not 1 <= index <= len(chunks):
+            raise ValueError("Inline attribution has no source")
+        source = chunks[index - 1]
+        title = " ".join((source.title or source.source or "").split())
+        # Metadata is display text, never additional Markdown or marker syntax.
+        title = re.sub(r"[\[\]*`#<>]", "", title).strip()
+        if not title:
+            raise ValueError("Inline attribution has no source name")
+        return title + match.group()
+    return _MARKER.sub(name, sentence)
+
+
+def research_verifier_max_tokens(claim_count: int) -> int:
+    """Room for per-claim entailment plus coverage/product-policy fields."""
+    return min(6000, max(2000, 1000 + 120 * claim_count))
+
+
+def research_claim_limit() -> int:
+    """Preserve 20 at the legacy word limit; allow 30 at 500 words."""
+    return 20 + max(0, (COACH_RESEARCH_MAX_WORDS - 200) // 30)
+
+
 def _render(units: list[tuple[str, str, int]]) -> str:
     return "\n\n".join(f"**{heading}**\n" + (
         DISCLAIMER if heading == "Educational guidance" else
@@ -233,7 +273,15 @@ _NAMED_PARTIAL_NOTICES = {
 }
 
 
-def _partial_notice(question: str, missing: tuple[str, ...] = ()) -> str:
+_DETAIL_LEFT_OUT = {
+    "en": "I could not verify every requested detail.",
+    "ms": "Saya belum dapat mengesahkan semua butiran yang diminta.",
+    "zh": "我尚未核实所有所需细节。",
+    "ta": "கோரப்பட்ட எல்லா விவரங்களையும் என்னால் உறுதிப்படுத்த முடியவில்லை.",
+}
+
+
+def _partial_notice(question: str, missing: tuple[str, ...] = (), resolved_question: str = "", part_count: int = 1) -> str:
     """Delivery coverage is distinct from whether source evidence is sufficient.
 
     ``missing`` names the unanswered requested parts (the plan's own labels);
@@ -243,8 +291,10 @@ def _partial_notice(question: str, missing: tuple[str, ...] = ()) -> str:
     code = language.group(1) if language else "en"
     names = tuple(dict.fromkeys(label.strip() for label in missing if label and label.strip()))
     if names:
-        template = _NAMED_PARTIAL_NOTICES.get(code, _NAMED_PARTIAL_NOTICES["en"])
-        return template.format(parts="; ".join(f"“{name}”" for name in names))
+        if part_count > 1 and len(names) < part_count:
+            template = _NAMED_PARTIAL_NOTICES.get(code, _NAMED_PARTIAL_NOTICES["en"])
+            return template.format(parts="; ".join(f"“{name}”" for name in names))
+        return _DETAIL_LEFT_OUT.get(code, _DETAIL_LEFT_OUT["en"])
     return {
         "ms": "Saya belum dapat menerangkan semua butiran yang diminta.",
         "zh": "部分问题尚未得到完整说明。",
@@ -254,9 +304,17 @@ def _partial_notice(question: str, missing: tuple[str, ...] = ()) -> str:
 
 def _missing_labels(verification, requested) -> tuple[str, ...]:
     """Unanswered requested parts, named only by the plan's own part labels."""
-    labels = {part.label for part in requested}
-    return tuple(label for label in getattr(verification, "unanswered_requested_parts", ()) or ()
-                 if label in labels)
+    by_id = {part.id: part.label for part in requested if part.label and part.label != part.id}
+    labels = set(by_id.values())
+    missing = tuple(dict.fromkeys(by_id.get(value, value) for value in
+                    getattr(verification, "unanswered_requested_parts", ()) or ()
+                    if value in labels or value in by_id))
+    if missing:
+        return missing
+    # A verifier may report incomplete coverage without repeating the labels.
+    # Use the planned labels for parts it did not mark answered.
+    answered = set(getattr(verification, "answered_part_ids", ()) or ())
+    return tuple(label for part_id, label in by_id.items() if part_id not in answered)
 
 
 def normalize_research_layout(text: str) -> str:
@@ -267,10 +325,23 @@ def normalize_research_layout(text: str) -> str:
     silently moving facts between sections or dropping their qualifications.
     """
     text = text.strip()
-    if not _MARKER.search(text):
-        return text  # A free-form uncited draft needs normal grounded recovery.
+    cited = bool(_MARKER.search(text))
+    text = re.sub(r'(?m)^[ \t]*\*\*(Insight|Recommended action|Educational guidance)[ \t]*:[ \t]*\*\*[ \t]*$'
+                  r'|^[ \t]*\*\*(Insight|Recommended action|Educational guidance)\*\*[ \t]*:[ \t]*$',
+                  lambda match: '**'+(match.group(1) or match.group(2))+'**', text)
     text = re.sub(r'(?m)^\s*(?:#{1,6}\s*)?(Insight|Recommended action|Educational guidance)\s*:?\s*$',
                   lambda match: '**'+match.group(1)+'**', text)
+    # Fixed presentation text; preserve subsequent/duplicate headings for validation.
+    matches = list(_HEADING.finditer(text))
+    for index in range(len(matches) - 1, -1, -1):
+        heading = matches[index]
+        if heading.group(1) == "Educational guidance":
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            if text[heading.end():end].strip() != DISCLAIMER:
+                suffix = '\n\n' if end < len(text) else ''
+                text = text[:heading.end()].rstrip() + '\n' + DISCLAIMER + suffix + text[end:]
+    if not cited:
+        return text
     headings = tuple(_HEADING.findall(text))
     if not headings and text:
         body = text.removesuffix(DISCLAIMER).rstrip()
@@ -365,9 +436,9 @@ def _verified_rank(diagnostics: dict | None) -> tuple[int, int]:
 
 def check_research_draft(draft: str, *, public_question: str,
                          decision: ResearchDecision, budget: CoachRequestBudget,
-                         max_words: int = 200, completion: LLMResult | None = None,
+                         max_words: int | None = None, completion: LLMResult | None = None,
                          unit_bindings: dict[str, tuple[str, ...]] | None = None,
-                         given_text: str = "") -> ResearchDraftCheck:
+                         given_text: str = "", resolved_question: str = "") -> ResearchDraftCheck:
     """Strict structure/numbers followed by one semantic and quality batch.
 
     ``given_text`` is the user's own question. Numbers and codes the user
@@ -375,6 +446,8 @@ def check_research_draft(draft: str, *, public_question: str,
     repeating them needs no source support; every other number still does.
     """
     text = draft.strip()
+    word_limit = min(COACH_RESEARCH_MAX_WORDS,
+                     COACH_RESEARCH_MAX_WORDS if max_words is None else max_words)
     # Models sometimes group citations as [S1, S2]. Canonicalize these before
     # checking source identities; the UI strips only the standard [S1] form.
     text = re.sub(r"\[S\d+(?:\s*,\s*S?\d+)+\]",
@@ -399,9 +472,10 @@ def check_research_draft(draft: str, *, public_question: str,
     educational = text.rsplit("**Educational guidance**", 1)[-1].strip()
     if educational != DISCLAIMER:
         errors.append("invalid_disclaimer")
-    if contains_specific_product_recommendation(text):
-        errors.append("product_recommendation")
-    if len(_MARKER.sub("", _HEADING.sub("", text)).split()) > min(200, max_words):
+    # The checker judges product steering by meaning. This word check only
+    # decides when no usable verdict comes back, and is logged for comparison.
+    old_filter_flagged = contains_specific_product_recommendation(text)
+    if len(_MARKER.sub("", _HEADING.sub("", text)).split()) > word_limit:
         errors.append("answer_too_long")
     allowed = {i for i, quote in decision.assessment.supported_quotes
                if 1 <= i <= len(decision.chunks) and
@@ -492,7 +566,14 @@ def check_research_draft(draft: str, *, public_question: str,
                     r"\b(?:(?:handover|(?:document\s+)?submission)\s+form|borang\s+serahan)\b", clause, re.I)
                 if uncertain & claim_codes or uncertain and handover_reference and not claim_codes:
                     channel_rejections.add(position)
-        claim_text = _MARKER.sub("", sentence).strip()
+        try:
+            named_sentence = _name_inline_sources(sentence, decision.chunks)
+        except ValueError:
+            errors.append("invalid_structure")
+            named_sentence = sentence
+        section, _, block = units[position]
+        units[position] = (section, named_sentence, block)
+        claim_text = _MARKER.sub("", named_sentence).strip()
         # A model verdict cannot supply a missing predicate or finish a rule.
         # Apply the same structural backstop used for retrieved quotations.
         if complete_evidence_passages(claim_text, generated=True) != (claim_text,):
@@ -520,18 +601,23 @@ def check_research_draft(draft: str, *, public_question: str,
         assessment_claim_ids.append(claim.id)
     if not claims or all(not c.cited_indices for c in claims):
         errors.append("no_claims")
-    if len(claims) > 20:
+    if len(claims) > research_claim_limit():
         errors.append("too_many_claims")
+    # Source names can be longer than markers. Count the text the reader gets,
+    # while numeric validation above still applies to the original factual prose.
+    if len(_MARKER.sub("", _HEADING.sub("", _render(units))).split()) > word_limit:
+        errors.append("answer_too_long")
     if errors:
         return ResearchDraftCheck(False, tuple(dict.fromkeys(errors)), diagnostics={
             "candidate_claim_count": len(claims), "approved_claim_count": 0})
     try:
         verification = verify_grounding_claims(
-            claims, approved_references(decision), timeout_seconds=budget.timeout_for("verifier"),
-            max_tokens=1500,
-            research_context=ResearchVerificationContext(public_question, text, decision.assessment.missing,
+            claims, approved_references(decision), timeout_seconds=budget.timeout_for("research_verifier"),
+            max_tokens=research_verifier_max_tokens(len(claims)),
+            research_context=ResearchVerificationContext(public_question, _render(units), decision.assessment.missing,
                                                         decision.assessment.conflicting,
                                                         tuple(assessment_claim_ids), enforce_scope=True,
+                                                        assess_product_policy=True,
                                                         requested_parts=requested_part_seq,
                                                         coverage=decision.assessment.parts,
                                                         fact_bindings=decision.assessment.fact_bindings,
@@ -565,6 +651,44 @@ def check_research_draft(draft: str, *, public_question: str,
         for verdict in verification.verdicts.values()
     )):
         return ResearchDraftCheck(False, ("invalid_verifier_response",), diagnostics=diagnostics)
+    product_verdict = verification.product_verdict
+    product_claim_ids = tuple(i for i in verification.product_claim_ids if i in claim_units)
+    product_entity = verification.product_entity
+    reason = None
+    if product_verdict == "recommendation" and not product_recommendation_matches_draft(
+            product_claim_ids, product_entity, text):
+        reason = (f"named_entity {json.dumps(product_entity, ensure_ascii=False)} with claim_ids "
+                  f"{list(product_claim_ids)} does not identify a name and claims in this draft")
+        product_verdict = "uncertain"
+    elif product_verdict not in {"allowed", "recommendation"}:
+        reason = f"the verdict was {product_verdict}"
+    first_verdict = product_verdict
+    decided_by = "checker"
+    if reason is not None:
+        # The checker judges product steering by meaning; it is asked once more
+        # with the exact reason. A push needs a named product in the draft, so a
+        # verdict that still cannot point at one keeps the answer.
+        claims_by_id = [claim for claim in claims if claim.id in claim_units]
+        rechecked, recheck_ids, recheck_entity = recheck_product_policy(
+            public_question, _render(units), claims_by_id, reason,
+            timeout_seconds=min(COACH_PRODUCT_RECHECK_SECONDS, budget.remaining_seconds()))
+        decided_by = "recheck"
+        if rechecked == "recommendation":
+            product_verdict, product_claim_ids, product_entity = "recommendation", recheck_ids, recheck_entity
+        else:
+            product_verdict, product_claim_ids = "allowed", ()
+            decided_by = "recheck_" + rechecked
+    product_rejections = ({claim_units[i] for i in product_claim_ids if i in claim_units}
+                          if product_verdict == "recommendation" else set())
+    # Codes and counts only. The old word check is computed for comparison and
+    # no longer decides research answers.
+    diagnostics["product_policy"] = {"verdict": product_verdict, "first_verdict": first_verdict,
+                                     "decided_by": decided_by,
+                                     "claim_count": len(product_rejections),
+                                     "old_filter_flagged": old_filter_flagged}
+    logger.info(json.dumps({"event": "coach_product_policy", **diagnostics["product_policy"]}))
+    if product_verdict == "recommendation" and not product_rejections:
+        return ResearchDraftCheck(False, ("product_recommendation",), diagnostics=diagnostics)
     # A scope error can accompany explicit claim-level rejections. Preserve
     # only independently approved blocks below; a global language/reference
     # error, or a scope error without identified rejected claims, still fails.
@@ -585,7 +709,7 @@ def check_research_draft(draft: str, *, public_question: str,
     for claim in claims:
         position = claim_units[claim.id]
         section, sentence, block = units[position]
-        if position in numeric_rejections or position in channel_rejections:
+        if position in numeric_rejections or position in channel_rejections or position in product_rejections:
             rejected_blocks.add(block)
             continue
         if claim.id in verification.assessment_supported_ids:
@@ -627,6 +751,15 @@ def check_research_draft(draft: str, *, public_question: str,
         part_id for part_id, claim_ids in verification.answered_part_claims
         if set(claim_ids) & retained_claims
     ]
+    # Coverage completeness and having any displayed answer are distinct.
+    # Missing semantic mappings are unknown, not proof of a missing answer.
+    part_claims = dict(verification.answered_part_claims)
+    note_missing = tuple(part.label for part in requested_part_seq
+                         if part_claims and part_labels
+                         and not set(part_claims.get(part.id, ())) & retained_claims)
+    diagnostics['gap_note_parts'] = list(note_missing)
+    # Partial coverage remains diagnostic; display no longer promotes it into prose.
+    diagnostics['gap_note_added'] = False
     if rejected_blocks:
         # Removing an optional aside does not remove a requested answer. Keep a
         # part complete only if BOTH coverage gates passed and ALL the positive
@@ -659,15 +792,13 @@ def check_research_draft(draft: str, *, public_question: str,
             if not any(section == "Insight" for section, _, _ in approved):
                 approved = [("Insight" if section == "Recommended action" else section, sentence, block)
                             for section, sentence, block in approved]
-            if not displayed_complete:
-                # Older decisions may have IDs but no public labels. Do not
-                # expose internal IDs such as p1 in the user-facing notice.
-                approved.append(("Insight", _partial_notice(public_question, missing if part_labels else ()), -1))
-            if len(_MARKER.sub("", _HEADING.sub("", _render(approved))).split()) > min(200, max_words):
+            # Partial coverage stays in diagnostics, not displayed prose.
+            if len(_MARKER.sub("", _HEADING.sub("", _render(approved))).split()) > word_limit:
                 usable = False
         diagnostics["approved_claim_count"] = sum(
             units[position][2] not in rejected_blocks for position in claim_units.values()) if usable else 0
-        code = ("ambiguous_submission_channel" if channel_rejections else
+        code = ("product_recommendation" if product_rejections else
+                "ambiguous_submission_channel" if channel_rejections else
                 "unsupported_number" if numeric_rejections else
                 "misapplied_claim" if misapplied_ids else "unsupported_claim")
         valid = usable and displayed_complete
@@ -678,9 +809,8 @@ def check_research_draft(draft: str, *, public_question: str,
     if verification.requested_scope_covered is False:
         # Retain verified statements for the one grounded rewrite. Coverage is
         # independent of factual entailment; a useful partial need not disappear.
-        if not verification.assessment_supported_ids:
-            units.append(("Insight", _partial_notice(public_question, _missing_labels(verification, requested_part_seq)), -1))
-        if len(_MARKER.sub("", _HEADING.sub("", _render(units))).split()) > min(200, max_words):
+        # Preserve coverage diagnostics and recovery decisions without a notice.
+        if len(_MARKER.sub("", _HEADING.sub("", _render(units))).split()) > word_limit:
             return ResearchDraftCheck(False, ("answer_too_long",), diagnostics=diagnostics)
         # An already honest, verified partial cannot gain missing source facts
         # from a writer retry. Rewrite only a draft that concealed its coverage
@@ -724,6 +854,55 @@ _NON_FINANCE_PART_MESSAGES = {
     "ta": "உங்கள் கேள்வியில் நிதி அல்லாத பகுதிக்கு என்னிடம் போதுமான தகவல் இல்லை. அந்தப் பாடம் தொடர்பான "
           "கற்றல் வளங்களைப் பார்க்கவும்.",
 }
+
+
+# These keys are checker/generator diagnostics, never text from the question.
+_FAILURE_CODES = {
+    "product_steering": {"product_recommendation"},
+    "no_evidence": {"no_approved_evidence", "no_supported_facts", "misapplied_claim",
+                    "unsupported_claim", "unsupported_number", "ambiguous_submission_channel"},
+    "technical": {"verifier_unavailable", "verifier_timeout", "verifier_http_error",
+                  "answer_generation_unavailable", "recovery_generation_unavailable",
+                  "provider_auth_error", "provider_configuration_error", "research_time_exhausted"},
+    "unusable_draft": {"invalid_structure", "answer_output_truncated", "answer_too_long",
+                       "no_claims", "incomplete_statement", "invalid_disclaimer", "too_many_claims",
+                       "requested_scope_incomplete", "invalid_verifier_response", "verifier_invalid_json",
+                       "verifier_output_truncated", "language_mismatch", "raw_reference_dump",
+                       "incomplete_supported_answer"},
+}
+
+_RETRY_MESSAGES = {
+    "en": UNAVAILABLE_MESSAGE,
+    "ms": "Penjelasan ini belum dapat diselesaikan. Sila cuba lagi.",
+    "zh": "这次未能完成说明，请重试。",
+    "ta": "இம்முறை விளக்கத்தை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+}
+_PRODUCT_MESSAGES = {
+    "en": "I can explain how to compare options, but I can't pick a company for you.",
+    "ms": "Saya boleh menerangkan cara membandingkan pilihan, tetapi saya tidak boleh memilih syarikat untuk anda.",
+    "zh": "我可以说明怎样比较不同选项，但不能替你挑选公司。",
+    "ta": "விருப்பங்களை ஒப்பிடும் முறையை என்னால் விளக்க முடியும். உங்களுக்காக ஒரு நிறுவனத்தைத் தேர்ந்தெடுக்க முடியாது.",
+}
+_UNKNOWN_MESSAGES = {
+    "en": "I couldn't complete this explanation.",
+    "ms": "Saya tidak dapat melengkapkan penjelasan ini.",
+    "zh": "我未能完成这段说明。",
+    "ta": "இந்த விளக்கத்தை என்னால் முடிக்க முடியவில்லை.",
+}
+
+
+def _failure_reply(language, cause_codes, errors):
+    # If the attempted correction never produced a draft, it has no new
+    # evidence about the original rejection. Prefer that original diagnosis.
+    codes = errors or cause_codes
+    if codes == ("recovery_generation_unavailable",) and cause_codes:
+        codes = cause_codes
+    reason = next((key for key, members in _FAILURE_CODES.items()
+                   if any(code in members for code in codes)), "unknown")
+    messages = {"technical": _RETRY_MESSAGES, "unusable_draft": _RETRY_MESSAGES,
+                "product_steering": _PRODUCT_MESSAGES, "no_evidence": _INSUFFICIENT_EVIDENCE_MESSAGES,
+                "unknown": _UNKNOWN_MESSAGES}[reason]
+    return reason, messages.get((language or "en").lower().split("-")[0], messages["en"])
 
 
 def non_finance_part_note(plan: QuestionPlan, parts) -> str | None:
@@ -787,6 +966,7 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
     initial_candidate = None
     initial_check = None
     used = False
+    rewrite_skipped_for_time = False
     errors = (initial_failure,) if initial_failure else ()
     cause_codes = errors
     # Approved evidence is whatever literal quotation(s) the approved sources
@@ -796,14 +976,14 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
     # be repeated without source support; they are parsed like draft numbers.
     given_text = getattr(plan, "original_question", "") or ""
     question_reserve = len((clarification_question(plan) or "").split()) if clarification_part_ids(plan) else 0
-    max_words = 200 - question_reserve
+    max_words = COACH_RESEARCH_MAX_WORDS - question_reserve
     def record(result):
         tokens.append({"model": result.model, "prompt_tokens": result.prompt_tokens,
                        "completion_tokens": result.completion_tokens})
     if draft is not None:
         record(draft)
 
-    def finish(result, mode, content, *, complete=False):
+    def finish(result, mode, content, *, complete=False, reply_reason=None):
         clarification = clarification_question(plan) if clarification_part_ids(plan) else None
         if clarification:
             # This is a validated intent question, not a cited financial fact.
@@ -827,7 +1007,8 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
         # One assembly: verified personal answer, the explanation, the referral.
         content = "\n\n".join(piece for piece in (personal_facts, content, note) if piece)
         wrapped = AgentLLMResult(content, result.model, result.prompt_tokens, result.completion_tokens)
-        diagnostics = {"recovery_used": used, "error_codes": list(errors),
+        diagnostics = {"reply_reason": reply_reason or ("complete" if complete else "partial"), "recovery_used": used, "error_codes": list(errors),
+                       "rewrite_skipped_for_time": rewrite_skipped_for_time,
                        "cause_codes": list(cause_codes or errors), "verification": checks,
                        "generation_tokens": tokens, "displayed_model": result.model,
                        "complete": complete, "used_source_indices": used_indices,
@@ -852,7 +1033,7 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
             "candidate_claim_count": displayed_check.get("candidate_claim_count", 0),
             "approved_claim_count": displayed_check.get("approved_claim_count", 0),
             "requested_scope_covered": diagnostics["requested_scope_covered"],
-            "terminal_reason": diagnostics["terminal_reason"],
+            "terminal_reason": diagnostics["terminal_reason"], "reply_reason": diagnostics["reply_reason"],
             "role": "retained_draft" if initial_candidate and result is draft else
                     "fallback" if used and mode != "research_explanation_unavailable" else
                     "draft" if mode == "research_explanation" else "policy",
@@ -877,11 +1058,17 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
                 "ta": "உங்கள் கேள்வியின் மற்ற விவரங்களை இன்னும் உறுதிப்படுத்தவில்லை.",
             }.get(language, "I haven't established the other requested details yet.")
         return finish(AgentLLMResult("", "fincoach-research-explanation"),
-                      "research_explanation_unavailable", source_message)
+                      "research_explanation_unavailable", source_message,
+                      reply_reason=("clarification" if plan.clarification_facts else
+                                    "technical" if decision.failure in SEARCH_FAILURE_REASONS
+                                    and not (getattr(plan, "finance_scope", None) == "non_finance"
+                                             and decision.failure == "search_disabled") else
+                                    "out_of_scope" if getattr(plan, "finance_scope", None) == "non_finance"
+                                    else "no_evidence"))
     if draft is not None and budget.remaining_seconds() > 0:
         checked = check_research_draft(normalize_research_layout(draft.content), public_question=public_question,
-            max_words=max_words, completion=draft, given_text=given_text,
-            decision=decision, budget=budget.for_stage(max_seconds=RESEARCH_VERIFIER_SECONDS))
+            max_words=max_words, completion=draft, given_text=given_text, resolved_question=plan.question or "",
+            decision=decision, budget=budget.for_stage(max_seconds=COACH_RESEARCH_VERIFIER_MAX_SECONDS))
         checks.append(checked.diagnostics)
         if checked.is_valid:
             return finish(draft, "research_explanation", checked.approved_text,
@@ -895,21 +1082,28 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
     # At most ONE corrective generation, and only when a useful rewrite plus the
     # final semantic check still fit inside the ORIGINAL deadline.
     correction_budget = correction_writer_budget(budget)
+    if correction_budget is None and initial_failure not in {"provider_auth_error", "provider_configuration_error"}:
+        rewrite_skipped_for_time = True
+        logger.info(json.dumps({"event": "coach_rewrite_skipped", "reason": "insufficient_time",
+            "remaining_seconds": round(budget.remaining_seconds(), 3),
+            "checked_answer_available": bool(initial_candidate)}))
     if (initial_failure not in {"provider_auth_error", "provider_configuration_error"}
             and correction_budget is not None):
         used = True
         try:
-            recovered = _generate_research_correction(
-                build_research_recovery_prompt(public_question, decision, errors),
-                # The provider's own cap bounds the write; the final semantic
-                # check keeps its 8 seconds either way.
-                budget=correction_budget,
-                system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
+            recovered = within_writer_deadline(
+                lambda: _generate_research_correction(
+                    build_research_recovery_prompt(public_question, decision, errors),
+                    # Leave the measured checker allowance within the work deadline.
+                    budget=correction_budget,
+                    system_prompt=RESEARCH_EXPLANATION_SYSTEM_PROMPT,
+                ),
+                correction_budget.remaining_seconds(),
             )
             record(recovered)
             checked = check_research_draft(normalize_research_layout(recovered.content), public_question=public_question,
-                max_words=max_words, completion=recovered, given_text=given_text,
-                decision=decision, budget=budget.for_stage(max_seconds=RESEARCH_VERIFIER_SECONDS))
+                max_words=max_words, completion=recovered, given_text=given_text, resolved_question=plan.question or "",
+                decision=decision, budget=budget.for_stage(max_seconds=COACH_RESEARCH_VERIFIER_MAX_SECONDS))
             checks.append(checked.diagnostics)
             if (not checked.is_valid and checked.approved_text and initial_candidate
                     and _verified_rank(checked.diagnostics) < _verified_rank(initial_check)):
@@ -928,5 +1122,8 @@ def recover_research_answer(*, plan: QuestionPlan, decision: ResearchDecision,
             errors = ("recovery_generation_unavailable",)
     if initial_candidate:
         return finish(draft, "research_explanation_recovery", initial_candidate)
+    if not errors and not cause_codes and (budget.remaining_seconds() <= 0 or correction_budget is None):
+        errors = ("research_time_exhausted",)
+    reason, message = _failure_reply(plan.response_language, cause_codes, errors)
     return finish(AgentLLMResult("", "fincoach-research-explanation"),
-                  "research_explanation_unavailable", UNAVAILABLE_MESSAGE)
+                  "research_explanation_unavailable", message, reply_reason=reason)

@@ -91,6 +91,9 @@ def plan_without_parts(plan: QuestionPlan, answered: tuple[str, ...]) -> Questio
     scope = domains[0] if len(set(domains)) == 1 else "mixed" if domains else plan.finance_scope
     return replace(plan, topic=build_research_query("; ".join(facts))[:220] or plan.topic,
                    required_facts=facts, part_domains=domains, part_entities=entities,
+                   part_search_queries=tuple(plan.part_search_queries[index]
+                       if index < len(plan.part_search_queries) else "" for index in keep)
+                       if plan.part_search_queries else (),
                    part_ids=tuple(parts[index].id for index in keep),
                    savings_part_ids=tuple(part_id for part_id in plan.savings_part_ids if part_id not in answered),
                    clarification_facts=tuple(fact for fact in plan.clarification_facts if fact in facts),

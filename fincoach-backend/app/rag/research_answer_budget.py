@@ -8,8 +8,10 @@ from app.llm import CoachRequestBudget, research_answer_reserve_seconds
 from app import llm
 
 INITIAL_WRITER_MIN_SECONDS = 20
-CORRECTION_MIN_SECONDS = 18
-RESEARCH_VERIFIER_SECONDS = 8
+# Previous two normal cohorts: writer medians 9.816/12.933s, checker
+# medians 5.324/6.247s. Round up the slower medians for rewrite admission.
+CORRECTION_MIN_SECONDS = 13
+RESEARCH_CHECKER_ESTIMATE_SECONDS = 7
 
 
 def research_work_budget(budget: CoachRequestBudget) -> CoachRequestBudget:
@@ -31,22 +33,15 @@ def research_phase_budget(work: CoachRequestBudget) -> CoachRequestBudget:
 
 def initial_writer_budget(budget: CoachRequestBudget) -> CoachRequestBudget | None:
     remaining = budget.remaining_seconds()
-    if remaining < INITIAL_WRITER_MIN_SECONDS + RESEARCH_VERIFIER_SECONDS:
+    if remaining < INITIAL_WRITER_MIN_SECONDS + RESEARCH_CHECKER_ESTIMATE_SECONDS:
         return None
-    # Existing shorter request contracts retain their original writer allocation.
-    if llm.COACH_REQUEST_DEADLINE_SECONDS < 120:
-        return budget.for_stage(max_seconds=20, reserve_after_seconds=8)
-    # Use all four reserved slots when they fit; late evidence retains a check.
-    reserve = COACH_RESEARCH_CORRECTION_SECONDS + 2 * RESEARCH_VERIFIER_SECONDS
-    if remaining < INITIAL_WRITER_MIN_SECONDS + reserve:
-        reserve = RESEARCH_VERIFIER_SECONDS
     return budget.for_stage(max_seconds=COACH_RESEARCH_WRITER_SECONDS,
-        reserve_after_seconds=reserve)
+        reserve_after_seconds=RESEARCH_CHECKER_ESTIMATE_SECONDS)
 
 
 def correction_writer_budget(budget: CoachRequestBudget) -> CoachRequestBudget | None:
-    """One useful 18-second correction must leave eight seconds to check it."""
-    if budget.remaining_seconds() < CORRECTION_MIN_SECONDS + RESEARCH_VERIFIER_SECONDS:
+    """Admit a rewrite only when measured writer and checker times both fit."""
+    if budget.remaining_seconds() < CORRECTION_MIN_SECONDS + RESEARCH_CHECKER_ESTIMATE_SECONDS:
         return None
-    return budget.for_stage(stage_name='answer_recovery', max_seconds=CORRECTION_MIN_SECONDS,
-                            reserve_after_seconds=RESEARCH_VERIFIER_SECONDS)
+    return budget.for_stage(stage_name='answer_recovery', max_seconds=COACH_RESEARCH_CORRECTION_SECONDS,
+                            reserve_after_seconds=RESEARCH_CHECKER_ESTIMATE_SECONDS)

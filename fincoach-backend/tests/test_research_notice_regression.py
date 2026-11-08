@@ -80,17 +80,20 @@ def test_partial_or_unmapped_part_cannot_be_promoted_after_removal(result, decis
     assert checked.diagnostics["answered_part_ids"] == []
     assert checked.diagnostics["requested_scope_covered"] is False
     assert checked.diagnostics["unanswered_requested_parts"] == [QUESTION]
-    assert f"“{QUESTION}”" in checked.approved_text
+    assert answer._DETAIL_LEFT_OUT["en"] not in checked.approved_text
+    assert f"“{QUESTION}”" not in checked.approved_text
 
 
-def test_removing_required_part_names_only_that_part():
+def test_removing_required_part_keeps_diagnostics_without_notice():
     checked = check(verdict(mappings=(("p1", (1,)), ("p2", (2,))),
                             answered=("p1", "p2")), evidence(second_part=True))
     assert not checked.is_valid
     assert checked.diagnostics["answered_part_ids"] == ["p1"]
     assert checked.diagnostics["unanswered_requested_parts"] == ["Where is it kept?"]
-    assert "“Where is it kept?”" in checked.approved_text
+    assert checked.diagnostics["gap_note_parts"] == ["Where is it kept?"]
+    assert "“Where is it kept?”" not in checked.approved_text
     assert f"“{QUESTION}”" not in checked.approved_text
+    assert answer._DETAIL_LEFT_OUT["en"] not in checked.approved_text
 
 
 def test_quality_failure_is_not_cleared_by_optional_removal():
@@ -107,7 +110,7 @@ def test_no_surviving_positive_claim_is_not_an_answer():
 def test_legacy_decision_without_public_labels_does_not_display_part_ids():
     checked = check(verdict(mappings=()), replace(evidence(), diagnostics={}))
     assert not checked.is_valid
-    assert "I could not explain all the requested details yet." in checked.approved_text
+    assert "I could not explain all the requested details yet." not in checked.approved_text
     assert "p1" not in checked.approved_text
 
 
@@ -127,7 +130,7 @@ def test_numeric_rejection_overrides_semantic_support_for_required_claims(requir
     assert checked.is_valid is complete
     assert checked.diagnostics["numeric_rejected_claim_count"] == 1
     assert "RM500" not in checked.approved_text
-    assert ("couldn't" in checked.approved_text) is not complete
+    assert answer._DETAIL_LEFT_OUT["en"] not in checked.approved_text
 
 
 @pytest.mark.parametrize("session", [None, object()])

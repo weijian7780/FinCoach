@@ -14,6 +14,38 @@ collect_ignore_glob = ["archive/*", "archive/**/*"]
 
 
 @pytest.fixture(autouse=True)
+def _legacy_provider_contract(request, monkeypatch):
+    """These tests assert the pre-slot two-provider protocol explicitly.
+
+    Keep that contract testable under deployment environments enabling the new
+    slot; test_writer_fallback_slot exercises the enabled three-slot contract.
+    """
+    module = request.module.__name__.split('.')[-1]
+    if module in {
+        "test_rag_pipeline", "test_research_applicability", "test_research_notice_regression",
+        "test_verifier_provider", "test_writer_fixes", "test_writer_round2", "test_writer_round3",
+        "test_structured_provider_order",
+    }:
+        from app import llm
+        for name in ("BASE_URL", "API_KEY_ENV", "MODEL"):
+            monkeypatch.setattr(llm, "COACH_WRITER_FALLBACK_" + name, "")
+        monkeypatch.setattr(llm, "COACH_WRITER_PROVIDER_ORDER", "primary_first")
+        monkeypatch.setattr(llm, "COACH_PRIMARY_REASONING", "default")
+    if module in {
+        "test_rag_pipeline", "test_research_applicability", "test_research_notice_regression",
+        "test_verifier_provider", "test_writer_fixes", "test_writer_round2", "test_writer_round3",
+        "test_structured_provider_order", "test_writer_fallback_slot", "test_time_budget_plan",
+    }:
+        from app.rag import verifier
+        for name in ("BASE_URL", "API_KEY_ENV", "MODEL"):
+            monkeypatch.setattr(verifier, "COACH_VERIFIER_" + name, "")
+    if module == "test_writer_fallback_slot":
+        from app import llm
+        monkeypatch.setattr(llm, "COACH_WRITER_PROVIDER_ORDER", "primary_first")
+        monkeypatch.setattr(llm, "COACH_PRIMARY_REASONING", "default")
+
+
+@pytest.fixture(autouse=True)
 def _no_live_network_side_effects(monkeypatch):
     from app import config
     monkeypatch.setattr(config, "COACH_DIRECT_FETCH_ENABLED", False, raising=False)

@@ -16,16 +16,29 @@ services:
     env_file:
       - .env
     environment:
-      COACH_STRUCTURED_PROVIDER_ORDER: "fallback_first"
+      # 2026-11-08 Luna release: GPT-6 Luna reads questions, judges evidence,
+      # writes and checks; free Nemotron (the primary slot) backs each up.
+      # Gemini (LLM_* in .env) is used only by the receipt module.
+      COACH_STRUCTURED_PROVIDER_ORDER: "writer_first"
+      COACH_WRITER_FALLBACK_BASE_URL: "https://openrouter.ai/api/v1"
+      COACH_WRITER_FALLBACK_API_KEY_ENV: "OPENROUTER_API_KEY"
+      COACH_WRITER_FALLBACK_MODEL: "openai/gpt-6-luna"
+      COACH_WRITER_PROVIDER_ORDER: "fallback_first"
+      COACH_PRIMARY_REASONING: "off"
+      COACH_VERIFIER_BASE_URL: "https://openrouter.ai/api/v1"
+      COACH_VERIFIER_API_KEY_ENV: "OPENROUTER_API_KEY"
+      COACH_VERIFIER_MODEL: "openai/gpt-6-luna"
       ADMIN_STATIC_DIR: /app/admin-static
       # Local Docker Desktop primary; deployment-specific override of .env.
-      # 2026-11-06: OpenRouter Nemotron (free) primary, Gemini fallback.
+      # OpenRouter Nemotron (free) is the backup for every coach job.
       LLM_PRIMARY_MODEL: "nvidia/nemotron-3.5-super-vl:free"
       LLM_PRIMARY_MAX_TOKENS: "4096"
       COACH_RESEARCH_POLICY_ENABLED: "true"
+      COACH_RESEARCH_MAX_WORDS: "500"
+      COACH_RESEARCH_VERIFIER_MAX_SECONDS: "60"
       # LLM-first read interpretation (merged from the 2026-10-17 candidate).
       COACH_LLM_INTERPRETATION_ENABLED: "true"
-      COACH_REQUEST_DEADLINE_SECONDS: "120"
+      COACH_REQUEST_DEADLINE_SECONDS: "90"
       # One structured call shares 15 seconds across providers: Gemini can use
       # up to 12 seconds, with 3 seconds reserved for DeepSeek if it times out.
       COACH_STRUCTURED_TIMEOUT_SECONDS: "15"

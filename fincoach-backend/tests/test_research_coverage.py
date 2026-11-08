@@ -207,15 +207,18 @@ def test_tracked_comparison_does_not_remove_primary_source_gate():
     assert result.status != "sufficient"
 
 
-def test_broader_search_drops_domain_cage_and_has_distinct_cache_key():
+def test_broader_search_drops_domain_cage_when_the_query_is_new():
     from unittest.mock import MagicMock
     from app.rag.web_research import WebResearchCache, _search_pass
     cache, client = WebResearchCache(), MagicMock()
     client.search.return_value = {"results": []}
-    for mode in ("institution", "broader", "broader"):
-        _search_pass(client, "Example documents", caged=True, max_results=4, timeout=3,
+    for mode, query in (("institution", "Example documents"),
+                        ("broader", "Example application documents"),
+                        ("broader", "example  application documents")):
+        _search_pass(client, query, caged=True, max_results=4, timeout=3,
                      public_policy=True, official_domains=("example.gov.my",), cache=cache, discovery_mode=mode)
     assert client.search.call_count == 2 and cache.search_calls == 2
+    assert len(cache.skipped_searches) == 1
     assert "include_domains" in client.search.call_args_list[0].kwargs
     assert "include_domains" not in client.search.call_args_list[1].kwargs
 

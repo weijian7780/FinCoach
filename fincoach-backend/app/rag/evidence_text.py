@@ -37,11 +37,22 @@ def allowed_generated_ending(sentence: str) -> bool:
     return bool(_COMPLETE_OR_NOT.search(text) or _COMPLETE_STRANDED_PREPOSITION.search(text))
 
 
-def _visible_text_with_offsets(text: str) -> tuple[str, list[int]]:
+_LINE_BULLET = re.compile(r"(?m)^[ \t]*(?P<marker>[-*•]|\d{1,3}[.)])(?=[ \t]+\S)")
+
+
+def _bullet_kinds(text: str) -> set[str]:
+    return {"number" if marker[0].isdigit() else marker
+            for match in _LINE_BULLET.finditer(text)
+            if (marker := match.group("marker"))}
+
+
+def _visible_text_with_offsets(text: str, *, inline_bullets: set[str] | None = None) -> tuple[str, list[int]]:
     """Remove presentation syntax while mapping each visible character to its source.
 
-    Only Markdown wrappers and link destinations are removed. Words, numbers,
-    punctuation, list items and qualifications remain unchanged. The offset map
+    Markdown wrappers, link destinations and list markers are presentation;
+    words, factual numbers, punctuation, items and qualifications stay literal.
+    Inline markers are removed only when the other text has that line-list style.
+    The offset map
     lets a match return the actual fetched passage, rather than trusting the
     model's reconstructed quotation or using a fuzzy similarity threshold.
     """
@@ -52,6 +63,12 @@ def _visible_text_with_offsets(text: str) -> tuple[str, list[int]]:
         hidden.update(range(match.end(1), match.end()))
     for match in re.finditer(r"(?m)^ {0,3}#{1,6}[ \t]+", text):
         hidden.update(range(match.start(), match.end()))
+    for match in _LINE_BULLET.finditer(text):
+        hidden.update(range(match.start("marker"), match.end("marker")))
+    for kind in inline_bullets or ():
+        marker = r"\d{1,3}[.)]" if kind == "number" else re.escape(kind)
+        for match in re.finditer(r"(?<!\S)" + marker + r"(?=\s+\S)", text):
+            hidden.update(range(match.start(), match.end()))
     # Paired wrappers only: never delete arithmetic stars or an unpaired label.
     for pattern in (r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1",
                     r"(?<!\w)(\*|_|`)(?=\S)([^\n]+?)(?<=\S)\1(?!\w)"):
@@ -82,8 +99,10 @@ def match_evidence_quote(quote: str, source: str) -> str | None:
     conditions cannot match. This never completes, translates or paraphrases a
     passage and never searches outside the excerpt supplied to the checker.
     """
+    # Never infer inline source markers from the quote: a number or arithmetic
+    # operator in a source sentence is a fact, not list formatting.
     visible_source, offsets = _visible_text_with_offsets(source)
-    visible_quote, _ = _visible_text_with_offsets(quote)
+    visible_quote, _ = _visible_text_with_offsets(quote, inline_bullets=_bullet_kinds(source))
     if not visible_quote:
         return None
     start = visible_source.find(visible_quote)

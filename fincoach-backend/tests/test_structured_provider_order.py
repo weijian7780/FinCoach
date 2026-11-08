@@ -68,22 +68,36 @@ def test_structured_timeout_reserves_primary_share(monkeypatch, providers):
     assert seen == [("fallback", 12.0), ("primary", 3.0)]
 
 
-def test_interpreter_schema_rejection_uses_primary_backup(monkeypatch, providers):
+def test_interpreter_schema_rejection_is_corrected_by_the_same_model(monkeypatch, providers):
     monkeypatch.setattr(llm, "COACH_STRUCTURED_PROVIDER_ORDER", "fallback_first")
     seen = []
     def generate(_client, provider, prompt, **kwargs):
         seen.append((provider.role, prompt, kwargs["timeout_seconds"]))
-        return llm.LLMResult(provider.role, provider.model)
+        return llm.LLMResult("corrected" if "PREVIOUS PROPOSAL REJECTED" in prompt else "first", provider.model)
     def validate(content):
-        if content == "fallback":
+        if content == "first":
             raise ValueError("synthetic invalid proposal")
         return "accepted"
     monkeypatch.setattr(llm, "_generate_with_provider", generate)
     assert llm.generate_validated_interpretation("q", response_schema={}, validate=validate,
                                                  budget=llm.CoachRequestBudget.start()) == "accepted"
-    assert [row[0] for row in seen] == ["fallback", "primary"]
+    assert [row[0] for row in seen] == ["fallback", "fallback"]
     assert "PREVIOUS PROPOSAL REJECTED" in seen[1][1]
     assert all(0 < row[2] <= 15 for row in seen)
+
+
+def test_interpreter_transport_failure_moves_to_the_backup(monkeypatch, providers):
+    monkeypatch.setattr(llm, "COACH_STRUCTURED_PROVIDER_ORDER", "fallback_first")
+    seen = []
+    def generate(_client, provider, prompt, **kwargs):
+        seen.append(provider.role)
+        if provider.role == "fallback":
+            raise ConnectionError("synthetic outage")
+        return llm.LLMResult("ok", provider.model)
+    monkeypatch.setattr(llm, "_generate_with_provider", generate)
+    assert llm.generate_validated_interpretation("q", response_schema={}, validate=lambda c: "accepted",
+                                                 budget=llm.CoachRequestBudget.start()) == "accepted"
+    assert seen == ["fallback", "primary"]
 
 
 @pytest.mark.parametrize("role_index", [0, 1])

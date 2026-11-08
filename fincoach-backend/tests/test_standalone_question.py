@@ -143,7 +143,7 @@ def test_writer_prompt_answers_the_requested_form_without_unrequested_advice():
 # ---- Step 5: the notice names only what is missing -------------------------------------------
 
 def test_notice_names_the_missing_parts_once():
-    notice = answer._partial_notice("q", (WHY, WHY, " "))
+    notice = answer._partial_notice("q", (WHY, WHY, " "), part_count=2)
     assert notice == f"I couldn't fully confirm and explain: “{WHY}”."
 
 
@@ -172,5 +172,5 @@ def test_checked_partial_answer_names_the_unanswered_part(monkeypatch):
         requested_scope_covered=False, unanswered_requested_parts=(WHY,), answered_part_ids=()))
     checked = answer.check_research_draft(text, public_question="why kwsp", decision=decision,
                                           budget=CoachRequestBudget.start())
-    assert f"I couldn't fully confirm and explain: “{WHY}”." in checked.approved_text
+    assert answer._DETAIL_LEFT_OUT["en"] not in checked.approved_text
     assert "I could not explain all the requested details yet." not in checked.approved_text

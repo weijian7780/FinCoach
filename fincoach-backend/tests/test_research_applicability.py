@@ -134,6 +134,7 @@ def test_failed_checker_repair_is_once_with_shared_timeout_and_billed_usage():
         patch('app.rag.verifier._create_verifier_client', return_value=client) as factory:
         result = verify_grounding_claims([claim], ['Apply online.'],
             timeout_seconds=8, research_context=context)
+    # First check gets the full limit; scope repair shares its remaining deadline.
     assert [c.kwargs['timeout_seconds'] for c in factory.call_args_list] == [8,6]
     assert create.call_count == 2 and result.verdicts[1] == 'unsupported'
     assert result.prompt_tokens == 20 and result.completion_tokens == 10

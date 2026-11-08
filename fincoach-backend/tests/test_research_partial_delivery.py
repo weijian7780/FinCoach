@@ -135,14 +135,14 @@ def test_clarification_space_is_reserved_before_verifying_draft():
     question='Which programme or service would you like to apply for?'
     plan=QuestionPlan('Agency',False,True,'stable',required_facts=('duties','application procedure'),
         clarification=question,clarification_facts=('application procedure',))
-    # A single long complete sentence is otherwise within the 200-word cap,
+    # A single long complete sentence is otherwise within the configured cap,
     # but adding the separately rendered question would exceed that limit.
-    text='The agency '+('coordinates '*180)+'development projects.'
+    text='The agency '+('coordinates '*(answer.COACH_RESEARCH_MAX_WORDS - 20))+'development projects.'
     long=draft().replace(FACT,text)
     with patch.object(answer,'verify_grounding_claims',side_effect=support), \
          patch.object(answer,'_generate_research_correction',return_value=AgentLLMResult(draft(),'fallback')) as retry:
         result=answer.recover_research_answer(plan=plan,decision=evidence(),draft=AgentLLMResult(long,'primary'),
             budget=CoachRequestBudget.start(),public_question='Duties and application')
     assert retry.call_count==1
-    assert len(result.result.content.replace('**Insight**','').replace('**Educational guidance**','').split())<=200
+    assert len(result.result.content.replace('**Insight**','').replace('**Educational guidance**','').split())<=answer.COACH_RESEARCH_MAX_WORDS
     assert question in result.result.content

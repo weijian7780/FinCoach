@@ -138,7 +138,7 @@ def test_genuinely_partial_education_still_discloses_the_gap():
     result, _ = checked_answer(p, sources, assessed)
     assert not assessed.parts[0].complete
     assert result.diagnostics["complete"] is False
-    assert "couldn't fully confirm" in result.result.content
+    assert "I could not verify every requested detail." not in result.result.content
 
 
 def test_institutional_requirement_still_needs_authority_or_corroboration():

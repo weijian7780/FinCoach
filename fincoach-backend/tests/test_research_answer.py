@@ -478,12 +478,12 @@ def test_recovery_semantic_calls_share_request_start_and_caps():
     def checking(text, **kw):
         stage = kw["budget"]
         starts.append(stage.started_at)
-        assert stage.remaining_seconds() == 8
+        assert stage.remaining_seconds() == 55 - clock[0]
         clock[0] += 1
         return module.ResearchDraftCheck(len(starts) == 2, () if len(starts) == 2 else ("invalid_structure",),
                                         text if len(starts) == 2 else None)
     def generating(*args, **kw):
-        assert kw["budget"].started_at == 0 and kw["budget"].remaining_seconds() <= 18
+        assert kw["budget"].started_at == 0 and kw["budget"].remaining_seconds() == 19
         clock[0] += 2
         return AgentLLMResult(answer(), "fallback")
     with (patch.object(llm, "monotonic", side_effect=lambda: clock[0]),
@@ -496,7 +496,7 @@ def test_recovery_semantic_calls_share_request_start_and_caps():
     assert outcome.recovery_used and starts == [0, 0]
 
 
-@pytest.mark.parametrize("elapsed, expected_generation", [(28.0, 18.0), (30.0, None), (52.0, None)])
+@pytest.mark.parametrize("elapsed, expected_generation", [(28.0, 19.0), (30.0, 17.0), (34.0, 13.0), (34.01, None), (52.0, None)])
 def test_rewrite_can_use_remaining_time_without_spending_final_check_reserve(elapsed, expected_generation):
     from app import llm
     from app.rag import research_answer as module
@@ -570,7 +570,8 @@ def test_verifier_costs_and_conflict_context_are_recorded():
 
 
 def test_research_overflow_requests_condensation_without_slicing_facts():
-    text = answer(" ".join("A source-supported fact [S1]." for _ in range(21)))
+    from app.rag.research_answer import research_claim_limit
+    text = answer(" ".join("A source-supported fact [S1]." for _ in range(research_claim_limit() + 1)))
     result = check(text)
     assert not result.is_valid and result.approved_text is None
     assert "too_many_claims" in result.error_codes
@@ -593,7 +594,7 @@ def test_initial_verified_partial_survives_recovery_timeout_and_filters_cards():
     assistant = reply["assistant_message"]
     assert "Apply using the official portal" in assistant["content"]
     assert "fabricated" not in assistant["content"]
-    assert "could not explain all" in assistant["content"]
+    assert "could not explain all" not in assistant["content"]
     assert assistant["model"] == "primary" and assistant["prompt_tokens"] == 500
     assert [s["url"] for s in reply["sources"]] == ["https://agency.gov.my/apply"]
     diagnostics = assistant["ui_payload"]["research_outcome"]["recovery"]["explanation"]
@@ -625,7 +626,8 @@ def test_malformed_verifier_retains_paid_usage(content):
             ["Apply online."], timeout_seconds=1,
             research_context=verifier.ResearchVerificationContext(QUESTION, answer(), ()))
     assert result.error_code is not None
-    assert result.prompt_tokens == 1200 and result.completion_tokens == 50
+    attempts = client.chat.completions.create.call_count
+    assert result.prompt_tokens == 1200 * attempts and result.completion_tokens == 50 * attempts
     assert result.elapsed_ms is not None and result.model
 
 

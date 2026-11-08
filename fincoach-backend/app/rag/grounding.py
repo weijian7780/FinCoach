@@ -657,12 +657,24 @@ def contains_specific_product_recommendation(content: str) -> bool:
     return False
 
 
-def safe_product_redirect() -> str:
+def safe_product_redirect(language: str | None = None) -> str:
     """A neutral, route-independent reply for product-selection requests.
 
     FinCoach explains how products work but never recommends or ranks a specific
     provider; this canned answer ships without calling a provider.
     """
+    code = (language or "en").lower().split("-")[0]
+    translations = {
+        "ms": ("FinCoach menerangkan cara produk kewangan berfungsi, tetapi tidak mengesyorkan atau menentukan kedudukan penyedia, bank, e-dompet, aplikasi, kad, dana, produk insurans atau pelaburan tertentu.",
+               "Bandingkan pilihan rasmi dengan menyemak senarai penyedia yang dibenarkan oleh Bank Negara Malaysia dan terma semasa yang diterbitkan oleh setiap penyedia sebelum membuat keputusan."),
+        "zh": ("FinCoach 可以解释金融产品的运作方式，但不会推荐特定的服务提供商、银行、电子钱包、应用、银行卡、基金、保险产品或投资，也不会为它们排名。",
+               "决定前，请查阅马来西亚国家银行公布的获准机构名单，并比较各机构公布的最新条款。"),
+        "ta": ("FinCoach நிதித் தயாரிப்புகள் எவ்வாறு செயல்படுகின்றன என்பதை விளக்குகிறது. குறிப்பிட்ட நிறுவனம், வங்கி, மின்னணுப் பணப்பை, செயலி, அட்டை, நிதி, காப்பீட்டுத் தயாரிப்பு அல்லது முதலீட்டை அது பரிந்துரைப்பதோ தரவரிசைப்படுத்துவதோ இல்லை.",
+               "முடிவு செய்வதற்கு முன், பேங்க் நெகாரா மலேசியாவின் அங்கீகரிக்கப்பட்ட நிறுவனங்களின் பட்டியலையும் ஒவ்வொரு நிறுவனமும் வெளியிட்டுள்ள தற்போதைய விதிமுறைகளையும் ஒப்பிடுங்கள்."),
+    }
+    if code in translations:
+        insight, action = translations[code]
+        return f"**Insight**\n{insight}\n**Recommended action**\n{action}\n**Educational guidance**\n{DISCLAIMER}"
     return f"""**Insight**
 FinCoach explains how financial products work but does not recommend or rank a specific provider, bank, e-wallet, app, card, fund, insurance product, or investment.
 **Recommended action**

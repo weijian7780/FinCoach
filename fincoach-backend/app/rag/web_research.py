@@ -33,10 +33,13 @@ before any network call.
 from __future__ import annotations
 
 import re
+from hashlib import sha256
 from time import monotonic
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal, TYPE_CHECKING
+
+from app.config import WEB_SEARCH_DEFAULT_COUNTRY
 from urllib.parse import urlparse, urljoin, parse_qsl, unquote
 from ipaddress import ip_address
 from math import isfinite
@@ -411,18 +414,65 @@ class WebResearchCache:
     public_source_diagnostics: dict[str, Any] = field(default_factory=dict)
     search_calls: int = 0
     extract_calls: int = 0
+    # One bounded batch can use one independently billed Tavily request per URL.
+    tavily_extract_requests: int = 0
     # Guarded official-page fetches after a failed/clipped Tavily extraction.
     # Free of Tavily credit, so counted separately but capped per request.
     direct_fetches: int = 0
     cache_hits: int = 0
     credits: float | None = None
     last_error: str | None = None
+    # Bounded operational metadata only: never page text or provider messages.
+    extraction_events: list[dict[str, Any]] = field(default_factory=list)
+    # Request-local normalized search identities; diagnostic events hold hashes,
+    # not proposed or owner-derived search text.
+    sent_searches: set[str] = field(default_factory=set)
+    skipped_searches: list[dict[str, str]] = field(default_factory=list)
+    privacy_skips: list[dict[str, bool]] = field(default_factory=list)
 
     def note_usage(self, response: Any) -> None:
         usage = response.get("usage") if isinstance(response, dict) else None
         credits = usage.get("credits") if isinstance(usage, dict) else None
         if type(credits) in (int, float) and isfinite(credits) and credits >= 0:
             self.credits = (self.credits or 0) + credits
+
+
+def _extraction_url(url: str) -> str:
+    """Retain the public page address without credentials or arbitrary query data."""
+    try:
+        parsed = urlparse(str(url or ""))
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return "[invalid URL]"
+        host = parsed.hostname
+        if parsed.port:
+            host += f":{parsed.port}"
+        # The existing public-URL guard admits only bounded public selectors.
+        query = f"?{parsed.query}" if parsed.query and is_public_guidance_url(url) else ""
+        return f"{parsed.scheme}://{host}{parsed.path}{query}"
+    except (ValueError, TypeError):
+        return "[invalid URL]"
+
+
+def _extraction_event(cache: WebResearchCache | None, url: str, method: str,
+                      success: bool, error_type: str | None = None, *, attempted: bool = True,
+                      elapsed_seconds: float = 0.0) -> None:
+    if cache is not None:
+        cache.extraction_events.append({"url": _extraction_url(url), "method": method,
+            "attempted": attempted, "success": success, "error_type": error_type,
+            "elapsed_ms": round(max(0.0, elapsed_seconds) * 1000, 1)})
+
+
+def _provider_extract_error(value: Any) -> str:
+    """Classify a provider failure without recording the untrusted message."""
+    if isinstance(value, dict):
+        value = value.get("type") or value.get("code") or value.get("message")
+    if isinstance(value, str):
+        if re.search(r"\b(?:timeout|timed out)\b", value, re.I):
+            return "timeout"
+        status = re.search(r"\b(?:HTTP\s*)?([45]\d\d)\b", value, re.I)
+        if status:
+            return f"http_{status.group(1)}"
+    return "provider_reported_failure"
 
 
 def _safe_error(error: Exception) -> str:
@@ -472,7 +522,8 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                  errors: list[str] | None = None, public_policy: bool = False,
                  official_domains: tuple[str, ...] = (),
                  cache: WebResearchCache | None = None,
-                 discovery_mode: Literal["institution", "broader"] = "institution") -> list[WebResult]:
+                 discovery_mode: Literal["institution", "broader"] = "institution",
+                 country: str | None = None) -> list[WebResult]:
     """Run one Tavily search pass, returning ``[]`` on any error.
 
     Pass 1 (``caged=True``): ``topic="finance"`` + ``include_domains`` restricted
@@ -482,7 +533,17 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
     data), so this is where breaking news / new platforms surface. Scrapers are
     excluded. Each pass fails closed to ``[]`` so one bad call can't break a turn.
     """
+    normalized = " ".join(str(query or "").split()).casefold()
     key = (query, caged, max_results, public_policy, official_domains, discovery_mode)
+    if cache is not None and normalized in cache.sent_searches:
+        cache.skipped_searches.append({"reason": "duplicate_search",
+            "query_hash": sha256(normalized.encode("utf-8")).hexdigest()})
+        if key in cache.searches:
+            cache.cache_hits += 1
+            return list(cache.searches[key])
+        if errors is not None:
+            errors.append("duplicate_search")
+        return []
     if cache is not None and key in cache.searches:
         cache.cache_hits += 1
         return list(cache.searches[key])
@@ -494,6 +555,8 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
     try:
         if cache is not None:
             cache.search_calls += 1
+            if normalized:
+                cache.sent_searches.add(normalized)
         if public_policy:
             # Broad Malaysian official guidance, rather than a finance/news bias.
             # Domain preference is discovery, not proof of authority. Restrict
@@ -511,7 +574,7 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                 # domains already establish the search boundary; keep the
                 # Malaysian boost only for open discovery.
                 **({"include_domains": domains, "include_domains_mode": "restrict"}
-                   if domains else {"country": "malaysia"}),
+                   if domains else {"country": country or WEB_SEARCH_DEFAULT_COUNTRY}),
                 # Public factual policy rejects anecdotal/community evidence.
                 # Do not spend its bounded discovery slots on social snippets
                 # that cannot authorize the requested facts in the first place.
@@ -534,7 +597,7 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                 max_results=max(1, int(max_results)),
                 search_depth="basic",
                 topic="general",
-                country="malaysia",
+                country=country or WEB_SEARCH_DEFAULT_COUNTRY,
                 exclude_domains=list(_EXCLUDED_DOMAINS),
                 timeout=timeout,
             )
@@ -565,6 +628,7 @@ def search_web(
     official_domains: tuple[str, ...] = (),
     cache: WebResearchCache | None = None,
     discovery_mode: Literal["institution", "broader"] = "institution",
+    country: str | None = None,
 ) -> list[WebResult]:
     """Two-pass Tavily search. Degrades to ``[]`` on any failure.
 
@@ -592,7 +656,8 @@ def search_web(
 
     caged = _search_pass(client, query, caged=not unrestricted, max_results=max_results,
                          timeout=timeout, errors=errors, public_policy=public_policy,
-                         official_domains=official_domains, cache=cache, discovery_mode=discovery_mode)
+                         official_domains=official_domains, cache=cache, discovery_mode=discovery_mode,
+                         country=country)
     if single_search or public_policy or len(caged) >= _MIN_CAGED_RESULTS:
         return caged[:max_results]
 
@@ -600,7 +665,7 @@ def search_web(
     seen = {result.url for result in caged}
     merged = list(caged)
     for result in _search_pass(client, query, caged=False, max_results=max_results,
-                               timeout=timeout, errors=errors):
+                               timeout=timeout, errors=errors, cache=cache, country=country):
         if result.url in seen:
             continue
         seen.add(result.url)
@@ -779,8 +844,11 @@ def extract_passages(
     ``complete_context`` omits Tavily's query parameter to avoid its short snippet
     cutoffs, then selects one bounded section from full page text locally.
     """
-    clean_urls = [str(u or "").strip() for u in urls if str(u or "").strip()]
+    clean_urls = list(dict.fromkeys(str(u or "").strip() for u in urls if str(u or "").strip()))
     if not api_key or not clean_urls or timeout < 1:
+        reason = "no_api_key" if not api_key else "deadline"
+        for url in clean_urls:
+            _extraction_event(cache, url, "tavily", False, reason, attempted=False)
         return {}
     # A different public gap can need a different passage from the same URL.
     cached = {url: cache.passages[(url, query, extract_depth, complete_context, subject_query)] for url in clean_urls
@@ -799,42 +867,61 @@ def extract_passages(
     raw_pages: dict[str, tuple[str, str]] = {}  # url -> (title, raw page text)
     if cache is not None and cache.extract_calls >= 4:
         cache.last_error = "extract_call_limit"
+        for url in clean_urls[:20]:
+            _extraction_event(cache, url, "tavily", False, "extract_call_limit", attempted=False)
     else:
         try:
             from tavily import TavilyClient  # lazy: optional dependency
         except ImportError:
             TavilyClient = None
-        response: Any = None
+            for url in clean_urls[:20]:
+                _extraction_event(cache, url, "tavily", False, "sdk_unavailable", attempted=False)
         if TavilyClient is not None:
-            try:
+            from app.rag.research_checker_deadline import extract_with_deadline
+            def extract_one(url, remaining):
                 client = TavilyClient(api_key=api_key)
                 kwargs: dict[str, Any] = {
-                    "urls": clean_urls[:20],  # Tavily extract accepts up to 20 URLs
+                    "urls": [url],
                     "extract_depth": extract_depth,
-                    "timeout": timeout,
+                    "timeout": remaining,
                 }
                 if str(query or "").strip() and not complete_context:
                     kwargs["query"] = query  # rerank extracted chunks to the topic
                     kwargs["chunks_per_source"] = 3
                 if cache is not None:
                     kwargs["include_usage"] = True
-                    cache.extract_calls += 1
-                response = client.extract(**kwargs)
-            except Exception as error:
+                return client.extract(**kwargs)
+            if cache is not None:
+                cache.extract_calls += 1
+            bounded = extract_with_deadline(clean_urls[:20], extract_one, max(0, timeout - (monotonic() - started)))
+            if cache is not None:
+                cache.tavily_extract_requests += sum(attempted for _, _, _, _, attempted in bounded)
+            for url, (ok, response, error, elapsed, attempted) in zip(clean_urls[:20], bounded):
+                if not ok:
+                    if cache is not None:
+                        cache.last_error = "timeout" if error in {"deadline", "TimeoutError"} else "extraction_failed"
+                    _extraction_event(cache, url, "tavily", False, error, attempted=attempted,
+                                      elapsed_seconds=elapsed)
+                    continue
                 if cache is not None:
-                    cache.last_error = _safe_error(error)
-                response = None
-        if response is not None and cache is not None:
-            cache.note_usage(response)
-            if response.get("failed_results"):
-                cache.last_error = "extraction_failed"
-        # Even on HTTP 200, failures surface in failed_results and results may be
-        # empty; we simply take whatever succeeded.
-        for item in (response or {}).get("results", []) or []:
-            url = str(item.get("url") or "").strip()
-            raw = str(item.get("raw_content") or "").strip()
-            if url in clean_urls and raw:
-                raw_pages[url] = (str(item.get("title") or raw[:180]), raw)
+                    cache.note_usage(response)
+                if not isinstance(response, dict):
+                    _extraction_event(cache, url, "tavily", False, "invalid_response", elapsed_seconds=elapsed)
+                    continue
+                found = next((item for item in response.get("results", []) or []
+                              if str(item.get("url") or "").strip() == url
+                              and str(item.get("raw_content") or "").strip()), None)
+                if found:
+                    raw = str(found.get("raw_content") or "").strip()
+                    raw_pages[url] = (str(found.get("title") or raw[:180]), raw)
+                    _extraction_event(cache, url, "tavily", True, elapsed_seconds=elapsed)
+                else:
+                    failed = next((item for item in response.get("failed_results", []) or []
+                                   if str(item.get("url") or "").strip() == url), None)
+                    error_type = (_provider_extract_error(failed.get("error")) if failed else "missing_result")
+                    if cache is not None and failed:
+                        cache.last_error = "extraction_failed"
+                    _extraction_event(cache, url, "tavily", False, error_type, elapsed_seconds=elapsed)
     if cache is not None and complete_context:
         _direct_fetch_fallback(clean_urls, raw_pages, cache=cache,
                                remaining=timeout - (monotonic() - started))
@@ -880,23 +967,18 @@ def _direct_fetch_fallback(urls: list[str], raw_pages: dict[str, tuple[str, str]
     retry = retry[:max(0, _DIRECT_FETCH_CAP - cache.direct_fetches)]
     if not retry or remaining < 1.5:
         return
-    from concurrent.futures import ThreadPoolExecutor, wait
+    from app.rag.research_checker_deadline import extract_with_deadline
     from app.rag.public_fetch import fetch_official_page
     cache.direct_fetches += len(retry)
-    allowance = min(_DIRECT_FETCH_TIMEOUT, remaining - 0.5)
-    pool = ThreadPoolExecutor(max_workers=len(retry), thread_name_prefix="official-fetch")
-    try:
-        futures = {pool.submit(fetch_official_page, url, timeout=allowance): url for url in retry}
-        done, _ = wait(futures, timeout=allowance + 0.5)
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
+    allowance = min(_DIRECT_FETCH_TIMEOUT, remaining)
+    bounded = extract_with_deadline(retry, lambda url, left: fetch_official_page(url, timeout=left), allowance)
     recovered = 0
-    for future in done:
-        url = futures[future]
-        try:
-            raw = future.result()
-        except Exception:
-            raw = None
+    for url, (ok, raw, error, elapsed, attempted) in zip(retry, bounded):
+        if not ok:
+            _extraction_event(cache, url, "direct", False, error, attempted=attempted, elapsed_seconds=elapsed)
+            continue
+        _extraction_event(cache, url, "direct", bool(raw), None if raw else "unavailable_or_rejected",
+                          elapsed_seconds=elapsed)
         if raw and len(raw) > len(raw_pages.get(url, ("", ""))[1]):
             heading = re.search(r"(?m)^#{1,6}\s+(.{3,180})$", raw)
             raw_pages[url] = (heading.group(1) if heading else raw[:180], raw)
@@ -985,6 +1067,10 @@ def research_evidence(
     cache: WebResearchCache | None = None,
     subject_query: str = "",
     discovery_mode: Literal["institution", "broader"] = "institution",
+    web_query: str | None = None,
+    web_query_guard: Any = None,
+    web_query_shorten: bool = False,
+    country: str | None = None,
 ) -> ResearchOutcome:
     """Search then extract: tier-ranked web chunks with real passage text.
 
@@ -1007,13 +1093,54 @@ def research_evidence(
     operation_timeout = max(0.1, timeout / (2 if single_search else 3))
     search_options = ({"single_search": True, "unrestricted": unrestricted}
                       if single_search else {})
+    if cache is not None:
+        search_options["cache"] = cache
     if public_policy:
         search_options.update(public_policy=True, official_domains=official_domains, cache=cache,
                               discovery_mode=discovery_mode)
-    results = search_web(query, api_key=api_key, max_results=max_results,
+    if country:
+        search_options["country"] = country
+    # The optional interpreter phrase affects web discovery only; extraction,
+    # evidence windows, and knowledge-base retrieval keep the existing query.
+    # A new phrase is usable only after the owner-scoped comparison immediately
+    # before the search. A failing guard cannot authorize the old query.
+    search_query = query
+    if web_query_guard is not None:
+        try:
+            guard_options = ({"timeout": max(0, timeout - (monotonic() - started))}
+                             if getattr(web_query_guard, "accepts_timeout", False) else {})
+            if web_query_shorten and getattr(web_query_guard, "accepts_shorten", False):
+                guard_options["shorten"] = True
+            guarded_query = web_query_guard(web_query or "", query, **guard_options)
+        except Exception:
+            if cache is not None:
+                cache.privacy_skips.append({"privacy_guard_unavailable": True})
+            return ResearchOutcome([], False, "privacy_skip_owned_name")
+        else:
+            from app.rag.search_privacy import SKIP_UNSAFE_SEARCH
+            if guarded_query is SKIP_UNSAFE_SEARCH:
+                if cache is not None:
+                    cache.privacy_skips.append({"privacy_guard_skip": True})
+                return ResearchOutcome([], False, "privacy_skip_owned_name")
+            if not isinstance(guarded_query, str) or not guarded_query.strip():
+                if cache is not None:
+                    cache.privacy_skips.append({"privacy_guard_unavailable": True})
+                return ResearchOutcome([], False, "privacy_skip_owned_name")
+            search_query = guarded_query
+    remaining = timeout - (monotonic() - started)
+    if remaining <= 0:
+        return ResearchOutcome([], False, "search_deadline")
+    operation_timeout = min(operation_timeout, remaining)
+    before = cache.search_calls if cache is not None else 0
+    skips_before = len(cache.skipped_searches) if cache is not None else 0
+    results = search_web(search_query, api_key=api_key, max_results=max_results,
                          timeout=operation_timeout, errors=errors, **search_options)
     if not results:
-        return ResearchOutcome([], True, errors[0] if errors else "no_results")
+        duplicate_only = (cache is not None and cache.search_calls == before
+                          and len(cache.skipped_searches) > skips_before)
+        reason = "duplicate_search" if duplicate_only else (errors[0] if errors else "no_results")
+        # Preserve the previous attempted-web semantics for all other failures.
+        return ResearchOutcome([], not duplicate_only, reason)
     extract_options = {"cache": cache} if cache is not None else {}
     if public_policy:
         # Application rules and document lists need their surrounding section.
@@ -1024,7 +1151,7 @@ def research_evidence(
     passages = extract_passages(
         [result.url for result in results],
         api_key=api_key,
-        query=query,
+        query=query if public_policy else search_query,
         timeout=timeout - (monotonic() - started),
         **extract_options,
     ) if timeout - (monotonic() - started) >= 1 else {}
@@ -1062,6 +1189,7 @@ def research(
     api_key: str,
     max_results: int = 4,
     timeout: float = 8.0,
+    web_query_guard: Any = None,
 ) -> list[RetrievedChunk]:
     """Backward-compatible list wrapper over ``research_evidence``.
 
@@ -1070,5 +1198,6 @@ def research(
     lives in the service).
     """
     return research_evidence(
-        query, api_key=api_key, max_results=max_results, timeout=timeout
+        query, api_key=api_key, max_results=max_results, timeout=timeout,
+        web_query_guard=web_query_guard,
     ).chunks
