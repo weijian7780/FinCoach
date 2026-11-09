@@ -85,6 +85,7 @@ from app.rag.grounding import (
     grounding_retry_prompt,
     normalise_and_validate_numeric_claims,
     recorded_money_claims_match_tools,
+    without_stated_amounts,
     safe_grounding_fallback,
     safe_product_redirect,
     validate_coach_answer,
@@ -561,6 +562,26 @@ def _listed_target(proposal) -> str | None:
     else:
         amount = public.stated_amount
     return amount if amount is not None and _listed_role(proposal, amount) == "target" else None
+
+
+def _listed_context_amounts(proposal) -> tuple[str, ...]:
+    """Amounts the interpreter listed as only mentioned: the user's own words,
+    never a record (typed fields only)."""
+    return tuple(dict.fromkeys(
+        item.amount for item in getattr(proposal, "amounts", ()) or () if item.role == "context"))
+
+
+def _stated_evidence(amounts) -> str:
+    return " ".join(f"RM{amount}" for amount in amounts)
+
+
+def _target_without_surplus(tool_result) -> bool:
+    """The verified estimate leaves nothing to save, so a target plan is only
+    the statement that it cannot be reached yet (see ``_target_plan``)."""
+    result = tool_result or {}
+    saveable = _money_decimal(result.get("projected_saveable"))
+    remaining = _money_decimal(result.get("projected_remaining"))
+    return saveable is not None and remaining is not None and (remaining <= 0 or saveable <= 0)
 
 
 def _records_answer_with_target(content: str, target: str, plan: tuple[str, str],
@@ -1276,6 +1297,16 @@ _RECORD_PLAN_INSTRUCTION = (
     "The user asks to plan with these figures: give a short, practical plan for the rest of the period "
     "in words (what to pace, what to set aside, what to watch). Do not write any new amount."
 )
+_RECORD_STATED_AMOUNT = (
+    "The user stated {amounts} in this message: their own words, not a record. Answer what they asked in the "
+    "first sentence. If they want a figure FinCoach calculated from their records to become that amount, say "
+    "plainly that it is calculated and cannot be set directly (never say it can), which inputs produce it, and how much those "
+    "inputs would have to change, showing that difference. If they quote a figure that differs from the verified "
+    "one, give the verified one and how it was worked out. As the only exceptions to the rules on amounts above, "
+    "you may write the stated amount, and you may show a difference on its own line, using + instead of - when "
+    "adding, in exactly this form with the English word: Calculation: RM<verified amount> - RM<stated amount> = "
+    "RM<difference>"
+)
 
 
 _RESTATE_STOP_WORDS = frozenset({
@@ -1295,20 +1326,25 @@ def _restates(sentence: str, facts: str) -> bool:
 
 
 def _records_answer(*, goal, tool_name, tool_result, question, prompt, language, check_paragraph,
-                    reasoning_effort, budget):
+                    reasoning_effort, budget, stated_amounts=()):
     """The one answer for a verified records read: facts first, then one paragraph.
 
     ``goal`` None means facts only (the rule-router fast read). show/explain add
     a short paragraph that may only repeat verified figures; advise/plan add
     number-free advice. With ``check_paragraph`` an unverifiable or truncated
     paragraph is dropped here and the facts ship alone; the rule-router path
-    keeps its end-of-pipeline check. Returns (result, mode, origin, facts_block).
+    keeps its end-of-pipeline check. ``stated_amounts`` are amounts the user
+    mentioned: the paragraph may repeat them and show a verified difference.
+    Returns (result, mode, origin, facts_block).
     """
     tool_record = {"name": tool_name, "result": tool_result}
     if goal is None or tool_name == "get_weekly_savings_plan":
         # The weekly planner already carries its own Insight and actions.
         return _fast_read_result(tool_name, tool_result), "fast_verified_read", "code", None
     facts = _format_fast_verified_read(tool_name, tool_result)
+    if stated_amounts and goal == "show":
+        # "Nothing to add" cannot answer a message about a stated amount.
+        goal = "explain"
     if goal in _RECORD_PARAGRAPH:
         paragraph_prompt = (
             f"{_RECORD_PARAGRAPH[goal]} {_RECORD_FIGURE_RULE} Language: {language or 'en'}.\n"
@@ -1323,6 +1359,9 @@ def _records_answer(*, goal, tool_name, tool_result, question, prompt, language,
         if language:
             paragraph_prompt += f"\n\nLanguage: {language}."
         mode = "two_phase_advice"
+    if stated_amounts:
+        shown = ", ".join(f"RM{_display_amount(amount)}" for amount in stated_amounts)
+        paragraph_prompt += "\n\n" + _RECORD_STATED_AMOUNT.format(amounts=shown)
     try:
         generated = generate_result(paragraph_prompt, reasoning_effort=reasoning_effort, budget=budget)
     except Exception:
@@ -1339,8 +1378,11 @@ def _records_answer(*, goal, tool_name, tool_result, question, prompt, language,
         # Nothing to add: the verified figures already answer the question.
         paragraph = ""
     if paragraph and check_paragraph:
-        checked = normalise_and_validate_numeric_claims(paragraph, _verified_records_context((tool_record,)))
-        paragraph = checked if checked and recorded_money_claims_match_tools(checked, (tool_record,)) else ""
+        stated = _stated_evidence(stated_amounts)
+        checked = normalise_and_validate_numeric_claims(
+            paragraph, "\n".join((_verified_records_context((tool_record,)), stated)))
+        fields_text = without_stated_amounts(checked, stated) if checked and stated else checked
+        paragraph = checked if checked and recorded_money_claims_match_tools(fields_text, (tool_record,)) else ""
     records = {"tool_names": (tool_name,), "tool_results": (tool_record,)}
     if not paragraph:
         return AgentLLMResult(content=facts, model="fincoach-verified-read", **records), mode, "code", facts
@@ -3103,6 +3145,8 @@ class CoachingService:
                 # calculation answers is tracked by its part ID, and research and
                 # the writer receive only the remaining parts (none -> no research).
                 target_plan = None
+                # Amounts the user mentioned, once a records answer may repeat them.
+                stated_amounts: tuple[str, ...] = ()
                 early_tool_result = None
                 answered_part_ids: tuple[str, ...] = ()
                 target = _listed_target(proposal) if semantic is not None else None
@@ -3474,7 +3518,8 @@ class CoachingService:
                             name for name in tool_result.get("suggestions") or []
                             if isinstance(name, str)
                         ]
-                    elif target_plan is not None and research_plan is None and route == CoachingRoute.COMBINED:
+                    elif (target_plan is not None and research_plan is None and route == CoachingRoute.COMBINED
+                          and not _target_without_surplus(tool_result)):
                         # The calculation answers every requested part: one
                         # code-written answer, no research and no writer.
                         result = AgentLLMResult(
@@ -3494,10 +3539,16 @@ class CoachingService:
                         result = replace(result, tool_names=(required_read_tool_name,),
                                          tool_results=(tool_record,))
                         content_origin = "model"
-                    elif route == CoachingRoute.PERSONAL_FINANCE:
+                    elif route == CoachingRoute.PERSONAL_FINANCE or (
+                            target_plan is not None and research_plan is None
+                            and route == CoachingRoute.COMBINED):
                         # One records answer for every goal: verified facts first,
                         # then at most one checked paragraph that fits the goal.
-                        if proposal is not None:
+                        # A target with no surplus (the only COMBINED case here)
+                        # has no plan to give, so it always gets advice.
+                        if route == CoachingRoute.COMBINED:
+                            goal = "advise"
+                        elif proposal is not None:
                             goal = proposal.goal or (
                                 "advise" if proposal.requested_output == "advice" else "show")
                         else:
@@ -3505,12 +3556,16 @@ class CoachingService:
                             # only, or facts followed by number-free advice.
                             goal = (None if _is_fast_verified_read(content, required_read_tool_name, route)
                                     else "advise")
+                        stated_amounts = _listed_context_amounts(proposal) if proposal is not None else ()
+                        if target_plan is not None:
+                            stated_amounts = (*stated_amounts, target)
                         result, response_mode, content_origin, facts_block = _records_answer(
                             goal=goal, tool_name=required_read_tool_name, tool_result=tool_result,
                             question=content, prompt=prompt,
                             language=proposal.response_language if proposal is not None else None,
                             check_paragraph=proposal is not None,
                             reasoning_effort=reasoning_effort, budget=request_budget,
+                            stated_amounts=stated_amounts,
                         )
                         if target_plan is not None:
                             # A records-only target: the records answer (and
@@ -3688,6 +3743,7 @@ class CoachingService:
                     trusted_numeric_evidence = [
                         *(chunk.content for chunk in chunks),
                         _verified_tool_context(result),
+                        _stated_evidence(stated_amounts),
                     ]
                     # For grounded educational answers the user prompt and history are
                     # untrusted for numeric facts: a planted "the rate is 99%" must not
@@ -3703,7 +3759,9 @@ class CoachingService:
                         numeric_evidence,
                     )
                     if numeric_content is not None and response_mode in {"llm_synthesis", "agent_loop", "two_phase_advice"}:
-                        if not recorded_money_claims_match_tools(numeric_content, getattr(result, "tool_results", ())):
+                        fields_text = (without_stated_amounts(numeric_content, _stated_evidence(stated_amounts))
+                                       if stated_amounts else numeric_content)
+                        if not recorded_money_claims_match_tools(fields_text, getattr(result, "tool_results", ())):
                             numeric_content = None
                     recovered_prediction = (
                         # A rejected paraphrase never removes the code-written

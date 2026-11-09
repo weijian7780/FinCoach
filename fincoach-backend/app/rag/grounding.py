@@ -300,6 +300,22 @@ def normalise_and_validate_numeric_claims(content: str, evidence: str) -> str | 
     return normalised
 
 
+def without_stated_amounts(content: str, stated_evidence: str) -> str:
+    """Text for the recorded-field check when the user stated amounts this turn.
+
+    Run after the numeric check has passed. The user's own amounts and verified
+    ``Calculation:`` lines are not claims about a recorded field, so they are
+    removed; every other amount still has to match its field.
+    """
+    text = str(content or "")
+    stated = _numeric_values(stated_evidence)
+    allowed = stated | _verify_calculation_claims(text, stated | _numeric_values(text))
+    return _CURRENCY_AMOUNT.sub(
+        lambda match: "" if _numeric_values(match.group(0)).issubset(allowed) else match.group(0),
+        _CALCULATION_BLOCK.sub("", text),
+    )
+
+
 def recorded_money_claims_match_tools(content: str, tool_records: tuple | list) -> bool:
     """Conservative field-aware backstop for provider-written recorded claims.
 
@@ -338,7 +354,8 @@ def recorded_money_claims_match_tools(content: str, tool_records: tuple | list) 
             (r"\b(?:income|pendapatan)\b", ("income", "monthly_allowance")),
             (r"\b(?:target|sasaran|matlamat)\b", ("target_amount",)),
             (r"\b(?:saved|savings|save|saveable|simpan)\b", ("current_amount", "projected_saveable", "projected_remaining")),
-            (r"\b(?:projected|estimated|predicted|forecast|anggaran)\b", ("projected_remaining", "projected_saveable", "projected_month_spending", "estimated_available_by_month_end")),
+            (r"\b(?:shortfall|kekurangan)\b", ("projected_shortfall",)),
+            (r"\b(?:projected|estimated?|estimates|predicted|forecast|anggaran)\b", ("projected_remaining", "projected_saveable", "projected_shortfall", "projected_month_spending", "estimated_available_by_month_end")),
             (r"\b(?:daily|per\s+day|sehari)\b", ("daily_spending_rate",)),
         ]
         matching = [(pattern, keys) for pattern, keys in cues if re.search(pattern, sentence, re.I)]
