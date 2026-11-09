@@ -21,8 +21,8 @@ def extract_link(url: str, api_key: str) -> dict:
     item = None
     if api_key:
         try:
-            from tavily import TavilyClient
-            response = TavilyClient(api_key=api_key).extract(
+            from app.search_provider import provider
+            response = provider(api_key).extract(
                 urls=[url], extract_depth="advanced", format="markdown", timeout=30)
             item = next((row for row in (response.get("results") or []) if row.get("url") == url), None)
         except Exception:

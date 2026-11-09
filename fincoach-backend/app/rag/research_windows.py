@@ -57,7 +57,7 @@ def bootstrap_public_sources(plan: QuestionPlan, *, store: PublicSourceStore,
     # Explicit fresh searches and bank comparisons always use live discovery.
     comparison = any(word in plan.topic.casefold() for word in ("compare", "comparison", "best bank", "interest rate"))
     import re
-    fresh_intent = plan.explicit_search or bool(re.search(
+    fresh_intent = plan.explicit_search or plan.verify_current or bool(re.search(
         r"\b(?:latest|today|right now|updated|changed recently)\b", plan.original_question, re.I))
     if comparison:
         return []

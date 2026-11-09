@@ -1494,7 +1494,8 @@ def run_research_policy(
     """Recover real public gaps with at most three request-budgeted rounds."""
     chunks = _balanced_evidence(chunks, [])
     answer_reserve = research_answer_reserve_seconds(has_evidence=False)
-    cache = WebResearchCache()
+    cache = WebResearchCache(fresh_required=bool(
+        plan.time_scope != 'stable' or plan.period or plan.verify_current or plan.explicit_search))
     diagnostics = {"rounds": 0, "assessment_calls": 0, "checker_retries": 0, "local_repairs": 0,
                    "empty_evidence_recovery_used": 0,
                    "clarification_part_ids": list(clarification_part_ids(plan)),
@@ -1723,6 +1724,8 @@ def run_research_policy(
                            requested_part_labels=[p.label for p in requested_parts(plan)] if final_parts else [],
                            part_coverage=[part.__dict__ for part in final_parts])
         diagnostics.update(cache.public_source_diagnostics)
+        if cache.exa_cost_dollars is not None:
+            diagnostics['exa_cost_dollars'] = cache.exa_cost_dollars
         if source_store is not None:
             relevant_urls = {chunk.url for chunk in evidence}
             for url, page in cache.fetched_pages.items():

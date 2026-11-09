@@ -16,6 +16,8 @@ services:
     env_file:
       - .env
     environment:
+      WEB_SEARCH_PROVIDER: "exa"
+      WEB_SEARCH_DEFAULT_COUNTRY_CODE: "MY"
       # 2026-11-08 Luna release: GPT-6 Luna reads questions, judges evidence,
       # writes and checks; free Nemotron (the primary slot) backs each up.
       # Gemini (LLM_* in .env) is used only by the receipt module.

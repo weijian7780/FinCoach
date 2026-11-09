@@ -35,7 +35,7 @@ from __future__ import annotations
 import re
 from hashlib import sha256
 from time import monotonic
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Literal, TYPE_CHECKING
 
@@ -389,7 +389,7 @@ class WebResult:
     title: str
     url: str
     content: str
-    score: float
+    score: float | None
     published_date: str | None = None
 
 
@@ -429,12 +429,18 @@ class WebResearchCache:
     sent_searches: set[str] = field(default_factory=set)
     skipped_searches: list[dict[str, str]] = field(default_factory=list)
     privacy_skips: list[dict[str, bool]] = field(default_factory=list)
+    exa_cost_dollars: float | None = None
+    fresh_required: bool = False
 
     def note_usage(self, response: Any) -> None:
         usage = response.get("usage") if isinstance(response, dict) else None
         credits = usage.get("credits") if isinstance(usage, dict) else None
         if type(credits) in (int, float) and isfinite(credits) and credits >= 0:
             self.credits = (self.credits or 0) + credits
+        cost = response.get('costDollars') if isinstance(response, dict) else None
+        dollars = cost.get('total') if isinstance(cost, dict) else None
+        if type(dollars) in (int, float) and isfinite(dollars) and dollars >= 0:
+            self.exa_cost_dollars = (self.exa_cost_dollars or 0) + dollars
 
 
 def _extraction_url(url: str) -> str:
@@ -453,6 +459,11 @@ def _extraction_url(url: str) -> str:
         return "[invalid URL]"
 
 
+def _extraction_method() -> str:
+    from app.config import WEB_SEARCH_PROVIDER
+    return WEB_SEARCH_PROVIDER if WEB_SEARCH_PROVIDER in {'exa', 'tavily'} else 'unknown'
+
+
 def _extraction_event(cache: WebResearchCache | None, url: str, method: str,
                       success: bool, error_type: str | None = None, *, attempted: bool = True,
                       elapsed_seconds: float = 0.0) -> None:
@@ -467,6 +478,8 @@ def _provider_extract_error(value: Any) -> str:
     if isinstance(value, dict):
         value = value.get("type") or value.get("code") or value.get("message")
     if isinstance(value, str):
+        if value in {'auth_error', 'quota', 'rate_limited', 'timeout', 'network_error', 'extraction_failed'}:
+            return value
         if re.search(r"\b(?:timeout|timed out)\b", value, re.I):
             return "timeout"
         status = re.search(r"\b(?:HTTP\s*)?([45]\d\d)\b", value, re.I)
@@ -477,10 +490,13 @@ def _provider_extract_error(value: Any) -> str:
 
 def _safe_error(error: Exception) -> str:
     """Classify failures without retaining credentials or provider response text."""
+    from app.search_provider import ProviderError
+    if isinstance(error, ProviderError):
+        return error.code
     status = getattr(error, "status_code", None)
     if status in (401, 403):
         return "auth_error"
-    if status in (432, 433):
+    if status in (402, 432, 433):
         return "quota"
     if status == 429:
         return "rate_limited"
@@ -511,7 +527,7 @@ def _parse_results(response: Any) -> list[WebResult]:
                 title=str(item.get("title") or "").strip() or _host(url),
                 url=url,
                 content=content,
-                score=float(item.get("score") or 0.0),
+                score=float(item['score']) if item.get('score') is not None else None,
                 published_date=str(item.get("published_date") or "")[:10] or None,
             )
         )
@@ -533,6 +549,7 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
     data), so this is where breaking news / new platforms surface. Scrapers are
     excluded. Each pass fails closed to ``[]`` so one bad call can't break a turn.
     """
+    started = monotonic()
     normalized = " ".join(str(query or "").split()).casefold()
     key = (query, caged, max_results, public_policy, official_domains, discovery_mode)
     if cache is not None and normalized in cache.sent_searches:
@@ -565,6 +582,7 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                        if classify_tier("https://" + host) in {1, 2}]
             response = client.search(
                 query=query, max_results=min(4, max(1, int(max_results))),
+                **({'fresh_required': True} if cache is not None and cache.fresh_required else {}),
                 search_depth="basic", topic="general",
                 # Without an identified institution host, discover broadly.
                 # A long finance-domain preference displaces unrelated public
@@ -587,6 +605,7 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                 max_results=max(1, int(max_results)),
                 search_depth="basic",
                 topic="finance",
+                **({'fresh_required': True} if cache is not None and cache.fresh_required else {}),
                 include_domains=list(_PREFERRED_DOMAINS),
                 include_domains_mode="prefer",
                 timeout=timeout,
@@ -598,6 +617,7 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
                 search_depth="basic",
                 topic="general",
                 country=country or WEB_SEARCH_DEFAULT_COUNTRY,
+                **({'fresh_required': True} if cache is not None and cache.fresh_required else {}),
                 exclude_domains=list(_EXCLUDED_DOMAINS),
                 timeout=timeout,
             )
@@ -609,6 +629,8 @@ def _search_pass(client: Any, query: str, *, caged: bool, max_results: int, time
             cache.last_error = reason
         return []
     results = _parse_results(response)
+    from app.rag.search_similarity import score_unscored
+    results = score_unscored(query, results, timeout - (monotonic() - started))
     if cache is not None:
         cache.note_usage(response)
         cache.searches[key] = tuple(results)
@@ -647,12 +669,19 @@ def search_web(
     if not api_key or not str(query or "").strip():
         return []
     try:
-        from tavily import TavilyClient  # lazy: optional dependency
+        from app.search_provider import provider
+        client = provider(api_key)
     except ImportError:
         if errors is not None:
             errors.append("sdk_unavailable")
         return []
-    client = TavilyClient(api_key=api_key)
+    except Exception as error:
+        reason = _safe_error(error)
+        if errors is not None:
+            errors.append(reason)
+        if cache is not None:
+            cache.last_error = reason
+        return []
 
     caged = _search_pass(client, query, caged=not unrestricted, max_results=max_results,
                          timeout=timeout, errors=errors, public_policy=public_policy,
@@ -848,7 +877,7 @@ def extract_passages(
     if not api_key or not clean_urls or timeout < 1:
         reason = "no_api_key" if not api_key else "deadline"
         for url in clean_urls:
-            _extraction_event(cache, url, "tavily", False, reason, attempted=False)
+            _extraction_event(cache, url, _extraction_method(), False, reason, attempted=False)
         return {}
     # A different public gap can need a different passage from the same URL.
     cached = {url: cache.passages[(url, query, extract_depth, complete_context, subject_query)] for url in clean_urls
@@ -868,18 +897,18 @@ def extract_passages(
     if cache is not None and cache.extract_calls >= 4:
         cache.last_error = "extract_call_limit"
         for url in clean_urls[:20]:
-            _extraction_event(cache, url, "tavily", False, "extract_call_limit", attempted=False)
+            _extraction_event(cache, url, _extraction_method(), False, "extract_call_limit", attempted=False)
     else:
         try:
-            from tavily import TavilyClient  # lazy: optional dependency
+            from app.search_provider import provider as TavilyClient
+            from app.search_provider import ProviderError
         except ImportError:
             TavilyClient = None
             for url in clean_urls[:20]:
-                _extraction_event(cache, url, "tavily", False, "sdk_unavailable", attempted=False)
+                _extraction_event(cache, url, _extraction_method(), False, "sdk_unavailable", attempted=False)
         if TavilyClient is not None:
             from app.rag.research_checker_deadline import extract_with_deadline
             def extract_one(url, remaining):
-                client = TavilyClient(api_key=api_key)
                 kwargs: dict[str, Any] = {
                     "urls": [url],
                     "extract_depth": extract_depth,
@@ -890,7 +919,13 @@ def extract_passages(
                     kwargs["chunks_per_source"] = 3
                 if cache is not None:
                     kwargs["include_usage"] = True
-                return client.extract(**kwargs)
+                    if cache.fresh_required:
+                        kwargs['fresh_required'] = True
+                try:
+                    client = TavilyClient(api_key)
+                    return client.extract(**kwargs)
+                except ProviderError as error:
+                    return {'results': [], 'failed_results': [{'url': url, 'error': error.code}]}
             if cache is not None:
                 cache.extract_calls += 1
             bounded = extract_with_deadline(clean_urls[:20], extract_one, max(0, timeout - (monotonic() - started)))
@@ -900,13 +935,13 @@ def extract_passages(
                 if not ok:
                     if cache is not None:
                         cache.last_error = "timeout" if error in {"deadline", "TimeoutError"} else "extraction_failed"
-                    _extraction_event(cache, url, "tavily", False, error, attempted=attempted,
+                    _extraction_event(cache, url, _extraction_method(), False, error, attempted=attempted,
                                       elapsed_seconds=elapsed)
                     continue
                 if cache is not None:
                     cache.note_usage(response)
                 if not isinstance(response, dict):
-                    _extraction_event(cache, url, "tavily", False, "invalid_response", elapsed_seconds=elapsed)
+                    _extraction_event(cache, url, _extraction_method(), False, "invalid_response", elapsed_seconds=elapsed)
                     continue
                 found = next((item for item in response.get("results", []) or []
                               if str(item.get("url") or "").strip() == url
@@ -914,14 +949,14 @@ def extract_passages(
                 if found:
                     raw = str(found.get("raw_content") or "").strip()
                     raw_pages[url] = (str(found.get("title") or raw[:180]), raw)
-                    _extraction_event(cache, url, "tavily", True, elapsed_seconds=elapsed)
+                    _extraction_event(cache, url, _extraction_method(), True, elapsed_seconds=elapsed)
                 else:
                     failed = next((item for item in response.get("failed_results", []) or []
                                    if str(item.get("url") or "").strip() == url), None)
                     error_type = (_provider_extract_error(failed.get("error")) if failed else "missing_result")
                     if cache is not None and failed:
-                        cache.last_error = "extraction_failed"
-                    _extraction_event(cache, url, "tavily", False, error_type, elapsed_seconds=elapsed)
+                        cache.last_error = error_type if error_type in {'auth_error', 'quota', 'rate_limited', 'timeout', 'network_error'} else "extraction_failed"
+                    _extraction_event(cache, url, _extraction_method(), False, error_type, elapsed_seconds=elapsed)
     if cache is not None and complete_context:
         _direct_fetch_fallback(clean_urls, raw_pages, cache=cache,
                                remaining=timeout - (monotonic() - started))
@@ -1003,7 +1038,7 @@ def to_retrieved_chunks(
     """
     def _rank(result: WebResult) -> tuple[int, float]:
         tier = classify_tier(result.url)
-        return (_UNKNOWN_TIER_RANK if tier is None else tier, -result.score)
+        return (_UNKNOWN_TIER_RANK if tier is None else tier, -(result.score if result.score is not None else 0.0))
 
     ranked = sorted(results, key=_rank)
     chunks: list[RetrievedChunk] = []
@@ -1017,7 +1052,7 @@ def to_retrieved_chunks(
                 page_number=None,
                 chunk_index=None,
                 content=result.content,
-                similarity=result.score,
+                similarity=result.score if result.score is not None else 0.0,
                 url=result.url,
                 source_type="web",
                 tier=tier,
@@ -1179,7 +1214,14 @@ def research_evidence(
         )
         for result in results
     ]
-    return ResearchOutcome(to_retrieved_chunks(enriched), True, "ok",
+    chunks = to_retrieved_chunks(enriched)
+    # A search snippet is not evidence that the page was fetched now. Only a
+    # successful extraction earns today's checked_at; fallback text keeps an
+    # unknown check date so it cannot count as fresh.
+    chunks = [replace(chunk, checked_at=None)
+              if chunk.url and chunk.url not in passages else chunk
+              for chunk in chunks]
+    return ResearchOutcome(chunks, True, "ok",
                            cache.last_error if cache is not None else None)
 
 

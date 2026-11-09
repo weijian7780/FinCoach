@@ -136,6 +136,9 @@ RETRIEVE_PART_SEARCHES = int(os.environ.get("RETRIEVE_PART_SEARCHES", "4"))
 # Corpus is always tried first. With no API key set, the fallback yields no web
 # sources and the answer degrades to "insufficient evidence" rather than erroring.
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
+EXA_API_KEY = os.environ.get("EXA_API_KEY", "")
+WEB_SEARCH_PROVIDER = os.environ.get("WEB_SEARCH_PROVIDER", "tavily").strip().lower()
+WEB_SEARCH_DEFAULT_COUNTRY_CODE = os.environ.get("WEB_SEARCH_DEFAULT_COUNTRY_CODE", "MY")
 WEB_FALLBACK_ENABLED = _environment_flag("WEB_FALLBACK_ENABLED", True)
 COACH_RESEARCH_POLICY_ENABLED = _environment_flag("COACH_RESEARCH_POLICY_ENABLED", False)
 COACH_RESEARCH_MAX_WORDS = _bounded_setting(

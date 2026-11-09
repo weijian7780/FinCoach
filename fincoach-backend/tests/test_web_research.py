@@ -304,6 +304,22 @@ def test_research_evidence_prefers_extracted_passage_over_snippet():
     assert outcome.web_ran is True
     assert outcome.reason == "ok"
     assert outcome.chunks[0].content == "the full extracted passage text"
+    assert outcome.chunks[0].checked_at is not None
+
+
+def test_research_evidence_search_snippet_fallback_is_not_stamped_fresh():
+    def fake_search(query, *, api_key, max_results, timeout, errors=None):
+        return [WebResult("BNM", "https://www.bnm.gov.my/a", "short snippet", 0.5)]
+
+    with (
+        mock.patch("app.rag.web_research.search_web", side_effect=fake_search),
+        mock.patch("app.rag.web_research.extract_passages", return_value={}),
+    ):
+        outcome = research_evidence("opr rate", api_key="test-key")
+
+    assert outcome.chunks[0].content == "short snippet"
+    # A snippet is not a successful page read, so it cannot claim today's date.
+    assert outcome.chunks[0].checked_at is None
 
 
 def test_research_evidence_reasons_when_degraded():

@@ -13,6 +13,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.agent_tools import AGENT_TOOL_DEFINITIONS, AgentToolExecutor
+from app.search_provider import configured_key
 from app.rag.request_interpretation import (
     Category,
     InterpretedRequest,
@@ -3136,7 +3137,7 @@ class CoachingService:
                         research_plan, chunks,
                         generate=generate_structured_result,
                         budget=research_work_budget(request_budget),
-                        api_key=TAVILY_API_KEY,
+                        api_key=configured_key(TAVILY_API_KEY),
                         # A question about a named published document itself is
                         # answered from it, never from similarly named web pages;
                         # a validated non-finance question uses published
@@ -3177,7 +3178,7 @@ class CoachingService:
                     from app.rag.search_privacy import make_search_guard
                     web_chunks = research_web(
                         research_query,
-                        api_key=TAVILY_API_KEY,
+                        api_key=configured_key(TAVILY_API_KEY),
                         max_results=WEB_FALLBACK_MAX_RESULTS,
                         timeout=WEB_FALLBACK_TIMEOUT_SECONDS,
                         web_query_guard=make_search_guard(self.admin_client, self.repository.user_id,

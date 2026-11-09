@@ -14,6 +14,7 @@ from starlette.datastructures import UploadFile as FormFile
 from supabase import ClientOptions, create_client
 
 from app import config
+from app.search_provider import configured_key
 from app.admin.documents import MAX_UPLOAD_BYTES, RevisionInput, build_revision_chunks, extract_document
 from app.admin.service import admin_read, admin_rpc, require_administrator
 from app.auth import AuthenticatedUser, require_authenticated_user
@@ -139,7 +140,7 @@ def dashboard(request: Request, user=Depends(administrator)):
     counts["suspended_accounts"] = admin_read(client.table("account_access").select("user_id", count="exact", head=True).eq("status", "suspended")).count or 0
     counts["failed_revisions"] = admin_read(client.table("knowledge_revisions").select("id", count="exact", head=True).eq("status", "failed")).count or 0
     return dict(counts=counts, components=getattr(request.app.state, "model_warmup", {"ocr": "unknown", "embeddings": "unknown"}),
-                providers={"llm_configured": bool(config.LLM_API_KEY or config.LLM_PRIMARY_API_KEY), "tavily_configured": bool(config.TAVILY_API_KEY)})
+                providers={"llm_configured": bool(config.LLM_API_KEY or config.LLM_PRIMARY_API_KEY), "tavily_configured": bool(configured_key())})
 
 
 @router.get("/audit")
@@ -296,7 +297,7 @@ class LinkInput(BaseModel):
 def import_link(body: LinkInput, user=Depends(administrator)):
     from app.admin.link_import import extract_link
     try:
-        return extract_link(body.url.strip(), config.TAVILY_API_KEY)
+        return extract_link(body.url.strip(), configured_key())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except RuntimeError as exc:

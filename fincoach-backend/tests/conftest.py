@@ -14,6 +14,18 @@ collect_ignore_glob = ["archive/*", "archive/**/*"]
 
 
 @pytest.fixture(autouse=True)
+def _legacy_search_transport(request, monkeypatch):
+    """Existing SDK mocks explicitly exercise the retained Tavily adapter."""
+    if request.module.__name__.split('.')[-1] in {
+        'test_admin_link_import', 'test_deepseek_writer_gap', 'test_general_search_privacy',
+        'test_open_question_reliability', 'test_public_fetch', 'test_research_recovery',
+        'test_search_gap_followup', 'test_web_research',
+    }:
+        from app import config
+        monkeypatch.setattr(config, 'WEB_SEARCH_PROVIDER', 'tavily')
+
+
+@pytest.fixture(autouse=True)
 def _legacy_provider_contract(request, monkeypatch):
     """These tests assert the pre-slot two-provider protocol explicitly.
 
