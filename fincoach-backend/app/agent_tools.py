@@ -519,6 +519,31 @@ def _money(value: Any) -> str:
     return f"{'-' if amount < 0 else ''}RM{abs(amount):,.2f}"
 
 
+OTHER_CATEGORIES = "Other categories"
+
+
+def _built_in_label(row: dict, built_in: dict[str, str]) -> str:
+    """A transaction's category as a built-in name, or "Other categories".
+
+    A user's custom category name never leaves the tool: only names in the
+    app's shared (built-in) catalog are kept."""
+    name = str((row.get("category") or {}).get("name") or "")
+    return built_in.get(name.casefold(), OTHER_CATEGORIES)
+
+
+def _built_in_category_spending(expenses: list[dict], built_in: dict[str, str]) -> list[dict]:
+    """Spending by built-in category, largest first; custom categories are summed
+    as "Other categories" (listed last). Empty when the built-in names are unknown."""
+    if not expenses or not built_in:
+        return []
+    totals: dict[str, Decimal] = {}
+    for row in expenses:
+        label = _built_in_label(row, built_in)
+        totals[label] = totals.get(label, Decimal("0")) + Decimal(str(row.get("amount") or 0))
+    ordered = sorted(totals.items(), key=lambda item: (item[0] == OTHER_CATEGORIES, -item[1]))
+    return [{"name": name, "amount": _money(amount)} for name, amount in ordered[:6]]
+
+
 def _month_bounds(value: date) -> tuple[date, date]:
     start = value.replace(day=1)
     next_month = date(start.year + (start.month == 12), 1 if start.month == 12 else start.month + 1, 1)
@@ -1065,6 +1090,10 @@ class AgentToolExecutor:
             }
 
         recorded_expenses = sum((Decimal(str(row.get("amount") or 0)) for row in expenses), Decimal("0"))
+        built_in = self._built_in_name_map() if expenses else {}
+        category_spending = _built_in_category_spending(expenses, built_in)
+        largest = max(expenses, key=lambda row: Decimal(str(row.get("amount") or 0)), default=None)
+        so_far = bool(expenses) and basis_start == month_start
         days_elapsed = (basis_end - basis_start).days + 1 if expenses else 0
         daily_spending_rate = recorded_expenses / days_elapsed if expenses else None
         projection_basis = "spending_pace"
@@ -1128,6 +1157,22 @@ class AgentToolExecutor:
             "projected_shortfall": _money(max(Decimal("0"), -projected_remaining)),
             "goal_details": goal_details,
             "projected_saveable": _money(max(Decimal("0"), projected_remaining)),
+            # What is recorded so far, before any projection: the selected
+            # income against the expenses recorded in basis_period. Only when
+            # those records are from the month estimated (None for a future
+            # month or a previous-month basis: that would mix two months).
+            "balance_so_far": _money(income - recorded_expenses) if so_far else None,
+            "overspent_so_far": _money(max(Decimal("0"), recorded_expenses - income)) if so_far else None,
+            "largest_expense": ({
+                "category": _built_in_label(largest, built_in),
+                "amount": _money(Decimal(str(largest.get("amount") or 0))),
+            } if largest is not None else None),
+            # True when the largest single payment is more than half of the
+            # recorded spending: the pace estimate then counts it as repeating.
+            "one_payment_dominates": (
+                Decimal(str(largest.get("amount") or 0)) * 2 > recorded_expenses
+                if largest is not None and recorded_expenses > 0 else None),
+            "category_spending": category_spending,
             "is_estimate": True,
             "assumptions": [
                 "Uses the selected income basis without adding allowance to recorded income.",
@@ -1136,6 +1181,13 @@ class AgentToolExecutor:
             ],
             "disclaimer": "An estimate from recorded data, not a bank balance or guarantee. Missing transactions can change the result.",
         }
+
+    def _built_in_name_map(self) -> dict[str, str]:
+        """casefolded -> exact built-in category name; empty when unreadable."""
+        try:
+            return {name.casefold(): name for name in self.built_in_category_names()}
+        except Exception:
+            return {}
 
     def _weekly_savings_plan(self, raw: dict) -> dict:
         args = _PredictionArgs.model_validate(raw)

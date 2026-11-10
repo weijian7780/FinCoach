@@ -1,6 +1,8 @@
 """A figure FinCoach calculates is a result, not a setting, and a savings target
 with no surplus still gets advice. Typed fields only; the shapes come from a
-real conversation (2026-11-09) with the amounts varied."""
+real conversation (2026-11-09) with the amounts varied. Since 2026-11-10 the
+writer names every amount as a {{field}} and code fills it in (the fields
+themselves are tested in test_savings_explanation.py)."""
 import copy
 import random
 from types import SimpleNamespace
@@ -80,83 +82,69 @@ def test_a_stated_amount_on_a_calculated_figure_is_a_valid_reading():
 
 # ---- Changing a calculated figure: the user's question gets answered --------------------
 
-ANSWER = ("The estimated shortfall is calculated from your income and projected spending, so it cannot be set "
-          "directly. Reaching RM1,000 means closing the difference through more income or less spending.\n"
-          "Calculation: RM2,241.50 - RM1,000 = RM1,241.50")
+ANSWER = ("No, the estimated shortfall is worked out from your income and spending, so it can't be set to "
+          "{{stated_amount}} directly. To bring it down to {{stated_amount}}, the month's spending would need "
+          "to be {{shortfall_minus_stated_amount}} lower, or your income that much higher.")
 QUESTION = "can i change estimated shortfall to rm1000?"
+WORKING = "Calculation: RM600.00 - RM2,841.50 = **-RM2,241.50**"
 
 
 def test_the_answer_explains_the_figure_and_is_not_a_savings_target(monkeypatch):
     content, model, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=ANSWER)
-    assert "Your savings target" not in content and "target cannot be reached" not in content
-    assert "estimated shortfall: **RM2,241.50**" in content
-    assert ANSWER in content
+    assert content.startswith("No, the estimated shortfall is worked out")
+    assert "can't be set to RM1,000.00 directly" in content and "RM1,241.50 lower" in content
+    assert "Your savings target" not in content and "{{" not in content
+    assert content.rstrip().splitlines()[-2] == WORKING      # the code-written working comes last
     assert model == "test-writer"
 
 
 def test_the_writer_is_told_the_amount_is_the_users_not_a_record(monkeypatch):
     _, _, prompts = _send(monkeypatch, _change_figure(), QUESTION, writer=ANSWER)
-    assert prompts and "RM1,000" in prompts[-1] and "not a record" in prompts[-1]
+    assert len(prompts) == 1                                 # one writer call, no extra call
+    assert ("stated_amount: an amount the user wrote in this message (their own words, not a record) "
+            "= RM1,000.00") in prompts[0]
+    assert "shortfall_minus_stated_amount:" in prompts[0] and "= RM1,241.50" in prompts[0]
 
 
 @pytest.mark.parametrize("seed", range(25))
-def test_any_stated_amount_and_its_exact_difference_survive_the_checks(seed, monkeypatch):
+def test_any_stated_amount_gets_its_exact_gap_from_code(seed, monkeypatch):
     stated = random.Random(seed).randint(1, 2241)
-    difference = 2241.50 - stated
-    writer = (f"It is calculated, so it cannot be set to RM{stated:,}.\n"
-              f"Calculation: RM2,241.50 - RM{stated:,} = RM{difference:,.2f}")
+    writer = "It is calculated, so it cannot be set to {{stated_amount}}; the gap is {{shortfall_minus_stated_amount}}."
     content, _, _ = _send(monkeypatch, _change_figure(str(stated)), QUESTION, writer=writer)
-    assert writer in content
+    assert f"cannot be set to RM{stated:,.2f}; the gap is RM{2241.50 - stated:,.2f}." in content
 
 
 @pytest.mark.parametrize("writer", [
-    "It cannot be set. Cut RM777.77 from food.",
-    "It cannot be set.\nCalculation: RM2,241.50 - RM1,000 = RM999.00",
-    "It cannot be set.\nCalculation: RM2,241.50 - RM555.00 = RM1,686.50",
-    "Your recorded income is RM777.77, so it cannot be set.",
+    "It cannot be set. Cut RM777.77 from food.",                       # a typed amount
+    "It cannot be set; the gap is 1,241.50.",                          # typed, no currency sign
+    "It cannot be set. Spend 300 less on food.",                       # a bare typed number
+    "Your income is {{bank_balance}}.",                                # a field that does not exist
+    "It cannot be set to {stated_amount}.",                            # a broken placeholder
 ])
-def test_any_other_new_or_wrong_amount_drops_the_paragraph(writer, monkeypatch):
-    content, _, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=writer)
-    assert "estimated shortfall: **RM2,241.50**" in content
-    assert "777.77" not in content and "RM999.00" not in content and "RM555.00" not in content
+def test_any_typed_amount_or_unknown_field_gives_the_code_figures(writer, monkeypatch):
+    content, model, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=writer)
+    assert "estimated shortfall: **RM2,241.50**" in content and model == "fincoach-verified-read"
+    assert "777.77" not in content and "bank_balance" not in content and "Spend 300" not in content
 
 
-def test_without_a_stated_amount_the_users_number_is_still_not_evidence(monkeypatch):
+def test_without_a_stated_amount_there_is_no_stated_field(monkeypatch):
     payload = {**_change_figure(), "amounts": []}
-    content, _, _ = _send(monkeypatch, payload, "why is my shortfall so high? i thought rm1000",
-                          writer="It should be RM1,000.")
-    assert "RM1,000" not in content
+    content, model, _ = _send(monkeypatch, payload, "why is my shortfall so high? i thought rm1000",
+                              writer="It should be {{stated_amount}}.")
+    assert "RM1,000" not in content and model == "fincoach-verified-read"
 
 
-def test_a_paragraph_stating_the_real_shortfall_is_kept(monkeypatch):
-    writer = ("The estimated shortfall is RM2,241.50 and it cannot be set directly. Your recorded income of "
-              "RM600.00 and projected spending of RM2,841.50 produce it.")
+def test_the_real_shortfall_named_by_field_is_kept(monkeypatch):
+    writer = ("The estimated shortfall is {{estimated_shortfall}}: your income of {{income}} against projected "
+              "spending of {{projected_spending}}.")
     content, _, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=writer)
-    assert writer in content
-
-
-def test_the_word_estimate_binds_like_estimated(monkeypatch):
-    writer = "No, it is calculated, so it cannot be set directly to RM1,000. Your verified estimate is RM2,241.50."
-    content, _, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=writer)
-    assert writer in content
-    wrong = "No, it cannot be set. Your verified estimate is RM999.99."
-    content, _, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=wrong)
-    assert wrong not in content
-
-
-@pytest.mark.parametrize("writer", [
-    "You have RM2,241.50 left this month.",          # a shortfall is never money left
-    "Your estimated savings are RM2,241.50.",        # nor money saved
-    "Your shortfall is RM999.99.",                   # nor any other amount
-])
-def test_the_shortfall_amount_only_counts_as_a_shortfall(writer, monkeypatch):
-    content, _, _ = _send(monkeypatch, _change_figure(), QUESTION, writer=writer)
-    assert writer not in content
+    assert ("The estimated shortfall is RM2,241.50: your income of RM600.00 against projected spending of "
+            "RM2,841.50.") in content
 
 
 def test_a_show_reading_with_a_stated_amount_still_answers_it(monkeypatch):
     content, _, prompts = _send(monkeypatch, _change_figure(goal="show"), QUESTION, writer=ANSWER)
-    assert ANSWER in content
+    assert content.startswith("No, the estimated shortfall")
     assert "do not restate them" not in prompts[-1]
 
 
@@ -166,37 +154,37 @@ def test_a_failed_writer_still_gives_the_verified_figures(monkeypatch):
     assert model == "fincoach-verified-read"
 
 
-# ---- A savings target with no surplus: advice follows the calculated answer ----------------
+# ---- A savings target with no surplus: the writer answers it ----------------------------
 
-ADVICE = "Start by pausing your largest non-essential spending this week, then log every expense."
+ADVICE = ("**Insight**\nYour spending is already above your income, so saving {{target}} first needs "
+          "{{needed_to_save_target}} less spending this month at this pace.\n\n**Recommended action**\n"
+          "Pause your largest non-essential spending this week, then log every expense.\n\n"
+          "**Educational guidance**\nThis is educational guidance, not licensed financial advice.")
 TARGET_QUESTION = "Help me save RM50"
 
 
-def test_no_surplus_target_keeps_the_calculated_block_and_adds_advice(monkeypatch):
-    content, model, _ = _send(monkeypatch, _saved_target(), TARGET_QUESTION, writer=ADVICE)
+def test_no_surplus_target_is_answered_by_the_writer_with_the_working_in_insight(monkeypatch):
+    content, model, prompts = _send(monkeypatch, _saved_target(), TARGET_QUESTION, writer=ADVICE)
+    assert content.startswith("**Insight**\nYour spending is already above your income, so saving RM50.00")
+    assert "RM2,291.50 less spending" in content                   # 50 + 2,241.50, worked out by code
+    assert content.index(WORKING) < content.index("**Recommended action**")
+    assert content.rstrip().endswith("not licensed financial advice.")
+    assert "Your savings target" not in content and "no surplus" not in content
+    assert model == "test-writer" and len(prompts) == 1
+
+
+def test_no_surplus_advice_with_a_typed_amount_gives_the_target_and_figures(monkeypatch):
+    content, model, _ = _send(monkeypatch, _saved_target(), TARGET_QUESTION,
+                              writer="Cut RM777.77 from food each week.")
     assert content.startswith("Your savings target: **RM50**.")
-    assert "estimated shortfall: **RM2,241.50**" in content
-    assert "no surplus to save this month" in content
-    assert content.index("no surplus to save this month") < content.index(ADVICE)
-    assert model == "test-writer"
+    assert "estimated shortfall: **RM2,241.50**" in content and "777.77" not in content
+    assert model == "fincoach-verified-read"
 
 
-def test_no_surplus_advice_with_a_new_amount_never_removes_the_block(monkeypatch):
-    content, _, _ = _send(monkeypatch, _saved_target(), TARGET_QUESTION, writer="Cut RM777.77 from food each week.")
-    assert content.startswith("Your savings target: **RM50**.")
-    assert "no surplus to save this month" in content and "777.77" not in content
-
-
-def test_no_surplus_advice_may_name_the_users_own_target(monkeypatch):
-    writer = "To reach your RM50 goal, pause non-essential spending first."
-    content, model, _ = _send(monkeypatch, _saved_target(), TARGET_QUESTION, writer=writer)
-    assert writer in content and model == "test-writer"
-
-
-def test_no_surplus_with_providers_down_keeps_todays_code_answer(monkeypatch):
+def test_no_surplus_with_providers_down_shows_the_target_and_figures_only(monkeypatch):
     content, model, _ = _send(monkeypatch, _saved_target(), TARGET_QUESTION)
-    assert content.startswith("Your savings target: **RM50**.")
-    assert "Reducing spending or increasing income would need to come first." in content
+    facts = service._format_fast_verified_read("predict_savings", SHORTFALL)
+    assert content == f"Your savings target: **RM50**.\n\n{facts}"
     assert model == "fincoach-verified-read"
 
 

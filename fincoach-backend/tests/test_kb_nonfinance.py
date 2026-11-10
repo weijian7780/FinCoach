@@ -870,10 +870,13 @@ def test_target_plan_is_calculated_from_the_verified_savings_estimate():
     assert service._target_block("3000", plan, "en") == f"Your savings target: **RM3,000**.\n\n{facts}\n\n{PLAN_6}"
 
 
-def test_no_surplus_says_the_target_cannot_be_reached_from_current_capacity():
-    text, _ = service._target_plan("3000", _record(projected_remaining="-RM40.00", projected_saveable="RM0.00",
-                                                   projected_shortfall="RM40.00"), "en")
-    assert "no surplus to save this month, so the RM3,000 target cannot be reached" in text
+def test_no_surplus_gives_no_plan_and_no_fixed_sentence():
+    # A fixed sentence here was wrong for budget-based and other-month
+    # estimates: with no surplus the figures stand alone.
+    record = _record(projected_remaining="-RM40.00", projected_saveable="RM0.00", projected_shortfall="RM40.00")
+    text, facts = service._target_plan("3000", record, "en")
+    assert text == ""
+    assert service._target_block("3000", (text, facts), "en") == f"Your savings target: **RM3,000**.\n\n{facts}"
 
 
 def test_target_is_rounded_up_to_whole_contributions():
