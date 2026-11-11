@@ -102,6 +102,41 @@ class PureResolverTests(unittest.TestCase):
         self.assertEqual(res.status, "resolved")
         self.assertEqual(res.category, "Food")
 
+    def test_trail_slot_ignores_conversation_before_filler_boundary(self):
+        for question in (
+            "ok good show me budget that i set",
+            "hey show me budget",
+            "ok good now show me budget",
+            "lol show budget",
+        ):
+            with self.subTest(question=question):
+                result = resolve_category_phrase(question, NAMES)
+                self.assertEqual(result.status, "none")
+                self.assertIsNone(result.requested)
+
+    def test_trail_slot_preserves_adjacent_category_and_month(self):
+        for question in ("show my food budget", "September food budget"):
+            with self.subTest(question=question):
+                result = resolve_category_phrase(question, NAMES)
+                self.assertEqual(result.status, "resolved")
+                self.assertEqual(result.category, "Food")
+
+    def test_trail_slot_preserves_unknown_category(self):
+        result = resolve_category_phrase("show my petrol budget", NAMES)
+        self.assertEqual(result.status, "needs_interpretation")
+        self.assertEqual(result.requested, "petrol")
+
+    def test_trail_slot_connectors_preserve_multiple_category_ambiguity(self):
+        for question in (
+            "food and transport budget",
+            "food & transport budget",
+            "food dan transport budget",
+            "food, transport budget",
+        ):
+            with self.subTest(question=question):
+                result = resolve_category_phrase(question, NAMES)
+                self.assertEqual(result.status, "ambiguous")
+
 
 class DateAwareQuery:
     def __init__(self, rows):
@@ -299,6 +334,32 @@ class ExecutorCategoryIntegrationTests(unittest.TestCase):
         )
         result = executor.execute("get_budget_status", {"month": "2026-07"})
         self.assertEqual(result["status"], "ok")
+
+    def test_conversational_budget_request_does_not_invent_category(self):
+        from app.rag.routing import resolve_read_request
+
+        for question in (
+            "ok good show me budget that i set",
+            "okay, thanks! show my budget",
+            "great please show me my budget",
+        ):
+            with self.subTest(question=question):
+                request = resolve_read_request(question, [])
+                self.assertEqual(request.tool_name, "get_budget_status")
+                self.assertNotIn("category_name", request.arguments)
+                result = self.make_executor(question, []).execute(
+                    request.tool_name, request.arguments
+                )
+                self.assertEqual(result["status"], "ok")
+
+    def test_acknowledgement_preserves_requested_category(self):
+        for category in ("Food", "Good", "Yachts"):
+            question = f"ok good show me {category} budget"
+            result = resolve_category_phrase(question, ["Food", "Good"])
+            self.assertEqual(result.requested, category)
+            self.assertEqual(
+                result.status, "needs_interpretation" if category == "Yachts" else "resolved"
+            )
 
     def test_over_budget_status_question_is_not_clarified(self):
         # "am i over budget" is a budget-status question with no category. The

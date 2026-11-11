@@ -677,6 +677,7 @@ def generate_structured_result(
 def generate_validated_interpretation(prompt, *, response_schema, validate, budget):
     """At most two wire calls; invalid proposals consume the same bounded budget."""
     from openai import OpenAI
+    from app.rag.request_interpretation import ProposalRejected
 
     stage = budget.for_stage(max_seconds=30.0, stage_name="request_interpretation",
                              reserve_after_seconds=min(30.0, max(0.0, budget.remaining_seconds()) / 2))
@@ -711,9 +712,11 @@ def generate_validated_interpretation(prompt, *, response_schema, validate, budg
         except Exception as error:
             last_error = error
             fields = ([_rejected_field(e) for e in error.errors()] if hasattr(error, "errors") else [])
-            logger.warning(json.dumps({"event": "coach_interpretation_rejected",
-                                       "role": provider.role, "error_type": type(error).__name__,
-                                       "fields": fields}))
+            event = {"event": "coach_interpretation_rejected",
+                     "role": provider.role, "error_type": type(error).__name__, "fields": fields}
+            if isinstance(error, ProposalRejected):
+                event["reason"] = str(error)[:160]
+            logger.warning(json.dumps(event))
             feedback = _interpretation_feedback(error, fields)
     raise last_error
 

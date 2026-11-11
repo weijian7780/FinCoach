@@ -445,7 +445,8 @@ def compile_read(proposal: IntentProposal, today: date) -> ResolvedReadRequest:
                 raise ProposalRejected("This operation cannot compare the previous period")
             args["compare_previous_period"] = True
         if operation != "get_period_comparison" and (read.baseline is not None or read.metric != "spending"):
-            raise ProposalRejected("Comparison fields require get_period_comparison")
+            raise ProposalRejected("read.baseline and read.metric must keep their defaults unless "
+                                   "operation is get_period_comparison")
     # Partial public ambiguity must not prevent a valid independent private read.
     if proposal.public and proposal.public.clarification_facts and read and not missing:
         clarification = None
@@ -596,6 +597,12 @@ def _normalise_proposal(proposal: IntentProposal) -> IntentProposal:
     A public request to plan a stated amount is the allocation framework, even
     when the model left ``framework`` at none.
     """
+    # Only comparisons consume metric. An unused metric is harmless, but a
+    # baseline on another operation still breaks the comparison-field contract.
+    read = proposal.read
+    if (read is not None and read.operation != "get_period_comparison"
+            and read.baseline is None and read.metric != "spending"):
+        proposal = proposal.model_copy(update={"read": read.model_copy(update={"metric": "spending"})})
     public = proposal.public
     # Parts labelled both finance and non_finance make the question mixed,
     # whatever single label the model gave the whole question.

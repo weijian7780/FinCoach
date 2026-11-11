@@ -74,7 +74,7 @@ _LEAD_SLOT = re.compile(
     re.IGNORECASE,
 )
 _TRAIL_SLOT = re.compile(
-    r"(?P<trail>[\w&'\-. ]{2,60}?)\s+(?:spending|spend|spent|expenses?|budget|"
+    r"(?P<trail>[\w&'\-., ]{2,60}?)\s+(?:spending|spend|spent|expenses?|budget|"
     r"transactions?|belanja|perbelanjaan|bajet)\b",
     re.IGNORECASE,
 )
@@ -173,6 +173,22 @@ def _reduce(phrase: str) -> str:
         and not re.fullmatch(r"\d+(?:\.\d+)?", token)
     ]
     return " ".join(kept)
+
+
+def _trail_phrase(phrase: str) -> str:
+    """Keep only the token run touching the metric, up to a filler boundary.
+
+    Category connectors do not end the run, so multiple requested names still
+    reach the ambiguity check together.
+    """
+    tokens = phrase.replace(",", " , ").split()
+    start = len(tokens)
+    while start:
+        token = tokens[start - 1]
+        if token.casefold() in FILLERS and not _AND_SPLIT.fullmatch(token):
+            break
+        start -= 1
+    return " ".join(tokens[start:])
 
 
 def _match(phrase: str, index: dict[str, str], counts: Counter) -> tuple[str, str] | None:
@@ -274,14 +290,14 @@ def resolve_category_phrase(
     quoted = _QUOTED.search(text)
     if quoted:
         return _classify(quoted.group("name"), marked=True, is_lead=True,
-                         index=index, counts=counts, message=text)
+                          index=index, counts=counts, message=text)
 
     candidates = [
         _classify(match.group("lead"), marked=False, is_lead=True,
                   index=index, counts=counts, message=text)
         for match in _LEAD_SLOT.finditer(text)
     ] + [
-        _classify(match.group("trail"), marked=False, is_lead=False,
+        _classify(_trail_phrase(match.group("trail")), marked=False, is_lead=False,
                   index=index, counts=counts, message=text)
         for match in _TRAIL_SLOT.finditer(text)
     ]

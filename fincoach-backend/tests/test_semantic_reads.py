@@ -19,6 +19,67 @@ def proposal(category=None, operation="get_spending_summary", **fields):
         "period": {"kind": "month", "month": "2026-09"}, **fields}})
 
 
+@pytest.mark.parametrize("operation", ["get_budget_status", "get_spending_summary"])
+def test_unused_budget_metric_is_normalised_before_compilation(operation):
+    original = proposal(operation=operation, metric="budget")
+    normalised = intent._normalise_proposal(original)
+    request = intent.compile_read(normalised, date(2026, 9, 22))
+    assert request.tool_name == operation
+    assert request.readiness.value == "ready"
+    assert "category_name" not in request.arguments
+    assert "metric" not in request.arguments
+    assert normalised.read.metric == "spending"
+    assert original.read.metric == "budget"
+
+
+@pytest.mark.parametrize("question", ["ok good show me budget that i set", "show budget"])
+def test_budget_metric_proposal_is_accepted_without_interpreter_retry(question):
+    payload = proposal(operation="get_budget_status", metric="budget").model_dump_json()
+    calls = []
+
+    def generate(prompt, **kwargs):
+        calls.append(prompt)
+        return kwargs["validate"](payload)
+
+    result = intent.interpret_request(
+        question, [], today=date(2026, 9, 22), budget=llm.CoachRequestBudget.start(),
+        generate=generate,
+    )
+    assert result.failure is None
+    assert result.resolved.tool_name == "get_budget_status"
+    assert "category_name" not in result.resolved.arguments
+    assert result.proposal.read.metric == "spending"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("baseline", ["", "2026-08"])
+@pytest.mark.parametrize("metric", ["spending", "budget"])
+def test_noncomparison_baseline_remains_rejected_after_normalisation(baseline, metric):
+    normalised = intent._normalise_proposal(
+        proposal(operation="get_budget_status", baseline=baseline, metric=metric)
+    )
+    assert normalised.read.baseline == baseline
+    assert normalised.read.metric == metric
+    with pytest.raises(intent.ProposalRejected) as rejected:
+        intent.compile_read(normalised, date(2026, 9, 22))
+    assert str(rejected.value) == (
+        "read.baseline and read.metric must keep their defaults unless operation is get_period_comparison"
+    )
+
+
+def test_budget_comparison_keeps_its_metric_and_baseline():
+    normalised = intent._normalise_proposal(proposal(
+        operation="get_period_comparison", metric="budget", baseline="2026-08",
+        period={"kind": "months", "months": ["2026-08", "2026-09"]},
+    ))
+    request = intent.compile_read(normalised, date(2026, 9, 22))
+    assert request.tool_name == "get_period_comparison"
+    assert request.arguments == {
+        "metric": "budget", "baseline": "2026-08-01",
+        "periods": ["2026-08-01", "2026-09-01"],
+    }
+
+
 @pytest.mark.parametrize("category,total", [(None,350),("Food",100),("Transport",250)])
 def test_actual_tool_totals_without_second_guess(category,total):
     from app.agent_tools import AgentToolExecutor
@@ -425,6 +486,38 @@ def test_read_constraint_is_explained_instead_of_reported_as_outage(monkeypatch)
     message = _send("Am I over budget this week?")
     assert "whole calendar months" in message["content"]
     assert not (message.get("ui_payload") or {}).get("type")
+
+
+@pytest.mark.parametrize("error", [
+    intent.ProposalRejected("Comparison requires at least two distinct months"),
+    intent.ProposalRejected("Static compile rule. " * 20),
+    ValueError("private validation text"),
+    TimeoutError("private transport text"),
+])
+def test_interpretation_rejection_logs_only_static_rule_reasons(monkeypatch, caplog, error):
+    monkeypatch.setattr(llm, "_structured_providers", lambda: [
+        SimpleNamespace(role="primary"), SimpleNamespace(role="fallback"),
+    ])
+    monkeypatch.setattr(llm, "_generate_with_provider", lambda *a, **k: SimpleNamespace(
+        content="{}", finish_reason="stop",
+    ))
+
+    def validate(_content):
+        raise error
+
+    with pytest.raises(type(error)):
+        llm.generate_validated_interpretation(
+            "BASE", response_schema={}, validate=validate, budget=llm.CoachRequestBudget.start(),
+        )
+    events = [json.loads(record.message) for record in caplog.records if record.name == llm.logger.name]
+    events = [event for event in events if event.get("event") == "coach_interpretation_rejected"]
+    assert len(events) == 2
+    for event in events:
+        if isinstance(error, intent.ProposalRejected):
+            assert event["reason"] == str(error)[:160]
+        else:
+            assert "reason" not in event
+            assert str(error) not in json.dumps(event)
 
 
 def test_second_interpretation_attempt_gets_static_feedback(monkeypatch):
