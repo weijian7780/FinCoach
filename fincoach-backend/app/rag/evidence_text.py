@@ -146,6 +146,30 @@ def _unfinished(value: str, *, generated: bool) -> bool:
     return not (generated and allowed_generated_ending(value))
 
 
+# A sentence points at a list only when the cue closes it: "…shown below.",
+# "…as follows.", "…the following:". "following" with a few words after it
+# points at a list when the sentence ends in ':', states a condition
+# ("…eligible if the following are met."), or names several things
+# ("upload the following documents."). A single thing ("credited in the
+# following month.") is an ordinary sentence, and "below" followed by more
+# words ("income below RM5,000 qualify") is an ordinary comparison.
+_POINTER_END = re.compile(r"(?:\bbelow|\bas\s+follows|\bthe\s+following)\s*[.:]\s*$", re.I)
+_FOLLOWING_TAIL = re.compile(
+    r"\bfollowing(?:\s+(?P<noun>[^\W\d]+))?(?:\s+[^\W\d]+){0,2}\s*(?P<end>[.:])\s*$", re.I)
+
+
+def _is_list_pointer(sentence: str) -> bool:
+    text = sentence.strip()
+    if _POINTER_END.search(text):
+        return True
+    tail = _FOLLOWING_TAIL.search(text)
+    if not tail:
+        return False
+    noun = (tail.group("noun") or "").casefold()
+    names_several = len(noun) > 3 and noun.endswith("s") and not noun.endswith("ss")
+    return tail.group("end") == ":" or names_several or bool(_OPEN_CONDITION.search(text))
+
+
 def _complete_piece(piece: str, *, gapped: bool, generated: bool) -> list[str]:
     """Complete passages of one gap-free piece, each an exact span of it."""
     value = piece.strip()
@@ -160,6 +184,8 @@ def _complete_piece(piece: str, *, gapped: bool, generated: bool) -> list[str]:
         value = value[:label.start()].rstrip()
     after = ""
     for intro in _LIST_INTRO.finditer(value):
+        if not _is_list_pointer(intro.group()):
+            continue  # "below RM5,000", "the following month": ordinary words
         if not _LIST_ITEM.search(value[intro.end():]):
             if _OPEN_CONDITION.search(intro.group()):
                 return []  # Removing this condition would broaden the preceding fact.

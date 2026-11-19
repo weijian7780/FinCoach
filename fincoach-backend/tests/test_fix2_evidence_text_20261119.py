@@ -22,11 +22,38 @@ def test_facts_after_a_missing_list_intro_are_kept_as_separate_spans():
     _assert_literal(passages, source)
 
 
-def test_a_following_intro_without_list_is_removed_but_later_facts_stay():
-    source = "Apply online. Use the following steps. Applications close on 30 June."
+def test_a_listed_below_pointer_without_list_is_removed_but_later_facts_stay():
+    source = "Apply online. The steps are listed below. Applications close on 30 June."
     passages = complete_evidence_passages(source)
     assert passages == ("Apply online.", "Applications close on 30 June.")
     _assert_literal(passages, source)
+
+
+@pytest.mark.parametrize("source", [
+    "Households with monthly income below RM5,000 qualify for STR.",
+    "Payment is credited in the following month.",
+    "You are eligible if your income is below RM5,000.",
+    "The rate fell below 3% in the following year.",
+])
+def test_below_and_following_as_ordinary_words_are_kept(source):
+    assert complete_evidence_passages(source) == (source,)
+
+
+def test_ordinary_below_sentence_keeps_its_neighbours():
+    source = ("STR is paid in phases. Households with monthly income below RM5,000 "
+              "qualify for STR. Apply online.")
+    assert complete_evidence_passages(source) == (source,)
+
+
+@pytest.mark.parametrize("source", [
+    "Fees are waived. The documents are as follows.",
+    "Fees are waived. You need the following:",
+    "Fees are waived. See the following.",
+    "Fees are waived. Upload the following documents.",
+    "Fees are waived. Follow the following steps.",
+])
+def test_a_closing_pointer_is_still_removed(source):
+    assert complete_evidence_passages(source) == ("Fees are waived.",)
 
 
 @pytest.mark.parametrize("source", [
