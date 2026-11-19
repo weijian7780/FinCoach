@@ -125,36 +125,67 @@ def complete_evidence_passages(text: str, *, generated: bool = False) -> tuple[s
     pieces = _GAP.split(text)
     kept = []
     for piece in pieces:
-        value = piece.strip()
-        if not value:
-            continue
-        # A label with no actual list (possibly followed by a button name) is
-        # not an application instruction. Keep preceding complete sentences.
-        label = _PENDING_LABEL.search(value)
-        if label and not _LIST_ITEM.search(value[label.start():]):
-            if _OPEN_CONDITION.search(label.group()):
-                continue  # Removing this condition would broaden the preceding fact.
-            value = value[:label.start()].rstrip()
-        for intro in _LIST_INTRO.finditer(value):
-            if not _LIST_ITEM.search(value[intro.end():]):
-                value = "" if _OPEN_CONDITION.search(intro.group()) else value[:intro.start()].rstrip()
-                break
-        if not value or (
-            _OPEN_END.search(value.rstrip("* .!?\"')"))
-            and not (generated and allowed_generated_ending(value))
-        ):
-            continue
-        if len(pieces) > 1 and not re.search(r"[.!?][\"')*]*$", value):
+        kept.extend(_complete_piece(piece, gapped=len(pieces) > 1, generated=generated))
+    return tuple(dict.fromkeys(kept))
+
+
+# A one-word reply that answers the question just before it ("…? Tidak.") and a
+# passive participle closing a sentence ("…must be provided.") are finished,
+# although their last word otherwise marks an unfinished rule.
+_SHORT_ANSWER_AFTER_QUESTION = re.compile(
+    r"\?[\s\"')*]*(?:\w{1,2}\s*:\s*)?(?:tidak|bukan)\s*[.!][\"')*]*\s*$", re.I)
+_PASSIVE_PROVIDED = re.compile(
+    r"\b(?:be|been|being|is|are|was|were)\s+provided\s*\.[\"')*]*\s*$", re.I)
+
+
+def _unfinished(value: str, *, generated: bool) -> bool:
+    if not _OPEN_END.search(value.rstrip("* .!?\"')")):
+        return False
+    if _SHORT_ANSWER_AFTER_QUESTION.search(value) or _PASSIVE_PROVIDED.search(value):
+        return False
+    return not (generated and allowed_generated_ending(value))
+
+
+def _complete_piece(piece: str, *, gapped: bool, generated: bool) -> list[str]:
+    """Complete passages of one gap-free piece, each an exact span of it."""
+    value = piece.strip()
+    if not value:
+        return []
+    # A label with no actual list (possibly followed by a button name) is
+    # not an application instruction. Keep preceding complete sentences.
+    label = _PENDING_LABEL.search(value)
+    if label and not _LIST_ITEM.search(value[label.start():]):
+        if _OPEN_CONDITION.search(label.group()):
+            return []  # Removing this condition would broaden the preceding fact.
+        value = value[:label.start()].rstrip()
+    after = ""
+    for intro in _LIST_INTRO.finditer(value):
+        if not _LIST_ITEM.search(value[intro.end():]):
+            if _OPEN_CONDITION.search(intro.group()):
+                return []  # Removing this condition would broaden the preceding fact.
+            # A finished sentence pointing at a missing list ("…shown below.")
+            # is the only text removed; independent sentences after it are
+            # returned as their own span, never joined to the text before it.
+            # After an intro ending in ':' the text is that missing list's
+            # content, which cannot be checked for completeness.
+            if intro.group().rstrip().endswith("."):
+                after = value[intro.end():]
+            value = value[:intro.start()].rstrip()
+            break
+    passages = []
+    if value and not _unfinished(value, generated=generated):
+        if gapped and not re.search(r"[.!?][\"')*]*$", value):
             # A gap cut a prose sentence. Salvage only preceding independent
             # sentences; a trailing 'only if ...' invalidates the whole piece.
             endings = list(re.finditer(r"[.!?][\"')*]*(?=\s|$)", value))
-            if not endings:
-                continue
-            end = endings[-1].end()
+            end = endings[-1].end() if endings else 0
             tail = value[end:]
-            if _OPEN_CONDITION.search(tail) or _LIST_ITEM.search(value):
-                continue
-            value = value[:end]
+            if not endings or _OPEN_CONDITION.search(tail) or _LIST_ITEM.search(value):
+                value = ""
+            else:
+                value = value[:end]
         if value:
-            kept.append(value)
-    return tuple(dict.fromkeys(kept))
+            passages.append(value)
+    if after.strip():
+        passages.extend(_complete_piece(after, gapped=gapped, generated=generated))
+    return passages

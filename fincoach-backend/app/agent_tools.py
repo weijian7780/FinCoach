@@ -1324,8 +1324,27 @@ class AgentToolExecutor:
         )
         return total, len(expenses)
 
-    def _month_budget_limit(self, month_start: date) -> Decimal | None:
-        """The set monthly budget limit for one month, or None when none is set."""
+    def _month_budget_limit(self, month_start: date, category_name: str | None = None) -> Decimal | None:
+        """The set budget limit for one month, or None when none is set.
+
+        With a category, that category's own limit for the month (the name was
+        already resolved to a real category by execute()); without one, the
+        overall monthly budget.
+        """
+        if category_name:
+            key = " ".join(category_name.split()).casefold()
+            rows = self._execute(
+                self.admin_client.table("budgets")
+                .select("amount,category:categories(name)")
+                .eq("user_id", self.user_id)
+                .eq("month", month_start.isoformat())
+            ) or []
+            amounts = [
+                Decimal(str(row.get("amount") or 0))
+                for row in rows
+                if " ".join(str((row.get("category") or {}).get("name") or "").split()).casefold() == key
+            ]
+            return sum(amounts, Decimal("0")) if amounts else None
         monthly = _normalise_row(
             self._execute(
                 self.admin_client.table("monthly_budgets")
@@ -1370,7 +1389,7 @@ class AgentToolExecutor:
                 amount, count = self._month_spending_total(month_start, args.category_name)
                 totals[month_start] = (amount, count > 0)
             else:
-                limit = self._month_budget_limit(month_start)
+                limit = self._month_budget_limit(month_start, args.category_name)
                 totals[month_start] = (limit or Decimal("0"), limit is not None)
 
         def _is_incomplete(month_start: date) -> bool:

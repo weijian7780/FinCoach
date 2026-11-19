@@ -341,21 +341,54 @@ def is_named_product_allowed(tier: int | None) -> bool:
 
 # ---- De-identified query builder (invariant #7) ------------------------------
 
-# A sign-off cue and everything after it is dropped (that is where names/refs
-# tend to live: "Regards, Ahmad, ref 5234").
+# A sign-off cue in closing position and everything after it is dropped (that
+# is where names/refs tend to live: "Regards, Ahmad, ref 5234"). The same word
+# inside a sentence ("the best way", "Salam Takaful") or opening a message that
+# goes on to ask something ("Thanks. What is ASB?") is ordinary text.
 _SIGNOFF = re.compile(
-    r"\b(?:regards|kind\s+regards|warm\s+regards|best\s+regards|best\s+wishes|"
-    r"best|thanks|thank\s+you|sincerely|cheers|"
-    r"yours(?:\s+truly|\s+sincerely|\s+faithfully)?|salam|terima\s+kasih)\b.*",
-    re.IGNORECASE | re.DOTALL,
-)
-_EMAIL = re.compile(r"\S+@\S+\.\S+")
-_PHONE = re.compile(r"\+?\d[\d\s\-]{6,}\d")
-_REF_NUMBER = re.compile(
-    r"\b(?:ref|reference|acct|account|acc|no|id|nric|ic|member(?:ship)?)\b"
-    r"\.?\s*[:#]?\s*[\w-]*\d[\w-]*",
+    r"\b(?:kind\s+regards|warm\s+regards|best\s+regards|best\s+wishes|"
+    r"thank\s+you|terima\s+kasih|yours(?:\s+truly|\s+sincerely|\s+faithfully)?|"
+    r"regards|best|thanks|sincerely|cheers|salam)\b",
     re.IGNORECASE,
 )
+# A closing short enough to be a name/reference, not a message body.
+_SIGNOFF_MAX_TRAILING_WORDS = 5
+_EMAIL = re.compile(r"\S+@\S+\.\S+")
+_PHONE = re.compile(r"\+?\d[\d\s\-]{6,}\d")
+_YEAR_PAIR = re.compile(r"(?:19|20)\d{2}\s*[-\s]\s*(?:19|20)\d{2}")
+# Identifier words always take the number after them. Words that also name
+# an ordinary numbered thing ("EPF Account 3", "No 2") keep a standalone 1-3
+# digit number; longer or mixed numbers after them are still removed.
+_REF_NUMBER = re.compile(
+    r"\b(?:ref|reference|acct|nric|ic|member(?:ship)?)\b"
+    r"\.?\s*[:#]?\s*[\w-]*\d[\w-]*"
+    r"|\b(?:account|acc|no|id)\b"
+    r"\.?\s*[:#]?\s*(?!\d{1,3}(?![\w-]))[\w-]*\d[\w-]*",
+    re.IGNORECASE,
+)
+
+
+def _strip_signoff(text: str) -> str:
+    """Drop the closing block that starts at a sign-off cue in closing position.
+
+    A cue is in closing position when it starts a segment (the text, a line, or
+    a sentence after . ! ?), nothing after it asks a question, and either it
+    starts a later line (a letter's closing) or it is followed by punctuation
+    or the end and at most a few words (a name or reference) follow it.
+    """
+    for match in _SIGNOFF.finditer(text):
+        before = text[:match.start()].rstrip(" \t")
+        if before and before[-1] not in "\n.!?":
+            continue  # inside a sentence: ordinary text
+        rest = text[match.end():]
+        if "?" in rest:
+            continue  # the message goes on to ask something
+        later_line = before.endswith("\n") and bool(before.strip())
+        closes = not rest.strip(" \t") or rest.lstrip(" \t")[0] in ",.!:\n"
+        short = len(re.findall(r"\w+", rest)) <= _SIGNOFF_MAX_TRAILING_WORDS
+        if later_line or (closes and short):
+            return text[:match.start()]
+    return text
 _RM_AMOUNT = re.compile(r"\bRM\s?\d[\d,]*(?:\.\d{1,2})?", re.IGNORECASE)
 _LONG_DIGITS = re.compile(r"\b\d{5,}\b")  # phone/account/ref runs
 _WS = re.compile(r"\s+")
@@ -374,11 +407,12 @@ def build_research_query(question: str) -> str:
     the query stays useful. Returns ``""`` when nothing usable survives.
     """
     text = str(question or "")
-    text = _SIGNOFF.sub(" ", text)
+    text = _strip_signoff(text)
     text = _EMAIL.sub(" ", text)
     text = _REF_NUMBER.sub(" ", text)
     text = _RM_AMOUNT.sub(" ", text)
-    text = _PHONE.sub(" ", text)
+    # A plain year pair/range ("2025-2026") is topic, not a phone number.
+    text = _PHONE.sub(lambda m: m.group() if _YEAR_PAIR.fullmatch(m.group().strip()) else " ", text)
     text = _LONG_DIGITS.sub(" ", text)
     text = _WS.sub(" ", text).strip(" ,.;:-")
     return text[:_MAX_QUERY_CHARS].strip()
@@ -785,7 +819,19 @@ def _complete_page_window(raw: str, query: str, *, subject_query: str = "") -> s
             # Prefer a paragraph boundary to cutting off the next instruction.
             boundaries = list(re.finditer(r"\n\s*\n", raw[start:end]))
             if boundaries:
-                end = start + boundaries[-1].start()
+                snapped = start + boundaries[-1].start()
+                if any(line.strip() and not re.match(r"#{1,6}\s", line.strip())
+                       for line in raw[start:snapped].splitlines()):
+                    end = snapped
+                else:
+                    # Snapping would leave only headings. Keep the section's
+                    # body below them, ending at its last full sentence inside
+                    # the limit (or at the limit when it has none).
+                    body_start = boundaries[-1].end()
+                    sentence_ends = [match.end() for match in re.finditer(
+                        r"[.!?][\"')\]*]*(?=\s)", raw[start:end]) if match.end() > body_start]
+                    if sentence_ends:
+                        end = start + sentence_ends[-1]
         window = subject_window(raw[start:end].strip())
         if not window:
             continue
